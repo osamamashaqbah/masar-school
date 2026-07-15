@@ -2,13 +2,18 @@ import { createContext, useContext, useState, useEffect } from 'react'
 import { collection, query, where, doc, setDoc, onSnapshot } from 'firebase/firestore'
 import { db } from '../firebase'
 import { useSession } from './SessionContext'
+import { useSchoolStructure } from './SchoolStructureContext'
 
 const MarksContext = createContext(null)
 
 export function MarksProvider({ children }) {
   const { session } = useSession()
+  const { subjects } = useSchoolStructure()
   const [myMarks, setMyMarks] = useState([])
   const [allMarks, setAllMarks] = useState([])
+
+  const myTaughtSubjectIds = subjects.filter((s) => s.teacherUid === session?.uid).map((s) => s.id)
+  const taughtIdsKey = myTaughtSubjectIds.join(',')
 
   useEffect(() => {
     if (!session) { setMyMarks([]); return }
@@ -23,8 +28,16 @@ export function MarksProvider({ children }) {
   useEffect(() => {
     if (!session) { setAllMarks([]); return }
 
-    if (session.role === 'instructor' || session.role === 'owner') {
+    if (session.role === 'owner') {
       const unsub = onSnapshot(collection(db, 'marks'), (s) => setAllMarks(s.docs.map((d) => ({ id: d.id, ...d.data() }))))
+      return () => unsub()
+    }
+
+    if (session.role === 'instructor') {
+      if (myTaughtSubjectIds.length === 0) { setAllMarks([]); return }
+      // Firestore 'in' supports max 10 values — كافي لغالبية المعلمين، لو تجاوز لازم يتقسم لعدة استعلامات
+      const q = query(collection(db, 'marks'), where('subjectId', 'in', myTaughtSubjectIds.slice(0, 10)))
+      const unsub = onSnapshot(q, (s) => setAllMarks(s.docs.map((d) => ({ id: d.id, ...d.data() }))))
       return () => unsub()
     }
 
@@ -35,7 +48,8 @@ export function MarksProvider({ children }) {
     }
 
     setAllMarks([])
-  }, [session])
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [session, taughtIdsKey])
 
   // value نص حر مكتوب من المعلّم مباشرة، زي "18/20" أو "ممتاز"
   async function setMarkValue(subjectId, studentUid, categoryId, value) {

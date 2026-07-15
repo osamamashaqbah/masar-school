@@ -9,7 +9,7 @@ import { categoriesFor } from '../../utils/gradeCategories'
 export default function InstructorManualGradesPage() {
   const { session } = useSession()
   const { subjects, updateSubjectCategories } = useSchoolStructure()
-  const { addMark } = useMarks()
+  const { setMarkValue } = useMarks()
 
   const mySubjects = subjects.filter((s) => s.teacherUid === session.uid)
   const [subjectId, setSubjectId] = useState('')
@@ -37,10 +37,9 @@ export default function InstructorManualGradesPage() {
   }, [subject])
 
   async function handleSaveAll() {
-    const selectedCategory = manualCategories.find((c) => c.id === categoryId)
     const entries = Object.entries(scores).filter(([, v]) => v !== '' && v !== undefined)
-    for (const [studentUid, score] of entries) {
-      await addMark({ subjectId, studentUid, categoryId, score: Number(score), maxScore: selectedCategory.weight, source: 'manual' })
+    for (const [studentUid, value] of entries) {
+      await setMarkValue(subjectId, studentUid, categoryId, value)
     }
     setScores({})
     setSaved(true)
@@ -84,14 +83,14 @@ export default function InstructorManualGradesPage() {
         {subject && categoryId && (
           <>
            <p style={{ fontSize: '12.5px', color: 'var(--ink-faint)' }}>
-              أدخل الدرجة من {manualCategories.find((c) => c.id === categoryId)?.weight} لكل طالب:
+              اكتب الدرجة لكل طالب بالشكل يلي بدك ياه (مثال: 18/20 أو ممتاز):
             </p>
             {students.map((st) => (
               <div key={st.id} style={{ display: 'flex', alignItems: 'center', gap: '10px', marginBottom: '8px' }}>
                 <span style={{ flex: 1, fontSize: '13.5px' }}>{st.name}</span>
                 <input
-                  type="number" min="0" max={manualCategories.find((c) => c.id === categoryId)?.weight}
-                  style={{ width: '90px' }}
+                  type="text"
+                  style={{ width: '110px' }}
                   value={scores[st.id] || ''}
                   onChange={(e) => setScores((prev) => ({ ...prev, [st.id]: e.target.value }))}
                 />

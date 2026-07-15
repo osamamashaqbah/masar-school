@@ -1,0 +1,46 @@
+import { useSession } from '../context/SessionContext'
+import { useSchoolStructure } from '../context/SchoolStructureContext'
+import { useMarks } from '../context/MarksContext'
+import { useQuizStats } from '../context/QuizStatsContext'
+import { categoriesFor } from '../utils/gradeCategories'
+
+export default function StudentGradesPage() {
+  const { session } = useSession()
+  const { subjects } = useSchoolStructure()
+  const { getMarkValue } = useMarks()
+  const { getStudentStats } = useQuizStats()
+
+  const mySubjects = subjects.filter((s) => s.sectionId === session.sectionId)
+
+  return (
+    <div>
+      <div className="eyebrow">درجاتي</div>
+      <h2 className="page-title" style={{ marginBottom: '16px' }}>درجاتك بكل مادة</h2>
+
+      <div className="analytics-list">
+        {mySubjects.map((s) => {
+          const categories = categoriesFor(s)
+          const { attempts, correct } = getStudentStats(session.uid, s.id)
+
+          return (
+            <div className="analytics-row" key={s.id}>
+              <div className="analytics-title">{s.name}</div>
+              {categories.map((cat) => {
+                const value = cat.id === 'quiz'
+                  ? (attempts > 0 ? `${correct}/${attempts}` : null)
+                  : getMarkValue(session.uid, s.id, cat.id)
+
+                return (
+                  <div key={cat.id} style={{ display: 'flex', justifyContent: 'space-between', fontSize: '13px', padding: '6px 0', borderBottom: '1px solid var(--line)' }}>
+                    <span>{cat.label}</span>
+                    <span style={{ fontWeight: 600 }}>{value || 'لسا ما انحطت'}</span>
+                  </div>
+                )
+              })}
+            </div>
+          )
+        })}
+      </div>
+    </div>
+  )
+}

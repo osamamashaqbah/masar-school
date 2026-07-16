@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react'
-import { collection, onSnapshot } from 'firebase/firestore'
+import { collection, query, where, onSnapshot } from 'firebase/firestore'
 import { db } from '../../firebase'
 import { useSession } from '../../context/SessionContext'
 import { useSchoolStructure } from '../../context/SchoolStructureContext'
@@ -30,8 +30,9 @@ export default function InstructorManualGradesPage() {
 
   useEffect(() => {
     if (!subject) return
-    const unsub = onSnapshot(collection(db, 'users'), (snap) => {
-      setStudents(snap.docs.map((d) => ({ id: d.id, ...d.data() })).filter((u) => u.role === 'student' && u.sectionId === subject.sectionId))
+    const q = query(collection(db, 'users'), where('role', '==', 'student'), where('sectionId', '==', subject.sectionId))
+    const unsub = onSnapshot(q, (snap) => {
+      setStudents(snap.docs.map((d) => ({ id: d.id, ...d.data() })))
     })
     return () => unsub()
   }, [subject])

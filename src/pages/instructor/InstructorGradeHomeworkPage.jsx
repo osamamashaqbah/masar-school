@@ -10,7 +10,7 @@ export default function InstructorGradeHomeworkPage() {
   const { session } = useSession()
   const { subjects } = useSchoolStructure()
   const { homework } = useHomework()
-  const { addMark, allMarks } = useMarks()
+  const { setMarkValue } = useMarks()
 
   const [submissions, setSubmissions] = useState([])
   const [scores, setScores] = useState({})
@@ -28,16 +28,14 @@ export default function InstructorGradeHomeworkPage() {
   }, [homework.length])
 
   function alreadyGraded(sub) {
-    return allMarks.some((m) => m.studentUid === sub.studentUid && m.categoryId === 'homework' && m.homeworkId === sub.homeworkId)
+    return !!scores[`saved-${sub.id}`]
   }
 
   async function handleGrade(sub, hw) {
-    const score = Number(scores[sub.id])
-    if (!score && score !== 0) return
-    const subject = subjects.find((s) => s.id === hw.courseId)
-    const homeworkCategory = subject?.gradeCategories?.find((c) => c.id === 'homework')
-    const maxScore = homeworkCategory?.weight || 10
-    await addMark({ subjectId: hw.courseId, studentUid: sub.studentUid, categoryId: 'homework', score, maxScore, source: 'auto' })
+    const value = scores[sub.id]
+    if (!value || !value.trim()) return
+    await setMarkValue(hw.courseId, sub.studentUid, 'homework', value.trim())
+    setScores((prev) => ({ ...prev, [`saved-${sub.id}`]: true }))
   }
 
   return (
@@ -63,8 +61,8 @@ export default function InstructorGradeHomeworkPage() {
                 ) : (
                   <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
                     <input
-                      type="number" min="0" placeholder={`الدرجة من ${subjects.find((s) => s.id === hw.courseId)?.gradeCategories?.find((c) => c.id === 'homework')?.weight || 10}`}
-                      style={{ width: '110px' }}
+                      type="text" placeholder="مثال: 8/10"
+                      style={{ width: '120px' }}
                       value={scores[sub.id] || ''}
                       onChange={(e) => setScores((prev) => ({ ...prev, [sub.id]: e.target.value }))}
                     />

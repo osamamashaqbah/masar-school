@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react'
-import { collection, onSnapshot } from 'firebase/firestore'
+import { collection, query, where, documentId, onSnapshot } from 'firebase/firestore'
 import { db } from '../firebase'
 import { useSession } from '../context/SessionContext'
 import { useSchoolStructure } from '../context/SchoolStructureContext'
@@ -19,9 +19,9 @@ export default function ParentDashboardPage() {
 
   useEffect(() => {
     if (!session?.childUids || session.childUids.length === 0) return
-    const unsubscribe = onSnapshot(collection(db, 'users'), (snapshot) => {
-      const all = snapshot.docs.map((d) => ({ id: d.id, ...d.data() }))
-      setChildren(all.filter((u) => session.childUids.includes(u.id)))
+    const q = query(collection(db, 'users'), where(documentId(), 'in', session.childUids.slice(0, 10)))
+    const unsubscribe = onSnapshot(q, (snapshot) => {
+      setChildren(snapshot.docs.map((d) => ({ id: d.id, ...d.data() })))
     })
     return () => unsubscribe()
   }, [session])

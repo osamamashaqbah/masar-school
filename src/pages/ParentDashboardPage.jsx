@@ -13,7 +13,7 @@ export default function ParentDashboardPage() {
   const { session } = useSession()
   const { subjects } = useSchoolStructure()
   const { getStudentProgress } = useProgress()
-  const { getMarkValue } = useMarks()
+  const { getMark, formatMark } = useMarks()
   const { getStudentStats } = useQuizStats()
   const { getAbsenceDatesFor } = useAttendance()
 
@@ -73,15 +73,19 @@ export default function ParentDashboardPage() {
                   const done = getStudentProgress(child.id, s.id)
                   const progressPct = Math.round((done / (s.lessons.length || 1)) * 100)
 
-                 const categories = categoriesFor(s)
+                  const categories = categoriesFor(s)
                   const { attempts, correct } = getStudentStats(child.id, s.id)
-                  const total = categories
-                    .filter((cat) => cat.id !== 'quiz')
-                    .reduce((sum, cat) => {
-                      const raw = getMarkValue(child.id, s.id, cat.id)
-                      const num = Number(raw)
-                      return raw && !Number.isNaN(num) ? sum + num : sum
-                    }, 0)
+
+                  let totalScore = 0
+                  let totalMax = 0
+                  categories.forEach((cat) => {
+                    if (cat.id === 'quiz') {
+                      if (attempts > 0) { totalScore += correct; totalMax += attempts }
+                      return
+                    }
+                    const mark = getMark(child.id, s.id, cat.id)
+                    if (mark) { totalScore += mark.score; totalMax += mark.maxScore }
+                  })
 
                   return (
                     <div className="analytics-row" key={s.id}>
@@ -93,19 +97,19 @@ export default function ParentDashboardPage() {
                       </div>
 
                       {categories.map((cat) => {
-                        const value = cat.id === 'quiz'
+                        const displayValue = cat.id === 'quiz'
                           ? (attempts > 0 ? `${correct}/${attempts}` : null)
-                          : getMarkValue(child.id, s.id, cat.id)
+                          : formatMark(getMark(child.id, s.id, cat.id))
                         return (
                           <div key={cat.id} style={{ display: 'flex', justifyContent: 'space-between', fontSize: '12.5px', padding: '4px 0', borderBottom: '1px solid var(--line)' }}>
                             <span>{cat.label}</span>
-                            <span style={{ fontWeight: 600 }}>{value || 'لسا ما انحطت'}</span>
+                            <span style={{ fontWeight: 600 }}>{displayValue || 'لسا ما انحطت'}</span>
                           </div>
                         )
                       })}
                       <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '13px', padding: '8px 0 0', fontWeight: 700 }}>
                         <span>المجموع</span>
-                        <span>{total}/100</span>
+                        <span>{totalScore}/{totalMax}</span>
                       </div>
                     </div>
                   )

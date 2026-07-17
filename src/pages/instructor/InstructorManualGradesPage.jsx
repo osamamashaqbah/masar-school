@@ -9,12 +9,13 @@ import { categoriesFor } from '../../utils/gradeCategories'
 export default function InstructorManualGradesPage() {
   const { session } = useSession()
   const { subjects, updateSubjectCategories } = useSchoolStructure()
-  const { setMarkValue, getMarkValue } = useMarks()
+  const { setMarkValue, getMark } = useMarks()
 
   const mySubjects = subjects.filter((s) => s.teacherUid === session.uid)
   const [subjectId, setSubjectId] = useState('')
   const [categoryId, setCategoryId] = useState('')
   const [students, setStudents] = useState([])
+  const [maxScore, setMaxScore] = useState('')
   const [scores, setScores] = useState({})
   const [saved, setSaved] = useState(false)
   const [weightsDraft, setWeightsDraft] = useState([])
@@ -38,23 +39,40 @@ export default function InstructorManualGradesPage() {
     return () => unsub()
   }, [subject])
 
+  // لما يختار المعلّم مادة + فئة، نحمّل الدرجات الموجودة مسبقاً (إذا في)
   useEffect(() => {
-    if (!subject || !categoryId || students.length === 0) { setScores({}); return }
+    if (!subject || !categoryId || students.length === 0) { setScores({}); setMaxScore(''); return }
     const initial = {}
+    let existingMax = ''
     students.forEach((st) => {
-      const existing = getMarkValue(st.id, subjectId, categoryId)
-      if (existing !== null) initial[st.id] = existing
+      const existing = getMark(st.id, subjectId, categoryId)
+      if (existing) {
+        initial[st.id] = String(existing.score)
+        existingMax = String(existing.maxScore)
+      }
     })
     setScores(initial)
+    setMaxScore(existingMax)
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [subjectId, categoryId, students])
 
   async function handleSaveAll() {
     setSaveError('')
+
+    if (!maxScore || Number(maxScore) <= 0) {
+      setSaveError('لازم تحدد الدرجة الكلية للاختبار (من كم؟) قبل ما تحفظ.')
+      return
+    }
+
     const entries = Object.entries(scores).filter(([, v]) => v !== '' && v !== undefined)
+    if (entries.length === 0) {
+      setSaveError('لازم تدخل درجة طالب واحد على الأقل.')
+      return
+    }
+
     try {
       for (const [studentUid, value] of entries) {
-        await setMarkValue(subjectId, studentUid, categoryId, value)
+        await setMarkValue(subjectId, studentUid, categoryId, value, maxScore)
       }
       setSaved(true)
       setTimeout(() => setSaved(false), 1800)
@@ -100,18 +118,27 @@ export default function InstructorManualGradesPage() {
 
         {subject && categoryId && (
           <>
-           <p style={{ fontSize: '12.5px', color: 'var(--ink-faint)' }}>
-              اكتب الدرجة لكل طالب بالشكل يلي بدك ياه (مثال: 18/20 أو ممتاز):
+            <div className="field">
+              <label htmlFor="grade-maxscore">الدرجة الكلية للاختبار (من كم؟)</label>
+              <input
+                id="grade-maxscore" type="number" min="1" placeholder="مثال: 50"
+                style={{ width: '120px' }} value={maxScore} onChange={(e) => setMaxScore(e.target.value)}
+              />
+            </div>
+
+            <p style={{ fontSize: '12.5px', color: 'var(--ink-faint)' }}>
+              اكتب درجة كل طالب من أصل {maxScore || '؟'}:
             </p>
             {students.map((st) => (
               <div key={st.id} style={{ display: 'flex', alignItems: 'center', gap: '10px', marginBottom: '8px' }}>
                 <span style={{ flex: 1, fontSize: '13.5px' }}>{st.name}</span>
                 <input
-                  type="text"
-                  style={{ width: '110px' }}
+                  type="number" min="0" max={maxScore || undefined}
+                  style={{ width: '90px' }}
                   value={scores[st.id] || ''}
                   onChange={(e) => setScores((prev) => ({ ...prev, [st.id]: e.target.value }))}
                 />
+                <span style={{ fontSize: '12px', color: 'var(--ink-faint)' }}>/ {maxScore || '؟'}</span>
               </div>
             ))}
             <button className="btn btn-primary" onClick={handleSaveAll}><i className="ti ti-device-floppy" /> حفظ كل الدرجات</button>

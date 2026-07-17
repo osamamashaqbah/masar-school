@@ -1,6 +1,7 @@
 import { useSession } from '../context/SessionContext'
 import { useSchoolStructure } from '../context/SchoolStructureContext'
 import { useMarks } from '../context/MarksContext'
+
 import { useQuizStats } from '../context/QuizStatsContext'
 import { useAttendance } from '../context/AttendanceContext'
 import { categoriesFor } from '../utils/gradeCategories'
@@ -8,7 +9,7 @@ import { categoriesFor } from '../utils/gradeCategories'
 export default function StudentGradesPage() {
   const { session } = useSession()
   const { subjects } = useSchoolStructure()
-  const { getMarkValue } = useMarks()
+  const { getMark, formatMark } = useMarks()
   const { getStudentStats } = useQuizStats()
   const { getAbsenceDatesFor } = useAttendance()
 
@@ -36,32 +37,37 @@ export default function StudentGradesPage() {
         {mySubjects.map((s) => {
           const categories = categoriesFor(s)
           const { attempts, correct } = getStudentStats(session.uid, s.id)
-          const total = categories
-            .filter((cat) => cat.id !== 'quiz')
-            .reduce((sum, cat) => {
-              const raw = getMarkValue(session.uid, s.id, cat.id)
-              const num = Number(raw)
-              return raw && !Number.isNaN(num) ? sum + num : sum
-            }, 0)
+
+          // مجموع بسيط: نجمع كل درجة انحطت مع أعلى درجة إلها، وبس. بدون أوزان أو نسب.
+          let totalScore = 0
+          let totalMax = 0
+          categories.forEach((cat) => {
+            if (cat.id === 'quiz') {
+              if (attempts > 0) { totalScore += correct; totalMax += attempts }
+              return
+            }
+            const mark = getMark(session.uid, s.id, cat.id)
+            if (mark) { totalScore += mark.score; totalMax += mark.maxScore }
+          })
 
           return (
             <div className="analytics-row" key={s.id}>
               <div className="analytics-title">{s.name}</div>
               {categories.map((cat) => {
-                const value = cat.id === 'quiz'
+                const displayValue = cat.id === 'quiz'
                   ? (attempts > 0 ? `${correct}/${attempts}` : null)
-                  : getMarkValue(session.uid, s.id, cat.id)
+                  : formatMark(getMark(session.uid, s.id, cat.id))
 
                 return (
                   <div key={cat.id} style={{ display: 'flex', justifyContent: 'space-between', fontSize: '13px', padding: '6px 0', borderBottom: '1px solid var(--line)' }}>
                     <span>{cat.label}</span>
-                    <span style={{ fontWeight: 600 }}>{value || 'لسا ما انحطت'}</span>
+                    <span style={{ fontWeight: 600 }}>{displayValue || 'لسا ما انحطت'}</span>
                   </div>
                 )
               })}
               <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '13px', padding: '8px 0 0', fontWeight: 700 }}>
                 <span>المجموع</span>
-                <span>{total}/100</span>
+                <span>{totalScore}/{totalMax}</span>
               </div>
             </div>
           )

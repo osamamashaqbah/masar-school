@@ -43,14 +43,18 @@ export function MarksProvider({ children }) {
     setAllMarks([])
   }, [session])
 
-  // value نص حر مكتوب من المعلّم مباشرة، زي "18/20" أو "ممتاز"
-  async function setMarkValue(subjectId, studentUid, categoryId, value) {
+  // score و maxScore أرقام. homeworkId اختياري (بينحط تلقائي لما العلامة جايه من تقييم واجب)
+  // docId ثابت (studentUid_subjectId_categoryId) عشان ما تنعمل نسخ مكررة لما يعدّل المعلّم نفس الدرجة
+  async function setMarkValue(subjectId, studentUid, categoryId, score, maxScore, homeworkId = null) {
     const docId = `${studentUid}_${subjectId}_${categoryId}`
     await setDoc(doc(db, 'marks', docId), {
       subjectId,
       studentUid,
       categoryId,
-      value,
+      score: Number(score),
+      maxScore: Number(maxScore),
+      homeworkId: homeworkId || null,
+      source: homeworkId ? 'homework' : 'manual',
       teacherUid: session.uid,
       updatedAt: Date.now(),
     })
@@ -61,14 +65,24 @@ export function MarksProvider({ children }) {
     return pool.filter((m) => m.studentUid === uid && m.subjectId === subjectId)
   }
 
-  function getMarkValue(uid, subjectId, categoryId) {
+  // بيرجع {score, maxScore} أو null إذا ما انحطت علامة بعد (أو إذا كانت بيانات قديمة ناقصة)
+  function getMark(uid, subjectId, categoryId) {
     const marks = getMarksForStudentSubject(uid, subjectId)
     const found = marks.find((m) => m.categoryId === categoryId)
-    return found ? found.value : null
+    if (!found || typeof found.score !== 'number' || typeof found.maxScore !== 'number') return null
+    return { score: found.score, maxScore: found.maxScore }
+  }
+
+  // نص جاهز للعرض متل "37/50"
+  function formatMark(mark) {
+    if (!mark) return null
+    return `${mark.score}/${mark.maxScore}`
   }
 
   return (
-    <MarksContext.Provider value={{ setMarkValue, getMarksForStudentSubject, getMarkValue }}>
+    <MarksContext.Provider
+      value={{ setMarkValue, getMarksForStudentSubject, getMark, formatMark }}
+    >
       {children}
     </MarksContext.Provider>
   )

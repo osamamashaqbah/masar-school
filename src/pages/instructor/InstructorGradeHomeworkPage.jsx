@@ -13,7 +13,9 @@ export default function InstructorGradeHomeworkPage() {
   const { setMarkValue } = useMarks()
 
   const [submissions, setSubmissions] = useState([])
-  const [scores, setScores] = useState({})
+  const [scores, setScores] = useState({})       // sub.id -> الدرجة
+  const [maxScores, setMaxScores] = useState({}) // sub.id -> من كم
+  const [gradedIds, setGradedIds] = useState({})
 
   const mySubjectIds = subjects.filter((s) => s.teacherUid === session.uid).map((s) => s.id)
   const myHomework = homework.filter((h) => mySubjectIds.includes(h.courseId))
@@ -28,14 +30,15 @@ export default function InstructorGradeHomeworkPage() {
   }, [homework.length])
 
   function alreadyGraded(sub) {
-    return !!scores[`saved-${sub.id}`]
+    return !!gradedIds[sub.id]
   }
 
   async function handleGrade(sub, hw) {
-    const value = scores[sub.id]
-    if (!value || !value.trim()) return
-    await setMarkValue(hw.courseId, sub.studentUid, 'homework', value.trim())
-    setScores((prev) => ({ ...prev, [`saved-${sub.id}`]: true }))
+    const score = scores[sub.id]
+    const max = maxScores[sub.id]
+    if (!score || !max) return
+    await setMarkValue(hw.courseId, sub.studentUid, 'homework', score, max, hw.id)
+    setGradedIds((prev) => ({ ...prev, [sub.id]: true }))
   }
 
   return (
@@ -61,10 +64,17 @@ export default function InstructorGradeHomeworkPage() {
                 ) : (
                   <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
                     <input
-                      type="text" placeholder="مثال: 8/10"
-                      style={{ width: '120px' }}
+                      type="number" min="0" placeholder="الدرجة"
+                      style={{ width: '80px' }}
                       value={scores[sub.id] || ''}
                       onChange={(e) => setScores((prev) => ({ ...prev, [sub.id]: e.target.value }))}
+                    />
+                    <span>/</span>
+                    <input
+                      type="number" min="1" placeholder="من كم"
+                      style={{ width: '80px' }}
+                      value={maxScores[sub.id] || ''}
+                      onChange={(e) => setMaxScores((prev) => ({ ...prev, [sub.id]: e.target.value }))}
                     />
                     <button className="btn btn-accent" onClick={() => handleGrade(sub, hw)}>حفظ الدرجة</button>
                   </div>

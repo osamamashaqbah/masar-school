@@ -60,6 +60,13 @@ export default function ParentDashboardPage() {
 
                  const categories = categoriesFor(s)
                   const { attempts, correct } = getStudentStats(child.id, s.id)
+                  const total = categories
+                    .filter((cat) => cat.id !== 'quiz')
+                    .reduce((sum, cat) => {
+                      const raw = getMarkValue(child.id, s.id, cat.id)
+                      const num = Number(raw)
+                      return raw && !Number.isNaN(num) ? sum + num : sum
+                    }, 0)
 
                   return (
                     <div className="analytics-row" key={s.id}>
@@ -81,6 +88,10 @@ export default function ParentDashboardPage() {
                           </div>
                         )
                       })}
+                      <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '13px', padding: '8px 0 0', fontWeight: 700 }}>
+                        <span>المجموع</span>
+                        <span>{total}/100</span>
+                      </div>
                     </div>
                   )
                 })}

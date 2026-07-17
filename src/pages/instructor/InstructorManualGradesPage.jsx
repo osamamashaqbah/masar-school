@@ -18,6 +18,7 @@ export default function InstructorManualGradesPage() {
   const [scores, setScores] = useState({})
   const [saved, setSaved] = useState(false)
   const [weightsDraft, setWeightsDraft] = useState([])
+  const [saveError, setSaveError] = useState('')
 
   const subject = mySubjects.find((s) => s.id === subjectId)
   const categories = subject ? categoriesFor(subject) : []
@@ -38,13 +39,19 @@ export default function InstructorManualGradesPage() {
   }, [subject])
 
   async function handleSaveAll() {
+    setSaveError('')
     const entries = Object.entries(scores).filter(([, v]) => v !== '' && v !== undefined)
-    for (const [studentUid, value] of entries) {
-      await setMarkValue(subjectId, studentUid, categoryId, value)
+    try {
+      for (const [studentUid, value] of entries) {
+        await setMarkValue(subjectId, studentUid, categoryId, value)
+      }
+      setScores({})
+      setSaved(true)
+      setTimeout(() => setSaved(false), 1800)
+    } catch (err) {
+      console.error('فشل حفظ الدرجات:', err)
+      setSaveError(`صار خطأ وقت الحفظ: ${err.code || err.message}`)
     }
-    setScores({})
-    setSaved(true)
-    setTimeout(() => setSaved(false), 1800)
   }
 
   function updateWeight(catId, value) {
@@ -99,6 +106,7 @@ export default function InstructorManualGradesPage() {
             ))}
             <button className="btn btn-primary" onClick={handleSaveAll}><i className="ti ti-device-floppy" /> حفظ كل الدرجات</button>
             {saved && <span className="notes-saved" style={{ marginRight: '10px' }}><i className="ti ti-check" /> تم الحفظ</span>}
+            {saveError && <p className="auth-error" style={{ marginTop: '10px' }}>{saveError}</p>}
           </>
         )}
       </div>

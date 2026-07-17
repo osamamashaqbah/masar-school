@@ -9,7 +9,7 @@ import { categoriesFor } from '../../utils/gradeCategories'
 export default function InstructorManualGradesPage() {
   const { session } = useSession()
   const { subjects, updateSubjectCategories } = useSchoolStructure()
-  const { setMarkValue } = useMarks()
+  const { setMarkValue, getMarkValue } = useMarks()
 
   const mySubjects = subjects.filter((s) => s.teacherUid === session.uid)
   const [subjectId, setSubjectId] = useState('')
@@ -38,6 +38,17 @@ export default function InstructorManualGradesPage() {
     return () => unsub()
   }, [subject])
 
+  useEffect(() => {
+    if (!subject || !categoryId || students.length === 0) { setScores({}); return }
+    const initial = {}
+    students.forEach((st) => {
+      const existing = getMarkValue(st.id, subjectId, categoryId)
+      if (existing !== null) initial[st.id] = existing
+    })
+    setScores(initial)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [subjectId, categoryId, students])
+
   async function handleSaveAll() {
     setSaveError('')
     const entries = Object.entries(scores).filter(([, v]) => v !== '' && v !== undefined)
@@ -45,7 +56,6 @@ export default function InstructorManualGradesPage() {
       for (const [studentUid, value] of entries) {
         await setMarkValue(subjectId, studentUid, categoryId, value)
       }
-      setScores({})
       setSaved(true)
       setTimeout(() => setSaved(false), 1800)
     } catch (err) {

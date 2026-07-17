@@ -3,7 +3,6 @@ import { useParams, useNavigate } from 'react-router-dom'
 import { useSchoolStructure } from '../context/SchoolStructureContext'
 import { useProgress } from '../context/ProgressContext'
 import { useQuizStats } from '../context/QuizStatsContext'
-import { useMarks } from '../context/MarksContext'
 
 
 
@@ -16,7 +15,6 @@ export default function QuizPage() {
   const { subjects } = useSchoolStructure()
   const { completeLesson } = useProgress()
   const { recordAttempt } = useQuizStats()
-const { addMark } = useMarks()
 
 
 

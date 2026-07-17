@@ -49,6 +49,7 @@ export default function Layout() {
     { to: '/app/instructor/questions', icon: 'ti-message-question', label: 'أسئلة الطلاب' },
     { to: '/app/instructor/grade-homework', icon: 'ti-checkbox', label: 'تقييم الواجبات' },
     { to: '/app/instructor/manual-grades', icon: 'ti-certificate', label: 'الدرجات اليدوية' },
+    { to: '/app/instructor/attendance', icon: 'ti-calendar-check', label: 'الحضور والغياب' },
   ]
 
   return (

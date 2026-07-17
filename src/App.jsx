@@ -29,9 +29,11 @@ import InstructorAnalyticsPage from './pages/instructor/InstructorAnalyticsPage'
 
 import { QuestionsProvider } from './context/QuestionsContext'
 import { MarksProvider } from './context/MarksContext'
+import { AttendanceProvider } from './context/AttendanceContext'
 import InstructorQuestionsPage from './pages/instructor/InstructorQuestionsPage'
 import InstructorGradeHomeworkPage from './pages/instructor/InstructorGradeHomeworkPage'
 import InstructorManualGradesPage from './pages/instructor/InstructorManualGradesPage'
+import InstructorAttendancePage from './pages/instructor/InstructorAttendancePage'
 import StudentGradesPage from './pages/StudentGradesPage'
 
 export default function App() {
@@ -48,6 +50,7 @@ export default function App() {
                       <BrowserRouter>
                       <QuestionsProvider>
                         <MarksProvider>
+                        <AttendanceProvider>
                         <Routes>
                           <Route path="/" element={<Login />} />
                           <Route path="/app" element={<Layout />}>
@@ -55,6 +58,7 @@ export default function App() {
                           <Route path="instructor/questions" element={<InstructorQuestionsPage />} />
                             <Route path="instructor/grade-homework" element={<InstructorGradeHomeworkPage />} />
                             <Route path="instructor/manual-grades" element={<InstructorManualGradesPage />} />
+                            <Route path="instructor/attendance" element={<InstructorAttendancePage />} />
                             <Route path="grades" element={<StudentGradesPage />} />
                             <Route path="dashboard" element={<Dashboard />} />
                             <Route path="subject/:subjectId" element={<SubjectPage />} />
@@ -74,6 +78,7 @@ export default function App() {
                             <Route path="parent-dashboard" element={<ParentDashboardPage />} />
                           </Route>
                         </Routes>
+                        </AttendanceProvider>
                         </MarksProvider>
                         </QuestionsProvider>
                       </BrowserRouter>

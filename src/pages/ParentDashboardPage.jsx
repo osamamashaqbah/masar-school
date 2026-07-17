@@ -6,6 +6,7 @@ import { useSchoolStructure } from '../context/SchoolStructureContext'
 import { useProgress } from '../context/ProgressContext'
 import { useMarks } from '../context/MarksContext'
 import { useQuizStats } from '../context/QuizStatsContext'
+import { useAttendance } from '../context/AttendanceContext'
 import { categoriesFor } from '../utils/gradeCategories'
 
 export default function ParentDashboardPage() {
@@ -14,6 +15,7 @@ export default function ParentDashboardPage() {
   const { getStudentProgress } = useProgress()
   const { getMarkValue } = useMarks()
   const { getStudentStats } = useQuizStats()
+  const { getAbsenceDatesFor } = useAttendance()
 
   const [children, setChildren] = useState([])
 
@@ -43,11 +45,24 @@ export default function ParentDashboardPage() {
 
       {children.map((child) => {
         const childSubjects = subjects.filter((s) => s.sectionId === child.sectionId)
+        const absenceDates = getAbsenceDatesFor(child.id)
 
         return (
           <div key={child.id} style={{ marginBottom: '28px' }}>
             <div className="eyebrow" style={{ marginBottom: '10px' }}>
               <i className="ti ti-user-circle" /> {child.name}
+            </div>
+
+            <div className="panel" style={{ maxWidth: '620px', marginBottom: '16px' }}>
+              <div className="analytics-title" style={{ marginBottom: '8px' }}>الحضور والغياب</div>
+              {absenceDates.length === 0 ? (
+                <p style={{ fontSize: '13px', color: 'var(--ink-soft)' }}>ما في غياب مسجّل.</p>
+              ) : (
+                <>
+                  <p style={{ fontSize: '13px', marginBottom: '6px' }}>عدد أيام الغياب: <strong>{absenceDates.length}</strong></p>
+                  <p style={{ fontSize: '12.5px', color: 'var(--ink-soft)' }}>{absenceDates.join('، ')}</p>
+                </>
+              )}
             </div>
 
             {childSubjects.length === 0 ? (

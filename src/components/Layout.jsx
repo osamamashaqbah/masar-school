@@ -12,7 +12,10 @@ function roleLabel(role) {
   return 'طالب'
 }
 function notifIcon(type) {
-  const map = { success: 'ti-circle-check', error: 'ti-circle-x', request: 'ti-user-circle', info: 'ti-info-circle' }
+  const map = {
+    success: 'ti-circle-check', error: 'ti-circle-x', request: 'ti-user-circle', info: 'ti-info-circle',
+    grade: 'ti-certificate', attendance: 'ti-calendar-event', warning: 'ti-alert-triangle', homework: 'ti-clipboard-list',
+  }
   return map[type] || 'ti-bell'
 }
 function timeAgo(ts) {

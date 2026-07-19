@@ -1,7 +1,7 @@
 import { createContext, useContext } from 'react'
 import { initializeApp, deleteApp } from 'firebase/app'
 import { getAuth, createUserWithEmailAndPassword, signOut } from 'firebase/auth'
-import { doc, setDoc } from 'firebase/firestore'
+import { doc, setDoc, updateDoc, arrayUnion } from 'firebase/firestore'
 import { db, firebaseConfig } from '../firebase'
 
 const BulkImportContext = createContext(null)
@@ -68,6 +68,9 @@ export function BulkImportProvider({ children }) {
             email: parentEmail,
             childUids: [studentUid],
           })
+          // منعكسة على وثيقة الطالب نفسه (parentUids) حتى يقدر المعلّم يعرف مين أهل الطالب
+          // ويبعتلهم إشعار (حضور/علامة) بدون ما يحتاج صلاحية جديدة يقرا فيها كل حسابات أولياء الأمور.
+          await updateDoc(doc(db, 'users', studentUid), { parentUids: arrayUnion(parentCredential.user.uid) })
           results.push({ name: parentName, email: parentEmail, password: parentPassword, status: 'ok', role: 'parent' })
         } catch (parentErr) {
           results.push({ name: parentName, email: parentEmail, password: null, status: 'error', error: parentErr.message, role: 'parent' })

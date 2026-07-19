@@ -875,6 +875,10 @@ a{
 .notif-item-icon.success{ color: #6bcf9a; }
 .notif-item-icon.error{ color: #e88585; }
 .notif-item-icon.request{ color: #7db8e8; }
+.notif-item-icon.grade{ color: #d4a85c; }
+.notif-item-icon.attendance{ color: #e0937a; }
+.notif-item-icon.warning{ color: #e8c85c; }
+.notif-item-icon.homework{ color: #9c8ce8; }
 .notif-item-body{ flex: 1; min-width: 0; }
 .notif-item-text{ font-size: 12px; line-height: 1.6; color: rgba(255,255,255,0.85); }
 .notif-time{ font-size: 10.5px; color: rgba(255,255,255,0.4); margin-top: 2px; }

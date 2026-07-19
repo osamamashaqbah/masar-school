@@ -1,7 +1,8 @@
 import { createContext, useContext, useState, useEffect } from 'react'
-import { collection, query, where, doc, setDoc, deleteDoc, getDocs, onSnapshot } from 'firebase/firestore'
+import { collection, query, where, doc, setDoc, deleteDoc, getDoc, getDocs, onSnapshot } from 'firebase/firestore'
 import { db } from '../firebase'
 import { useSession } from './SessionContext'
+import { sendNotification } from '../utils/notify'
 
 const AttendanceContext = createContext(null)
 
@@ -45,6 +46,20 @@ export function AttendanceProvider({ children }) {
       teacherUid: session.uid,
       createdAt: Date.now(),
     })
+
+    // إشعار الطالب وأهله بالغياب — أفضل جهد، ما لازم يوقف حفظ الحضور لو فشل لأي سبب.
+    try {
+      const studentSnap = await getDoc(doc(db, 'users', studentUid))
+      if (studentSnap.exists()) {
+        const student = studentSnap.data()
+        await sendNotification(studentUid, `تسجّل غياب عليك بتاريخ ${date}.`, 'attendance')
+        for (const parentUid of student.parentUids || []) {
+          await sendNotification(parentUid, `غاب/ت ${student.name} بتاريخ ${date}.`, 'attendance')
+        }
+      }
+    } catch {
+      // ما منوقف عملية تسجيل الحضور بسبب فشل الإشعار
+    }
   }
 
   async function setPresent(studentUid, date) {

@@ -2,7 +2,7 @@ import { useState, useEffect } from 'react'
 import { Navigate } from 'react-router-dom'
 import { initializeApp, deleteApp } from 'firebase/app'
 import { getAuth, createUserWithEmailAndPassword, signOut } from 'firebase/auth'
-import { doc, setDoc, collection, onSnapshot } from 'firebase/firestore'
+import { doc, setDoc, updateDoc, arrayUnion, collection, onSnapshot } from 'firebase/firestore'
 import { db, firebaseConfig } from '../firebase'
 import { useSession } from '../context/SessionContext'
 import { useSchoolStructure } from '../context/SchoolStructureContext'
@@ -20,6 +20,7 @@ export default function AdminPage() {
   const [error, setError] = useState('')
   const [success, setSuccess] = useState('')
   const [loading, setLoading] = useState(false)
+  const [syncedParentLinks, setSyncedParentLinks] = useState(false)
 
   useEffect(() => {
     if (session?.role !== 'owner') return
@@ -28,6 +29,24 @@ export default function AdminPage() {
     })
     return () => unsubscribe()
   }, [session])
+
+  // إصلاح ذاتي لمرة وحدة: حسابات أولياء الأمور يلي انربطت بأبنائها (childUids) قبل ما نضيف
+  // الربط العكسي (parentUids على وثيقة الطالب) ما راح يقدر المعلّم يوصّلها. نعيد بناءه هون.
+  useEffect(() => {
+    if (syncedParentLinks || session?.role !== 'owner' || users.length === 0) return
+    setSyncedParentLinks(true)
+    const parents = users.filter((u) => u.role === 'parent' && u.childUids?.length > 0)
+    Promise.all(
+      parents.flatMap((p) =>
+        p.childUids.map((childUid) => {
+          const child = users.find((u) => u.id === childUid)
+          if (child?.parentUids?.includes(p.id)) return Promise.resolve()
+          return updateDoc(doc(db, 'users', childUid), { parentUids: arrayUnion(p.id) }).catch(() => {})
+        })
+      )
+    )
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [users, session, syncedParentLinks])
 
   if (session?.role !== 'owner') return <Navigate to="/app/dashboard" replace />
 
@@ -58,6 +77,13 @@ export default function AdminPage() {
       }
 
       await setDoc(doc(db, 'users', credential.user.uid), profile)
+      if (role === 'parent' && selectedChildren.length > 0) {
+        await Promise.all(
+          selectedChildren.map((childUid) =>
+            updateDoc(doc(db, 'users', childUid), { parentUids: arrayUnion(credential.user.uid) })
+          )
+        )
+      }
       await signOut(secondaryAuth)
 
       const roleLabel = role === 'instructor' ? 'المعلّم' : role === 'parent' ? 'ولي الأمر' : 'الطالب'

@@ -1,7 +1,9 @@
 import { createContext, useContext, useState, useEffect } from 'react'
-import { collection, query, where, doc, setDoc, onSnapshot } from 'firebase/firestore'
+import { collection, query, where, doc, setDoc, getDoc, onSnapshot } from 'firebase/firestore'
 import { db } from '../firebase'
 import { useSession } from './SessionContext'
+import { sendNotification } from '../utils/notify'
+import { categoriesFor } from '../utils/gradeCategories'
 
 const MarksContext = createContext(null)
 
@@ -58,6 +60,27 @@ export function MarksProvider({ children }) {
       teacherUid: session.uid,
       updatedAt: Date.now(),
     })
+
+    // إشعار الطالب وأهله بالعلامة الجديدة — أفضل جهد، ما لازم يوقف حفظ العلامة لو فشل لأي سبب.
+    try {
+      const [studentSnap, subjectSnap] = await Promise.all([
+        getDoc(doc(db, 'users', studentUid)),
+        getDoc(doc(db, 'subjects', subjectId)),
+      ])
+      if (studentSnap.exists() && subjectSnap.exists()) {
+        const student = studentSnap.data()
+        const subject = { id: subjectId, ...subjectSnap.data() }
+        const category = categoriesFor(subject).find((c) => c.id === categoryId)
+        const label = category?.label || 'درجة'
+        const scoreText = `${Number(score)}/${Number(maxScore)}`
+        await sendNotification(studentUid, `انحطّت لك علامة جديدة بمادة ${subject.name} (${label}): ${scoreText}.`, 'grade')
+        for (const parentUid of student.parentUids || []) {
+          await sendNotification(parentUid, `حصل/ت ${student.name} على ${scoreText} بمادة ${subject.name} (${label}).`, 'grade')
+        }
+      }
+    } catch {
+      // ما منوقف عملية حفظ العلامة بسبب فشل الإشعار
+    }
   }
 
   function getMarksForStudentSubject(uid, subjectId) {

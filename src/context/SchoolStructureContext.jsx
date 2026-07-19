@@ -10,7 +10,9 @@ export function SchoolStructureProvider({ children }) {
   const [grades, setGrades] = useState([])
   const [sections, setSections] = useState([])
   const [allSubjects, setAllSubjects] = useState([])
+  const [allUsers, setAllUsers] = useState([])
   const [syncedPermissions, setSyncedPermissions] = useState(false)
+  const [syncedParentLinks, setSyncedParentLinks] = useState(false)
 
   // المواد المؤرشفة (archived: true) بتنخبّى من كل مكان بالتطبيق تلقائيًا لأنه كل الصفحات
   // بتشتق قائمتها من "subjects" هون — بس بياناتها (درجات، حضور، تقدّم...) بتضل محفوظة بـ Firestore.
@@ -23,6 +25,13 @@ export function SchoolStructureProvider({ children }) {
     const unsub2 = onSnapshot(collection(db, 'sections'), (s) => setSections(s.docs.map((d) => ({ id: d.id, ...d.data() }))))
     const unsub3 = onSnapshot(collection(db, 'subjects'), (s) => setAllSubjects(s.docs.map((d) => ({ id: d.id, ...d.data(), lessons: d.data().lessons || [] }))))
     return () => { unsub1(); unsub2(); unsub3() }
+  }, [session])
+
+  // بيانات كل المستخدمين — بس لصاحب المنصة، مطلوبة للإصلاح الذاتي تحت (ربط أولياء الأمور بأبنائهم)
+  useEffect(() => {
+    if (session?.role !== 'owner') { setAllUsers([]); return }
+    const unsub = onSnapshot(collection(db, 'users'), (s) => setAllUsers(s.docs.map((d) => ({ id: d.id, ...d.data() }))))
+    return () => unsub()
   }, [session])
 
   // إصلاح ذاتي: بعض معلمي المواد القديمة (أو يلي انربطوا بمادة قبل ما نضيف حقل taughtSectionIds)
@@ -43,6 +52,26 @@ export function SchoolStructureProvider({ children }) {
     )
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [subjects, session, syncedPermissions])
+
+  // إصلاح ذاتي: حسابات أولياء الأمور يلي انربطت بأبنائها (childUids) قبل ما نضيف الربط العكسي
+  // (parentUids على وثيقة الطالب، وهو يلي الإشعارات معتمدة عليه لتوصيل تنبيهات العلامات/الغياب
+  // لولي الأمر). هاد كان معلّق بصفحة إدارة المستخدمين بس، فما كان ينفّذ إلا لو صاحب المنصة يفتحها
+  // بالذات — نقلناه هون حتى ينفّذ تلقائيًا بأول صفحة يفتحها صاحب المنصة، أي صفحة كانت.
+  useEffect(() => {
+    if (syncedParentLinks || session?.role !== 'owner' || allUsers.length === 0) return
+    setSyncedParentLinks(true)
+    const parents = allUsers.filter((u) => u.role === 'parent' && u.childUids?.length > 0)
+    Promise.all(
+      parents.flatMap((p) =>
+        p.childUids.map((childUid) => {
+          const child = allUsers.find((u) => u.id === childUid)
+          if (child?.parentUids?.includes(p.id)) return Promise.resolve()
+          return updateDoc(doc(db, 'users', childUid), { parentUids: arrayUnion(p.id) }).catch(() => {})
+        })
+      )
+    )
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [allUsers, session, syncedParentLinks])
 
   async function addGrade(name) {
     await addDoc(collection(db, 'grades'), { name })

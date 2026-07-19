@@ -20,7 +20,6 @@ export default function AdminPage() {
   const [error, setError] = useState('')
   const [success, setSuccess] = useState('')
   const [loading, setLoading] = useState(false)
-  const [syncedParentLinks, setSyncedParentLinks] = useState(false)
 
   useEffect(() => {
     if (session?.role !== 'owner') return
@@ -29,24 +28,6 @@ export default function AdminPage() {
     })
     return () => unsubscribe()
   }, [session])
-
-  // إصلاح ذاتي لمرة وحدة: حسابات أولياء الأمور يلي انربطت بأبنائها (childUids) قبل ما نضيف
-  // الربط العكسي (parentUids على وثيقة الطالب) ما راح يقدر المعلّم يوصّلها. نعيد بناءه هون.
-  useEffect(() => {
-    if (syncedParentLinks || session?.role !== 'owner' || users.length === 0) return
-    setSyncedParentLinks(true)
-    const parents = users.filter((u) => u.role === 'parent' && u.childUids?.length > 0)
-    Promise.all(
-      parents.flatMap((p) =>
-        p.childUids.map((childUid) => {
-          const child = users.find((u) => u.id === childUid)
-          if (child?.parentUids?.includes(p.id)) return Promise.resolve()
-          return updateDoc(doc(db, 'users', childUid), { parentUids: arrayUnion(p.id) }).catch(() => {})
-        })
-      )
-    )
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [users, session, syncedParentLinks])
 
   if (session?.role !== 'owner') return <Navigate to="/app/dashboard" replace />
 

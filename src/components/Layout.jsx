@@ -3,6 +3,7 @@ import { NavLink, Outlet, Navigate, useLocation } from 'react-router-dom'
 import { useSession } from '../context/SessionContext'
 import { useNotifications } from '../context/NotificationContext'
 import { useSchoolStructure } from '../context/SchoolStructureContext'
+import { getAvatar } from '../utils/avatars'
 
 function roleLabel(role) {
   if (role === 'instructor') return 'معلّم'
@@ -25,7 +26,7 @@ function timeAgo(ts) {
 }
 
 export default function Layout() {
-  const { session, logout } = useSession()
+  const { session, logout, authLoading } = useSession()
   const { notifications, unreadCount, markAsRead, markAllAsRead } = useNotifications()
   const { subjects } = useSchoolStructure()
   const location = useLocation()
@@ -34,7 +35,20 @@ export default function Layout() {
   const [notifOpen, setNotifOpen] = useState(false)
   const [instructorMenuOpen, setInstructorMenuOpen] = useState(location.pathname.startsWith('/app/instructor'))
 
+  // بيانات الدخول المحفوظة بتتفحّص بشكل غير متزامن (Firebase Auth) — بدون هاد الانتظار كنا
+  // نطرد المستخدم لصفحة الدخول لحظيًا بكل refresh لحد ما تكتمل عملية التحقق، وكانت بتبين وكأنه
+  // طلع من حسابه فعليًا رغم إنه كان لسا مسجّل دخول.
+  if (authLoading) {
+    return (
+      <div className="auth-loading-screen">
+        <i className="ti ti-loader-2 spin" />
+      </div>
+    )
+  }
+
   if (!session) return <Navigate to="/" replace />
+
+  const myAvatar = getAvatar(session.avatarId)
 
   function closeMenu() { setMenuOpen(false) }
   function handleNotifClick(n) { if (!n.read) markAsRead(n.id) }
@@ -146,7 +160,9 @@ export default function Layout() {
         </NavLink>
 
         <div className="sidebar-footer">
-          <div className="avatar-mini">{session.name.trim().charAt(0) || '؟'}</div>
+          <div className="avatar-mini" style={myAvatar ? { background: myAvatar.bg } : undefined}>
+            {myAvatar ? myAvatar.emoji : (session.name.trim().charAt(0) || '؟')}
+          </div>
           <span>{session.name} · {roleLabel(session.role)}</span>
           <button className="logout-btn" onClick={logout} aria-label="تسجيل الخروج" title="تسجيل الخروج"><i className="ti ti-logout" /></button>
         </div>

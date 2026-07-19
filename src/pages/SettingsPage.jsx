@@ -3,6 +3,7 @@ import { EmailAuthProvider, reauthenticateWithCredential, updatePassword } from 
 import { auth } from '../firebase'
 import { useSession } from '../context/SessionContext'
 import { useTheme } from '../context/ThemeContext'
+import { AVATAR_OPTIONS } from '../utils/avatars'
 
 function ThemePickerSection() {
   const { theme, setTheme, themes } = useTheme()
@@ -34,6 +35,82 @@ function ThemePickerSection() {
             <div className="theme-picker-desc">{t.desc}</div>
           </button>
         ))}
+      </div>
+    </div>
+  )
+}
+
+function ProfileSection() {
+  const { session, updateProfile } = useSession()
+  const [name, setName] = useState(session.name)
+  const [avatarId, setAvatarId] = useState(session.avatarId || '')
+  const [saving, setSaving] = useState(false)
+  const [saved, setSaved] = useState(false)
+  const [error, setError] = useState('')
+
+  const dirty = name.trim() !== session.name || avatarId !== (session.avatarId || '')
+
+  async function handleSave() {
+    setError('')
+    if (!name.trim()) { setError('لازم تكتب اسم.'); return }
+    setSaving(true)
+    try {
+      await updateProfile({ name: name.trim(), avatarId: avatarId || null })
+      setSaved(true)
+      setTimeout(() => setSaved(false), 1800)
+    } catch (err) {
+      setError('صار خطأ وقت الحفظ: ' + (err.code || err.message))
+    } finally {
+      setSaving(false)
+    }
+  }
+
+  return (
+    <div style={{ marginBottom: '34px' }}>
+      <h3 style={{ fontSize: '16px', marginBottom: '4px' }}>الملف الشخصي</h3>
+      <p style={{ fontSize: '12.5px', color: 'var(--ink-soft)', margin: '0 0 16px' }}>غيّر اسمك وصورتك الرمزية يلي بتظهر بالمنصة.</p>
+
+      <div className="panel" style={{ maxWidth: '520px' }}>
+        <div className="field">
+          <label htmlFor="profile-name">الاسم</label>
+          <input id="profile-name" type="text" value={name} onChange={(e) => setName(e.target.value)} maxLength={60} />
+        </div>
+
+        <label style={{ display: 'block', fontSize: '13px', color: 'var(--ink-soft)', marginBottom: '10px', fontWeight: 600 }}>الصورة الرمزية</label>
+        <div className="avatar-picker-grid">
+          <button
+            type="button"
+            className={`avatar-picker-item${!avatarId ? ' selected' : ''}`}
+            onClick={() => setAvatarId('')}
+            style={{ background: 'var(--ink)' }}
+            aria-label="بدون صورة رمزية، الحرف الأول من الاسم"
+            title="افتراضي (الحرف الأول من الاسم)"
+          >
+            {name.trim().charAt(0) || '؟'}
+          </button>
+          {AVATAR_OPTIONS.map((a) => (
+            <button
+              key={a.id}
+              type="button"
+              className={`avatar-picker-item${avatarId === a.id ? ' selected' : ''}`}
+              onClick={() => setAvatarId(a.id)}
+              style={{ background: a.bg }}
+              aria-pressed={avatarId === a.id}
+              aria-label={a.id}
+            >
+              {a.emoji}
+            </button>
+          ))}
+        </div>
+
+        {error && <p className="auth-error" style={{ marginTop: '14px' }}>{error}</p>}
+
+        <div style={{ display: 'flex', alignItems: 'center', gap: '12px', marginTop: '18px' }}>
+          <button type="button" className="btn btn-primary" style={{ width: 'auto', padding: '11px 22px' }} onClick={handleSave} disabled={saving || !dirty}>
+            {saving ? <i className="ti ti-loader-2 spin" /> : (<><i className="ti ti-device-floppy" /> حفظ التغييرات</>)}
+          </button>
+          {saved && <span className="notes-saved"><i className="ti ti-check" /> تم الحفظ</span>}
+        </div>
       </div>
     </div>
   )
@@ -83,6 +160,8 @@ export default function SettingsPage() {
     <div>
       <div className="eyebrow">الإعدادات</div>
       <h2 className="page-title" style={{ marginBottom: '24px' }}>الإعدادات</h2>
+
+      <ProfileSection />
 
       <ThemePickerSection />
 

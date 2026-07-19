@@ -1,6 +1,6 @@
 import { createContext, useContext, useState, useEffect } from 'react'
 import { signInWithEmailAndPassword, signOut, onAuthStateChanged } from 'firebase/auth'
-import { doc, getDoc } from 'firebase/firestore'
+import { doc, getDoc, updateDoc } from 'firebase/firestore'
 import { auth, db } from '../firebase'
 import { OWNER_EMAIL } from '../config/owner'
 
@@ -15,6 +15,7 @@ export function SessionProvider({ children }) {
     return {
       uid, email, role,
       name: data.name,
+      avatarId: data.avatarId || null,
       sectionId: data.sectionId || null,
       childUids: data.childUids || [],
     }
@@ -46,8 +47,16 @@ export function SessionProvider({ children }) {
     setSession(null)
   }
 
+  async function updateProfile({ name, avatarId }) {
+    const updates = {}
+    if (name !== undefined) updates.name = name
+    if (avatarId !== undefined) updates.avatarId = avatarId
+    await updateDoc(doc(db, 'users', session.uid), updates)
+    setSession((prev) => ({ ...prev, ...updates }))
+  }
+
   return (
-    <SessionContext.Provider value={{ session, login, logout, authLoading }}>
+    <SessionContext.Provider value={{ session, login, logout, authLoading, updateProfile }}>
       {children}
     </SessionContext.Provider>
   )

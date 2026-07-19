@@ -69,7 +69,14 @@ service cloud.firestore {
       allow create: if isOwner()
         && request.resource.data.keys().hasAll(['name', 'role', 'email'])
         && request.resource.data.role in ['student', 'instructor', 'parent'];
-      allow update, delete: if isOwner();
+      // المستخدم يقدر يعدّل بس اسمه وصورته الرمزية بحسابه هو (تخصيص البروفايل)، وممنوع يلمس
+      // أي حقل حساس متل role أو sectionId أو childUids عن هالطريق
+      allow update: if isOwner() || (
+        isSignedIn() && request.auth.uid == uid
+        && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['name', 'avatarId'])
+        && request.resource.data.name is string && request.resource.data.name.size() > 0 && request.resource.data.name.size() <= 60
+      );
+      allow delete: if isOwner();
     }
 
     // ===================== grades / sections =====================

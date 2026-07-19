@@ -53,12 +53,13 @@ function exportResultsToExcel() {
       .filter((r) => r.status === 'ok')
       .map((r) => ({
         'الاسم': r.name,
+        'الحساب': r.role === 'parent' ? 'ولي أمر' : 'طالب',
         'البريد الإلكتروني': r.email,
         'كلمة السر': r.password,
       }))
 
     const worksheet = XLSX.utils.json_to_sheet(rows)
-    worksheet['!cols'] = [{ wch: 22 }, { wch: 34 }, { wch: 16 }]
+    worksheet['!cols'] = [{ wch: 22 }, { wch: 12 }, { wch: 34 }, { wch: 16 }]
 
     const workbook = XLSX.utils.book_new()
     XLSX.utils.book_append_sheet(workbook, worksheet, 'بيانات الدخول')
@@ -237,7 +238,8 @@ function exportResultsToExcel() {
       {importResults && (
         <div className="panel" style={{ maxWidth: '520px', marginTop: '16px' }}>
           <p style={{ fontSize: '13px', fontWeight: 700, marginBottom: '10px' }}>
-            نتيجة الاستيراد: {importResults.filter((r) => r.status === 'ok').length} من {importResults.length} نجحوا
+            نتيجة الاستيراد: {importResults.filter((r) => r.role === 'student' && r.status === 'ok').length} من {importResults.filter((r) => r.role === 'student').length} طالب نجحوا
+            (وانضاف حساب ولي أمر تلقائي لكل طالب نجح)
           </p>
           <div className="import-results-table">
             <button type="button" className="btn btn-accent" onClick={exportResultsToExcel} style={{ marginBottom: '12px' }}>
@@ -245,7 +247,10 @@ function exportResultsToExcel() {
           </button>
             {importResults.map((r, i) => (
               <div className="import-result-row" key={i}>
-                <span>{r.name}</span>
+                <span>
+                  <span className={`import-role-tag${r.role === 'parent' ? ' parent' : ''}`}>{r.role === 'parent' ? 'ولي أمر' : 'طالب'}</span>
+                  {' '}{r.name}
+                </span>
                 {r.status === 'ok' ? (
                   <span style={{ fontSize: '11px', color: 'var(--ink-soft)' }}>
                     {r.email} / {r.password}

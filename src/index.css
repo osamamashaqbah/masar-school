@@ -325,7 +325,7 @@ a{
   font-size:22px; color:#fff; position:relative; z-index:1; box-shadow:var(--shadow-card); border:3px solid var(--paper);
 }
 .course-card{
-  flex:1; background:var(--card-glass); backdrop-filter:blur(14px); border:1px solid var(--line); border-radius:var(--radius-lg);
+  flex:1; background:var(--card); border:1px solid var(--line); border-radius:var(--radius-lg);
   padding:16px 20px; box-shadow:var(--shadow-card); cursor:pointer;
   transition:transform .2s var(--ease-spring), box-shadow .2s ease;
   display:flex; justify-content:space-between; align-items:center; gap:14px;
@@ -501,7 +501,7 @@ a{
 
 .notes-editor-list{ display:flex; flex-direction:column; gap:14px; max-width:600px; }
 .notes-editor-row{
-  background:var(--card-glass); backdrop-filter:blur(10px); border:1px solid var(--line);
+  background:var(--card); border:1px solid var(--line);
   border-radius:var(--radius-lg); padding:16px 18px; position:relative; overflow:hidden;
   box-shadow:var(--shadow-card); transition:transform .18s var(--ease-spring), border-color .18s ease;
   opacity:0; animation:stagger-fade .35s var(--ease-smooth) both;
@@ -548,7 +548,7 @@ a{
 
 .question-block{
   border:1px solid var(--line); border-radius:var(--radius-md); padding:16px 18px; margin-bottom:14px;
-  background:var(--card-glass); backdrop-filter:blur(10px); position:relative; overflow:hidden;
+  background:var(--card); position:relative; overflow:hidden;
   transition:border-color .2s ease, transform .18s var(--ease-spring), box-shadow .2s ease;
   animation:stagger-fade .35s var(--ease-smooth) both;
 }
@@ -589,7 +589,7 @@ a{
 
 .owner-stats-grid{ display:flex; gap:14px; flex-wrap:wrap; }
 .owner-stat-card{
-  background:var(--card-glass); backdrop-filter:blur(12px); border:1px solid var(--line); border-radius:var(--radius-lg);
+  background:var(--card); border:1px solid var(--line); border-radius:var(--radius-lg);
   padding:18px 22px; min-width:120px; text-align:center; box-shadow:var(--shadow-card);
   transition:transform .18s var(--ease-spring);
 }
@@ -617,7 +617,7 @@ a{
   display:flex; align-items:center; gap:6px;
 }
 .material-card{
-  background:var(--card-glass); backdrop-filter:blur(10px); border:1px solid var(--line); border-radius:var(--radius-lg);
+  background:var(--card); border:1px solid var(--line); border-radius:var(--radius-lg);
   padding:16px; margin-bottom:12px; box-shadow:var(--shadow-card);
   transition:transform .18s var(--ease-spring), box-shadow .18s ease; opacity:0;
   animation:stagger-fade .35s var(--ease-smooth) both;
@@ -754,8 +754,7 @@ a{
 }
 
 .course-card-flat{
-  background: var(--card-glass);
-  backdrop-filter: blur(14px);
+  background: var(--card);
   border: 1px solid var(--line);
   border-radius: var(--radius-lg);
   padding: 18px 20px;
@@ -932,8 +931,8 @@ textarea:focus-visible{
 
 /* ---------- انتقال بين الصفحات ---------- */
 @keyframes page-in{
-  from{ opacity:0; transform:translateY(14px) scale(0.99); filter:blur(2px); }
-  to{ opacity:1; transform:translateY(0) scale(1); filter:blur(0); }
+  from{ opacity:0; transform:translateY(14px) scale(0.99); }
+  to{ opacity:1; transform:translateY(0) scale(1); }
 }
 .page-transition{ animation:page-in .38s var(--ease-smooth) both; }
 
@@ -986,7 +985,7 @@ textarea:focus-visible{
   display:grid; grid-template-columns:repeat(auto-fill, minmax(300px, 1fr)); gap:18px;
 }
 .grade-subject-card{
-  background:var(--card-glass); backdrop-filter:blur(16px); border:1px solid var(--line);
+  background:var(--card); border:1px solid var(--line);
   border-radius:var(--radius-lg); padding:20px 22px; position:relative; overflow:hidden;
   box-shadow:var(--shadow-card); opacity:0;
 }

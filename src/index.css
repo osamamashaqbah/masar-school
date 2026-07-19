@@ -1033,7 +1033,26 @@ textarea:focus-visible{
   background:var(--paper-deep); color:var(--ink-faint); border:1px dashed var(--ink-faint);
 }
 .subject-chip.unassigned i{ color:var(--berry); }
+.subject-chip.archived{
+  background:var(--paper-deep); color:var(--ink-faint); border:1px dashed var(--line); opacity:0.85;
+}
 .subject-chip-teacher{ opacity:0.8; font-weight:500; }
+.subject-chip-delete{
+  background:none; border:none; color:inherit; opacity:0.55; cursor:pointer; padding:2px;
+  display:flex; align-items:center; font-size:12px; margin-right:2px; transition:opacity .15s ease, color .15s ease;
+}
+.subject-chip-delete:hover{ opacity:1; color:var(--berry); }
+.subject-chip-confirm{ display:inline-flex; align-items:center; gap:4px; margin-right:2px; animation:pop-in .2s var(--ease-spring); }
+.subject-chip-confirm button{
+  background:none; border:none; cursor:pointer; padding:2px; display:flex; align-items:center; font-size:13px;
+}
+.subject-chip-confirm button:first-child{ color:var(--pine); }
+.subject-chip-confirm button:last-child{ color:var(--berry); }
+.subject-chip-restore{
+  background:none; border:none; color:var(--accent-dark); cursor:pointer; padding:0; margin-right:4px;
+  font-size:11.5px; font-weight:700; display:inline-flex; align-items:center; gap:3px;
+}
+.subject-chip-restore:hover{ text-decoration:underline; }
 .school-empty-note{ font-size:12px; color:var(--ink-faint); margin:0; }
 .school-grade-footer{
   margin-top:16px; padding-top:12px; border-top:1px dashed var(--line);

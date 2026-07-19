@@ -11,7 +11,11 @@ import * as XLSX from 'xlsx'
 
 export default function SchoolStructurePage() {
   const { session } = useSession()
-  const { grades, addGrade, addSection, addSubject, getSectionsForGrade, getSubjectsForSection } = useSchoolStructure()
+  const {
+    grades, addGrade, addSection, addSubject, getSectionsForGrade, getSubjectsForSection,
+    archivedSubjects, archiveSubject, restoreSubject,
+  } = useSchoolStructure()
+  const [confirmArchiveId, setConfirmArchiveId] = useState('')
 
   const [instructors, setInstructors] = useState([])
   const [gradeName, setGradeName] = useState('')
@@ -125,6 +129,11 @@ function exportResultsToExcel() {
     })
     setSubjectName('')
     setSubjectTeacherUid('')
+  }
+
+  async function handleArchiveSubject(subjectId) {
+    await archiveSubject(subjectId)
+    setConfirmArchiveId('')
   }
 
   return (
@@ -281,6 +290,26 @@ function exportResultsToExcel() {
                             <span key={sub.id} className={`subject-chip${sub.teacherUid ? '' : ' unassigned'}`}>
                               <i className={`ti ${sub.teacherUid ? 'ti-book-2' : 'ti-alert-triangle'}`} />
                               {sub.name} <span className="subject-chip-teacher">— {sub.teacherName}</span>
+                              {confirmArchiveId === sub.id ? (
+                                <span className="subject-chip-confirm">
+                                  <button type="button" onClick={() => handleArchiveSubject(sub.id)} aria-label="تأكيد الحذف" title="تأكيد الحذف">
+                                    <i className="ti ti-check" />
+                                  </button>
+                                  <button type="button" onClick={() => setConfirmArchiveId('')} aria-label="تراجع" title="تراجع">
+                                    <i className="ti ti-x" />
+                                  </button>
+                                </span>
+                              ) : (
+                                <button
+                                  type="button"
+                                  className="subject-chip-delete"
+                                  onClick={() => setConfirmArchiveId(sub.id)}
+                                  aria-label={`حذف مادة ${sub.name}`}
+                                  title="حذف المادة"
+                                >
+                                  <i className="ti ti-trash" />
+                                </button>
+                              )}
                             </span>
                           ))}
                         </div>
@@ -295,6 +324,26 @@ function exportResultsToExcel() {
           )
         })}
       </div>
+
+      {archivedSubjects.length > 0 && (
+        <>
+          <div className="eyebrow" style={{ marginTop: '32px' }}>مواد محذوفة (مؤرشفة)</div>
+          <p style={{ fontSize: '12px', color: 'var(--ink-faint)', margin: '2px 0 14px' }}>
+            هاي المواد مخفية عن الطلاب والمعلمين، بس درجاتهم وحضورهم فيها محفوظين. تقدر ترجّعها أي وقت.
+          </p>
+          <div className="subject-chip-wrap" style={{ maxWidth: '620px' }}>
+            {archivedSubjects.map((sub) => (
+              <span key={sub.id} className="subject-chip archived">
+                <i className="ti ti-archive" />
+                {sub.name} <span className="subject-chip-teacher">— {sub.teacherName}</span>
+                <button type="button" className="subject-chip-restore" onClick={() => restoreSubject(sub.id)} aria-label={`استرجاع مادة ${sub.name}`} title="استرجاع">
+                  <i className="ti ti-arrow-back-up" /> استرجاع
+                </button>
+              </span>
+            ))}
+          </div>
+        </>
+      )}
     </div>
   )
 }

@@ -13,13 +13,16 @@ export default function InstructorAnalyticsPage() {
   const { getStudentProgress } = useProgress()
 
   const [students, setStudents] = useState([])
+  const [studentsError, setStudentsError] = useState('')
   const mySubjects = subjects.filter((s) => s.teacherUid === session.uid)
 
   useEffect(() => {
     const q = query(collection(db, 'users'), where('role', '==', 'student'))
-    const unsub = onSnapshot(q, (snap) => {
-      setStudents(snap.docs.map((d) => ({ id: d.id, ...d.data() })))
-    })
+    const unsub = onSnapshot(
+      q,
+      (snap) => setStudents(snap.docs.map((d) => ({ id: d.id, ...d.data() }))),
+      (err) => setStudentsError(`ما قدرنا نجيب لستة الطلاب (${err.code}). جرب تسجّل خروج ودخول من جديد، وإذا استمرت المشكلة تواصل مع إدارة المدرسة.`)
+    )
     return () => unsub()
   }, [])
 
@@ -28,6 +31,7 @@ export default function InstructorAnalyticsPage() {
       <div className="eyebrow">تحليلات موادك</div>
       <h2 className="page-title" style={{ marginBottom: '16px' }}>دفتر الدرجات</h2>
 
+      {studentsError && <p className="auth-error">{studentsError}</p>}
       {mySubjects.length === 0 ? (
         <p style={{ color: 'var(--ink-soft)' }}>ما في مواد مسندة لك بعد.</p>
       ) : (

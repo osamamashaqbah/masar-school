@@ -20,6 +20,7 @@ export default function InstructorManualGradesPage() {
   const [saved, setSaved] = useState(false)
   const [weightsDraft, setWeightsDraft] = useState([])
   const [saveError, setSaveError] = useState('')
+  const [studentsError, setStudentsError] = useState('')
 
   const subject = mySubjects.find((s) => s.id === subjectId)
   const categories = subject ? categoriesFor(subject) : []
@@ -32,10 +33,13 @@ export default function InstructorManualGradesPage() {
 
   useEffect(() => {
     if (!subject) return
+    setStudentsError('')
     const q = query(collection(db, 'users'), where('role', '==', 'student'), where('sectionId', '==', subject.sectionId))
-    const unsub = onSnapshot(q, (snap) => {
-      setStudents(snap.docs.map((d) => ({ id: d.id, ...d.data() })))
-    })
+    const unsub = onSnapshot(
+      q,
+      (snap) => setStudents(snap.docs.map((d) => ({ id: d.id, ...d.data() }))),
+      (err) => setStudentsError(`ما قدرنا نجيب لستة الطلاب (${err.code}). جرب تسجّل خروج ودخول من جديد، وإذا استمرت المشكلة تواصل مع إدارة المدرسة.`)
+    )
     return () => unsub()
   }, [subject])
 
@@ -129,6 +133,7 @@ export default function InstructorManualGradesPage() {
             <p style={{ fontSize: '12.5px', color: 'var(--ink-faint)' }}>
               اكتب درجة كل طالب من أصل {maxScore || '؟'}:
             </p>
+            {studentsError && <p className="auth-error">{studentsError}</p>}
             {students.map((st) => (
               <div key={st.id} style={{ display: 'flex', alignItems: 'center', gap: '10px', marginBottom: '8px' }}>
                 <span style={{ flex: 1, fontSize: '13.5px' }}>{st.name}</span>

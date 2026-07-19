@@ -10,6 +10,7 @@ export function SchoolStructureProvider({ children }) {
   const [grades, setGrades] = useState([])
   const [sections, setSections] = useState([])
   const [subjects, setSubjects] = useState([])
+  const [syncedPermissions, setSyncedPermissions] = useState(false)
 
   useEffect(() => {
     if (!session) return
@@ -18,6 +19,25 @@ export function SchoolStructureProvider({ children }) {
     const unsub3 = onSnapshot(collection(db, 'subjects'), (s) => setSubjects(s.docs.map((d) => ({ id: d.id, ...d.data(), lessons: d.data().lessons || [] }))))
     return () => { unsub1(); unsub2(); unsub3() }
   }, [session])
+
+  // إصلاح ذاتي: بعض معلمي المواد القديمة (أو يلي انربطوا بمادة قبل ما نضيف حقل taughtSectionIds)
+  // ممكن يوصلهم الحقل هذا ناقص، فبالتالي قواعد Firestore بتمنعهم يشوفوا طلاب شعبتهم (بدون أي خطأ ظاهر،
+  // بس القائمة بتطلع فاضية). نعيد مزامنته تلقائيًا مرة وحدة كل ما صاحب المنصة يفتح لوحته، حتى ما يحتاج
+  // أي إجراء يدوي ولا ننتظر إجراء تاني (متل تسجيل دخول الطالب) يصلحه بالصدفة.
+  useEffect(() => {
+    if (syncedPermissions || session?.role !== 'owner' || subjects.length === 0) return
+    setSyncedPermissions(true)
+    const pairs = new Map()
+    subjects.forEach((s) => {
+      if (s.teacherUid && s.sectionId) pairs.set(`${s.teacherUid}_${s.sectionId}`, { teacherUid: s.teacherUid, sectionId: s.sectionId })
+    })
+    Promise.all(
+      [...pairs.values()].map(({ teacherUid, sectionId }) =>
+        updateDoc(doc(db, 'users', teacherUid), { taughtSectionIds: arrayUnion(sectionId) }).catch(() => {})
+      )
+    )
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [subjects, session, syncedPermissions])
 
   async function addGrade(name) {
     await addDoc(collection(db, 'grades'), { name })

@@ -12,7 +12,7 @@ function todayStr() {
 export default function InstructorAttendancePage() {
   const { session } = useSession()
   const { grades, subjects, getSectionsForGrade } = useSchoolStructure()
-  const { getAttendanceForDate, setAbsent, setPresent } = useAttendance()
+  const { getAttendanceForDate, setAbsent, setPresent, updateExcused } = useAttendance()
 
   const myTaughtSectionIds = [...new Set(subjects.filter((s) => s.teacherUid === session.uid).map((s) => s.sectionId))]
   const myGrades = grades.filter((g) => getSectionsForGrade(g.id).some((s) => myTaughtSectionIds.includes(s.id)))
@@ -22,6 +22,7 @@ export default function InstructorAttendancePage() {
   const [date, setDate] = useState(todayStr())
   const [students, setStudents] = useState([])
   const [absentSet, setAbsentSet] = useState(new Set())
+  const [excusedMap, setExcusedMap] = useState({})
   const [saved, setSaved] = useState(false)
   const [saveError, setSaveError] = useState('')
   const [studentsError, setStudentsError] = useState('')
@@ -41,10 +42,12 @@ export default function InstructorAttendancePage() {
   }, [sectionId])
 
   useEffect(() => {
-    if (!sectionId || !date) { setAbsentSet(new Set()); return }
+    if (!sectionId || !date) { setAbsentSet(new Set()); setExcusedMap({}); return }
     let cancelled = false
-    getAttendanceForDate(sectionId, date).then((uids) => {
-      if (!cancelled) setAbsentSet(new Set(uids))
+    getAttendanceForDate(sectionId, date).then((records) => {
+      if (cancelled) return
+      setAbsentSet(new Set(records.map((r) => r.studentUid)))
+      setExcusedMap(Object.fromEntries(records.map((r) => [r.studentUid, r.excused])))
     })
     return () => { cancelled = true }
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -59,15 +62,28 @@ export default function InstructorAttendancePage() {
     })
   }
 
+  function setExcused(uid, excused) {
+    setExcusedMap((prev) => ({ ...prev, [uid]: excused }))
+  }
+
   async function handleSave() {
     setSaveError('')
     try {
-      const previousSet = new Set(await getAttendanceForDate(sectionId, date))
+      const previousRecords = await getAttendanceForDate(sectionId, date)
+      const previousMap = new Map(previousRecords.map((r) => [r.studentUid, r.excused]))
+
       for (const st of students) {
-        const wasAbsent = previousSet.has(st.id)
+        const wasAbsent = previousMap.has(st.id)
         const isAbsent = absentSet.has(st.id)
-        if (isAbsent && !wasAbsent) await setAbsent(st.id, sectionId, date)
-        else if (!isAbsent && wasAbsent) await setPresent(st.id, date)
+        const isExcused = !!excusedMap[st.id]
+
+        if (isAbsent && !wasAbsent) {
+          await setAbsent(st.id, sectionId, date, isExcused)
+        } else if (!isAbsent && wasAbsent) {
+          await setPresent(st.id, date)
+        } else if (isAbsent && wasAbsent && previousMap.get(st.id) !== isExcused) {
+          await updateExcused(st.id, date, isExcused)
+        }
       }
       setSaved(true)
       setTimeout(() => setSaved(false), 1800)
@@ -111,18 +127,42 @@ export default function InstructorAttendancePage() {
         {sectionId && date && (
           <>
             <p style={{ fontSize: '12.5px', color: 'var(--ink-faint)' }}>
-              علّم بس على الطلاب الغايبين — الباقي بيعتبر حاضر تلقائيًا:
+              علّم بس على الطلاب الغايبين — الباقي بيعتبر حاضر تلقائيًا. لو غايب بعذر، فعّل "بعذر":
             </p>
             {studentsError && <p className="auth-error">{studentsError}</p>}
             {!studentsError && students.length === 0 ? (
               <p style={{ fontSize: '12.5px', color: 'var(--ink-faint)' }}>ما في طلاب بهاي الشعبة بعد.</p>
             ) : (
-              students.map((st) => (
-                <label key={st.id} className="child-check-row">
-                  <input type="checkbox" checked={absentSet.has(st.id)} onChange={() => toggleAbsent(st.id)} />
-                  <span>{st.name}</span>
-                </label>
-              ))
+              students.map((st) => {
+                const isAbsent = absentSet.has(st.id)
+                const isExcused = !!excusedMap[st.id]
+                return (
+                  <div key={st.id} className="attendance-check-row">
+                    <label className="child-check-row">
+                      <input type="checkbox" checked={isAbsent} onChange={() => toggleAbsent(st.id)} />
+                      <span>{st.name}</span>
+                    </label>
+                    {isAbsent && (
+                      <div className="excuse-toggle">
+                        <button
+                          type="button"
+                          className={`excuse-toggle-btn${!isExcused ? ' active unexcused' : ''}`}
+                          onClick={() => setExcused(st.id, false)}
+                        >
+                          بدون عذر
+                        </button>
+                        <button
+                          type="button"
+                          className={`excuse-toggle-btn${isExcused ? ' active excused' : ''}`}
+                          onClick={() => setExcused(st.id, true)}
+                        >
+                          بعذر
+                        </button>
+                      </div>
+                    )}
+                  </div>
+                )
+              })
             )}
             <button className="btn btn-primary" onClick={handleSave} style={{ marginTop: '12px' }}>
               <i className="ti ti-device-floppy" /> حفظ الحضور

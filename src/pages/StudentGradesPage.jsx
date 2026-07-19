@@ -5,6 +5,7 @@ import { useMarks } from '../context/MarksContext'
 import { useQuizStats } from '../context/QuizStatsContext'
 import { useAttendance } from '../context/AttendanceContext'
 import { categoriesFor } from '../utils/gradeCategories'
+import AttendanceReport from '../components/AttendanceReport'
 
 export default function StudentGradesPage() {
   const { session } = useSession()
@@ -21,17 +22,8 @@ export default function StudentGradesPage() {
       <div className="eyebrow">درجاتي</div>
       <h2 className="page-title" style={{ marginBottom: '16px' }}>درجاتك بكل مادة</h2>
 
-      <div className="panel" style={{ maxWidth: '620px', marginBottom: '20px' }}>
-        <div className="analytics-title" style={{ marginBottom: '8px' }}>الحضور والغياب</div>
-        {absenceDates.length === 0 ? (
-          <p style={{ fontSize: '13px', color: 'var(--ink-soft)' }}>ما في غياب مسجّل عليك.</p>
-        ) : (
-          <>
-            <p style={{ fontSize: '13px', marginBottom: '6px' }}>عدد أيام الغياب: <strong>{absenceDates.length}</strong></p>
-            <p style={{ fontSize: '12.5px', color: 'var(--ink-soft)' }}>{absenceDates.join('، ')}</p>
-          </>
-        )}
-      </div>
+      <div className="eyebrow" style={{ marginBottom: '10px' }}>الحضور والغياب</div>
+      <AttendanceReport absences={absenceDates} />
 
       <div className="grade-subject-grid">
         {mySubjects.map((s, si) => {

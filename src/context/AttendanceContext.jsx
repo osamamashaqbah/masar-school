@@ -25,7 +25,7 @@ export function AttendanceProvider({ children }) {
     return () => unsub()
   }, [session])
 
-  // بيرجع مصفوفة uid تبع الطلاب الغايبين بهاي الشعبة بهاد التاريخ
+  // بيرجع {studentUid, excused} لكل طالب غايب بهاي الشعبة بهاد التاريخ
   async function getAttendanceForDate(sectionId, date) {
     const q = query(
       collection(db, 'attendance'),
@@ -34,15 +34,16 @@ export function AttendanceProvider({ children }) {
       where('sectionId', '==', sectionId)
     )
     const snap = await getDocs(q)
-    return snap.docs.map((d) => d.data().studentUid)
+    return snap.docs.map((d) => ({ studentUid: d.data().studentUid, excused: !!d.data().excused }))
   }
 
-  async function setAbsent(studentUid, sectionId, date) {
+  async function setAbsent(studentUid, sectionId, date, excused = false) {
     const docId = `${studentUid}_${date}`
     await setDoc(doc(db, 'attendance', docId), {
       studentUid,
       sectionId,
       date,
+      excused,
       teacherUid: session.uid,
       createdAt: Date.now(),
     })
@@ -52,9 +53,10 @@ export function AttendanceProvider({ children }) {
       const studentSnap = await getDoc(doc(db, 'users', studentUid))
       if (studentSnap.exists()) {
         const student = studentSnap.data()
-        await sendNotification(studentUid, `تسجّل غياب عليك بتاريخ ${date}.`, 'attendance')
+        const excuseText = excused ? 'بعذر' : 'بدون عذر'
+        await sendNotification(studentUid, `تسجّل غياب عليك (${excuseText}) بتاريخ ${date}.`, 'attendance')
         for (const parentUid of student.parentUids || []) {
-          await sendNotification(parentUid, `غاب/ت ${student.name} بتاريخ ${date}.`, 'attendance')
+          await sendNotification(parentUid, `غاب/ت ${student.name} (${excuseText}) بتاريخ ${date}.`, 'attendance')
         }
       }
     } catch {
@@ -62,18 +64,28 @@ export function AttendanceProvider({ children }) {
     }
   }
 
+  // تعديل حالة العذر لغياب مسجّل أصلاً، بدون إعادة إرسال إشعار غياب جديد
+  async function updateExcused(studentUid, date, excused) {
+    const docId = `${studentUid}_${date}`
+    await setDoc(doc(db, 'attendance', docId), { excused }, { merge: true })
+  }
+
   async function setPresent(studentUid, date) {
     const docId = `${studentUid}_${date}`
     await deleteDoc(doc(db, 'attendance', docId))
   }
 
+  // بيرجع [{date, excused}, ...] الأحدث أول
   function getAbsenceDatesFor(uid) {
     const pool = session?.role === 'student' ? myAbsences : childrenAbsences
-    return pool.filter((a) => a.studentUid === uid).map((a) => a.date).sort().reverse()
+    return pool
+      .filter((a) => a.studentUid === uid)
+      .map((a) => ({ date: a.date, excused: !!a.excused }))
+      .sort((a, b) => (a.date < b.date ? 1 : -1))
   }
 
   return (
-    <AttendanceContext.Provider value={{ getAttendanceForDate, setAbsent, setPresent, getAbsenceDatesFor }}>
+    <AttendanceContext.Provider value={{ getAttendanceForDate, setAbsent, setPresent, updateExcused, getAbsenceDatesFor }}>
       {children}
     </AttendanceContext.Provider>
   )

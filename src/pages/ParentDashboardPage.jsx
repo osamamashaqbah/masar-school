@@ -8,6 +8,7 @@ import { useMarks } from '../context/MarksContext'
 import { useQuizStats } from '../context/QuizStatsContext'
 import { useAttendance } from '../context/AttendanceContext'
 import { categoriesFor } from '../utils/gradeCategories'
+import AttendanceReport from '../components/AttendanceReport'
 
 export default function ParentDashboardPage() {
   const { session } = useSession()
@@ -57,20 +58,7 @@ export default function ParentDashboardPage() {
               </div>
             </div>
 
-            <div className="attendance-summary-card">
-              <div className="attendance-summary-icon"><i className="ti ti-calendar-event" /></div>
-              <div style={{ flex: 1 }}>
-                <div className="attendance-summary-title">الحضور والغياب</div>
-                {absenceDates.length === 0 ? (
-                  <p className="attendance-summary-empty">ما في غياب مسجّل — حضور كامل حتى الآن.</p>
-                ) : (
-                  <div className="attendance-date-chips">
-                    {absenceDates.map((d) => <span key={d} className="attendance-date-chip">{d}</span>)}
-                  </div>
-                )}
-              </div>
-              {absenceDates.length > 0 && <div className="attendance-summary-count">{absenceDates.length}</div>}
-            </div>
+            <AttendanceReport absences={absenceDates} />
 
             {childSubjects.length === 0 ? (
               <p style={{ color: 'var(--ink-soft)', fontSize: '13.5px' }}>ابنك/ابنتك ما إلها مواد مضافة بعد.</p>

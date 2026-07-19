@@ -15,16 +15,28 @@ export default function InstructorAnalyticsPage() {
   const [students, setStudents] = useState([])
   const [studentsError, setStudentsError] = useState('')
   const mySubjects = subjects.filter((s) => s.teacherUid === session.uid)
+  const myTaughtSectionIds = [...new Set(mySubjects.map((s) => s.sectionId))]
+  // Firestore بيرفض أي list query كامل (مش بس يفلتر) إذا القواعد ما قدرت تثبت إنه كل نتيجة محتملة
+  // مسموحة — فلازم نقيّد الاستعلام بنفس الشعب يلي القاعدة فعليًا بتسمح فيها (بدل ما نجيب كل الطلاب
+  // ونفلترهم بالكود، يلي كان يفشل بالكامل حتى لو المعلّم بيدرّس بعض الشعب).
+  const sectionIdsKey = myTaughtSectionIds.join(',')
 
   useEffect(() => {
-    const q = query(collection(db, 'users'), where('role', '==', 'student'))
+    if (myTaughtSectionIds.length === 0) { setStudents([]); return }
+    setStudentsError('')
+    const q = query(
+      collection(db, 'users'),
+      where('role', '==', 'student'),
+      where('sectionId', 'in', myTaughtSectionIds.slice(0, 30))
+    )
     const unsub = onSnapshot(
       q,
       (snap) => setStudents(snap.docs.map((d) => ({ id: d.id, ...d.data() }))),
       (err) => setStudentsError(`ما قدرنا نجيب لستة الطلاب (${err.code}). جرب تسجّل خروج ودخول من جديد، وإذا استمرت المشكلة تواصل مع إدارة المدرسة.`)
     )
     return () => unsub()
-  }, [])
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [sectionIdsKey])
 
   return (
     <div>

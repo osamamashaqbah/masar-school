@@ -253,22 +253,47 @@ function exportResultsToExcel() {
         </div>
       )}
       <div className="eyebrow" style={{ marginTop: '32px' }}>نظرة عامة</div>
-      <div className="analytics-list">
-        {grades.map((g) => (
-          <div className="analytics-row" key={g.id}>
-            <div className="analytics-title">{g.name}</div>
-            {getSectionsForGrade(g.id).map((s) => (
-              <div key={s.id} style={{ marginTop: '10px', paddingRight: '12px' }}>
-                <strong style={{ fontSize: '13px' }}>{s.name}</strong>
-                <ul className="lesson-list-mini">
-                  {getSubjectsForSection(s.id).map((sub) => (
-                    <li key={sub.id}>{sub.name} — {sub.teacherName}</li>
-                  ))}
-                </ul>
+      <div className="school-overview-grid">
+        {grades.map((g, gi) => {
+          const gradeSections = getSectionsForGrade(g.id)
+          const totalSubjects = gradeSections.reduce((sum, s) => sum + getSubjectsForSection(s.id).length, 0)
+
+          return (
+            <div className="school-grade-card animate-stagger" key={g.id} style={{ animationDelay: `${gi * 60}ms` }}>
+              <div className="school-grade-head">
+                <div className="school-grade-name">{g.name}</div>
+                <span className="school-grade-count">{gradeSections.length} شعبة</span>
               </div>
-            ))}
-          </div>
-        ))}
+
+              {gradeSections.length === 0 ? (
+                <p className="school-empty-note">ما في شعب مضافة لهاد الصف بعد.</p>
+              ) : (
+                gradeSections.map((s) => {
+                  const sectionSubjects = getSubjectsForSection(s.id)
+                  return (
+                    <div className="school-section-block" key={s.id}>
+                      <div className="school-section-name"><i className="ti ti-users-group" /> {s.name}</div>
+                      {sectionSubjects.length === 0 ? (
+                        <p className="school-empty-note">ما في مواد بهاي الشعبة بعد.</p>
+                      ) : (
+                        <div className="subject-chip-wrap">
+                          {sectionSubjects.map((sub) => (
+                            <span key={sub.id} className={`subject-chip${sub.teacherUid ? '' : ' unassigned'}`}>
+                              <i className={`ti ${sub.teacherUid ? 'ti-book-2' : 'ti-alert-triangle'}`} />
+                              {sub.name} <span className="subject-chip-teacher">— {sub.teacherName}</span>
+                            </span>
+                          ))}
+                        </div>
+                      )}
+                    </div>
+                  )
+                })
+              )}
+
+              <div className="school-grade-footer">{totalSubjects} مادة إجمالًا</div>
+            </div>
+          )
+        })}
       </div>
     </div>
   )

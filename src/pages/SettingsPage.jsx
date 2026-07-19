@@ -2,6 +2,42 @@ import { useState } from 'react'
 import { EmailAuthProvider, reauthenticateWithCredential, updatePassword } from 'firebase/auth'
 import { auth } from '../firebase'
 import { useSession } from '../context/SessionContext'
+import { useTheme } from '../context/ThemeContext'
+
+function ThemePickerSection() {
+  const { theme, setTheme, themes } = useTheme()
+
+  return (
+    <div style={{ marginBottom: '34px' }}>
+      <h3 style={{ fontSize: '16px', marginBottom: '4px' }}>مظهر المنصة</h3>
+      <p style={{ fontSize: '12.5px', color: 'var(--ink-soft)', margin: '0 0 16px' }}>اختر الثيم يلي بريحك أكثر. التغيير فوري.</p>
+      <div className="theme-picker-grid">
+        {themes.map((t) => (
+          <button
+            key={t.id}
+            type="button"
+            data-theme={t.id}
+            className={`theme-picker-card${theme === t.id ? ' selected' : ''}`}
+            onClick={() => setTheme(t.id)}
+            aria-pressed={theme === t.id}
+          >
+            <span className="theme-picker-check"><i className="ti ti-check" /></span>
+            <div className="theme-picker-swatches">
+              <span className="theme-picker-swatch" style={{ background: 'var(--accent)' }} />
+              <span className="theme-picker-swatch" style={{ background: 'var(--paper-deep)' }} />
+              <span className="theme-picker-swatch" style={{ background: 'var(--ink)' }} />
+            </div>
+            <div className="theme-picker-name">
+              {t.label}
+              <span className="theme-picker-mode-tag">{t.mode === 'dark' ? 'داكن' : 'فاتح'}</span>
+            </div>
+            <div className="theme-picker-desc">{t.desc}</div>
+          </button>
+        ))}
+      </div>
+    </div>
+  )
+}
 
 export default function SettingsPage() {
   const { session } = useSession()
@@ -46,8 +82,11 @@ export default function SettingsPage() {
   return (
     <div>
       <div className="eyebrow">الإعدادات</div>
-      <h2 className="page-title" style={{ marginBottom: '20px' }}>تغيير كلمة السر</h2>
+      <h2 className="page-title" style={{ marginBottom: '24px' }}>الإعدادات</h2>
 
+      <ThemePickerSection />
+
+      <h3 style={{ fontSize: '16px', marginBottom: '14px' }}>تغيير كلمة السر</h3>
       <form className="panel animate-stagger" style={{ maxWidth: '440px' }} onSubmit={handleSubmit}>
         <div className="field">
           <label htmlFor="current-password">كلمة السر الحالية</label>

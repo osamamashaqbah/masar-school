@@ -65,7 +65,7 @@ export default function Login() {
       <p className="sub login-sub-anim">منصة مدرسية</p>
 
       {mode === 'login' ? (
-        <form className="login-card login-card-anim" onSubmit={handleSubmit}>
+        <form key="login" className="login-card login-card-anim animate-scale-in" onSubmit={handleSubmit}>
           <div className="field">
             <label htmlFor="email">البريد الإلكتروني</label>
             <input id="email" type="email" placeholder="example@mail.com" value={email} onChange={(e) => setEmail(e.target.value)} required />
@@ -84,7 +84,7 @@ export default function Login() {
           <p className="login-note">الحسابات تُنشأ من إدارة المدرسة فقط.</p>
         </form>
       ) : (
-        <form className="login-card login-card-anim" onSubmit={handleReset}>
+        <form key="reset" className="login-card login-card-anim animate-scale-in" onSubmit={handleReset}>
           <p style={{ fontSize: '13.5px', color: 'var(--ink-soft)', margin: '0 0 16px', lineHeight: '1.8' }}>
             اكتب بريدك الإلكتروني، ورح نبعتلك رابط تغيّر منه كلمة سرك.
           </p>

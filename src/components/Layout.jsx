@@ -146,7 +146,9 @@ export default function Layout() {
         </div>
       </aside>
 
-      <main className="main"><Outlet /></main>
+      <main className="main">
+        <div key={location.pathname} className="page-transition"><Outlet /></div>
+      </main>
     </div>
   )
 }

@@ -35,14 +35,19 @@ export default function Dashboard() {
         </div>
       ) : (
         <div className="course-grid">
-          {mySubjects.map((s) => {
+          {mySubjects.map((s, i) => {
             const done = progress[s.id] || 0
             const total = s.lessons.length || 1
             const pct = Math.round((done / total) * 100)
             const { circumference, offset } = ringSvg(pct)
 
             return (
-              <div className="course-card-flat animate-stagger" key={s.id} onClick={() => navigate(`/app/subject/${s.id}`)}>
+              <div
+                className="course-card-flat card-hover-lift animate-stagger"
+                key={s.id}
+                style={{ animationDelay: `${i * 45}ms` }}
+                onClick={() => navigate(`/app/subject/${s.id}`)}
+              >
                 <div className="course-card-top">
                   <span className="tag tag-pine">مادة</span>
                   <div className="course-ring">

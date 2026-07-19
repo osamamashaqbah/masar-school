@@ -54,6 +54,11 @@ export default function Layout() {
 
   return (
     <div className="app">
+      <div className="mesh-bg" aria-hidden="true">
+        <div className="mesh-blob" />
+        <div className="mesh-blob" />
+        <div className="mesh-blob" />
+      </div>
       <button className="mobile-menu-btn" onClick={() => setMenuOpen(true)} aria-label="فتح القائمة"><i className="ti ti-menu-2" /></button>
       {menuOpen && <div className="sidebar-overlay" onClick={closeMenu} />}
 

@@ -55,6 +55,7 @@ export default function Layout() {
   return (
     <div className="app">
       <div className="mesh-bg" aria-hidden="true">
+        <div className="aurora-ring" />
         <div className="mesh-blob" />
         <div className="mesh-blob" />
         <div className="mesh-blob" />

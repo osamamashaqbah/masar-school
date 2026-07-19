@@ -1,0 +1,234 @@
+rules_version = '2';
+
+service cloud.firestore {
+
+  match /databases/{database}/documents {
+
+    // ===================== Helpers =====================
+
+    function isSignedIn() { return request.auth != null; }
+
+    function isOwner() {
+      return isSignedIn() && request.auth.token.email == 'osamaplus17@gmail.com';
+    }
+
+    function myData() {
+      return get(/databases/$(database)/documents/users/$(request.auth.uid)).data;
+    }
+
+    function myRole() { return myData().role; }
+    function mySectionId() { return myData().sectionId; }
+
+    function isInstructor() { return isSignedIn() && myRole() == 'instructor'; }
+    function isStudent() { return isSignedIn() && myRole() == 'student'; }
+    function isParent() { return isSignedIn() && myRole() == 'parent'; }
+
+    function isParentOf(uid) {
+      return isParent() && myData().childUids.hasAny([uid]);
+    }
+
+    function subjectData(subjectId) {
+      return get(/databases/$(database)/documents/subjects/$(subjectId)).data;
+    }
+
+    function teachesSubject(subjectId) {
+      return isInstructor() && subjectData(subjectId).teacherUid == request.auth.uid;
+    }
+
+    // بالنسبة للمادة: يقدر يشوفها المعلّم يلي بيدرّسها، أو الإدارة، أو أي حدا بنفس شعبة المادة
+    function inSectionOfSubject(subjectId) {
+      return isSignedIn() && mySectionId() == subjectData(subjectId).sectionId;
+    }
+
+    // هل قسم/شعبة الطالب (studentUid) نفس الشعبة المعطاة
+    function studentInSection(studentUid, sectionId) {
+      return get(/databases/$(database)/documents/users/$(studentUid)).data.sectionId == sectionId;
+    }
+
+    // شعب المعلّم يلي فعلاً بيدرّسها (محفوظة على وثيقة المعلّم نفسه، ومحدثة فقط من addSubject
+    // يلي هي عملية إدارة حصراً - owner). هاد بديل عن استعلام "where" غير المتاح جوا القواعد
+    function myTaughtSectionIds() {
+      return isInstructor() && ('taughtSectionIds' in myData()) ? myData().taughtSectionIds : [];
+    }
+
+    // هل المعلّم فعلاً بيدرّس هالمادة، وكمان الطالب studentUid بشعبة هالمادة
+    // (بيستبدل الاعتماد القديم على isInstructor() المجردة بربط حقيقي بين المعلّم والطالب)
+    function teachesStudentInSubject(subjectId, studentUid) {
+      return teachesSubject(subjectId) && studentInSection(studentUid, subjectData(subjectId).sectionId);
+    }
+
+    // ===================== users =====================
+    match /users/{uid} {
+      allow read: if isSignedIn() && (
+        request.auth.uid == uid
+        || isOwner()
+        || isParentOf(uid)
+        // المعلّم يشوف بس الطلاب يلي فعلاً بشعبة مادة بيدرّسها (وليس أي طالب بالمدرسة)
+        || (isInstructor() && resource.data.role == 'student' && resource.data.sectionId in myTaughtSectionIds())
+      );
+      allow create: if isOwner()
+        && request.resource.data.keys().hasAll(['name', 'role', 'email'])
+        && request.resource.data.role in ['student', 'instructor', 'parent'];
+      allow update, delete: if isOwner();
+    }
+
+    // ===================== grades / sections =====================
+    match /grades/{id} {
+      allow read: if isSignedIn();
+      allow write: if isOwner();
+    }
+    match /sections/{id} {
+      allow read: if isSignedIn();
+      allow write: if isOwner();
+    }
+
+    // ===================== subjects =====================
+    match /subjects/{id} {
+      allow read: if isSignedIn();
+      allow create: if isOwner();
+      allow delete: if isOwner();
+      allow update: if isOwner() || (
+        teachesSubject(id)
+        && request.resource.data.teacherUid == resource.data.teacherUid
+        && request.resource.data.sectionId == resource.data.sectionId
+      );
+    }
+
+    // ===================== progress =====================
+    match /progress/{docId} {
+      allow read: if isSignedIn() && (
+        resource.data.uid == request.auth.uid
+        || isParentOf(resource.data.uid)
+        || teachesSubject(resource.data.subjectId)
+        || isOwner()
+      );
+      // حدّينا completedLessons بحد أعلى معقول حتى ما يقدر الطالب يزوّر رقم عشوائي كبير
+      allow create, update: if isStudent()
+        && request.resource.data.uid == request.auth.uid
+        && request.resource.data.keys().hasAll(['uid', 'subjectId', 'completedLessons'])
+        && request.resource.data.completedLessons is int
+        && request.resource.data.completedLessons >= 0
+        && request.resource.data.completedLessons <= 10000
+        // بالتحديث: ما يقدر يرجّع الرقم للخلف (يمنع تصفير التقدم قصداً وإعادة تسجيله لاحقاً بشكل ملتبس)
+        && (!exists(/databases/$(database)/documents/progress/$(docId)) || request.resource.data.completedLessons >= resource.data.completedLessons);
+      allow delete: if false;
+    }
+
+    // ===================== homework =====================
+    match /homework/{hwId} {
+      allow read: if isSignedIn();
+      allow create: if teachesSubject(request.resource.data.courseId)
+        && request.resource.data.keys().hasAll(['courseId', 'title', 'deadline']);
+      allow update, delete: if false;
+    }
+
+    // ===================== submissions =====================
+    match /submissions/{subId} {
+      allow read: if isSignedIn() && (
+        resource.data.studentUid == request.auth.uid
+        || isParentOf(resource.data.studentUid)
+        || teachesSubject(get(/databases/$(database)/documents/homework/$(resource.data.homeworkId)).data.courseId)
+        || isOwner()
+      );
+      allow create: if isStudent() && request.resource.data.studentUid == request.auth.uid;
+      allow update: if isStudent()
+        && resource.data.studentUid == request.auth.uid
+        && request.resource.data.studentUid == request.auth.uid
+        && !exists(/databases/$(database)/documents/marks/$(request.auth.uid + '_' + get(/databases/$(database)/documents/homework/$(resource.data.homeworkId)).data.courseId + '_homework'));
+      allow delete: if false;
+    }
+
+    // ===================== quizStats =====================
+    match /quizStats/{statId} {
+      allow read: if isSignedIn() && (
+        resource.data.uid == request.auth.uid
+        || isParentOf(resource.data.uid)
+        || teachesSubject(resource.data.subjectId)
+        || isOwner()
+      );
+      allow create, update: if isStudent()
+        && request.resource.data.uid == request.auth.uid
+        && request.resource.data.keys().hasAll(['uid', 'subjectId', 'score', 'maxScore'])
+        && request.resource.data.score is number
+        && request.resource.data.maxScore is number
+        && request.resource.data.score >= 0
+        && request.resource.data.score <= request.resource.data.maxScore;
+      allow delete: if false;
+    }
+
+    // ===================== notifications =====================
+    match /notifications/{notifId} {
+      allow read: if isSignedIn() && resource.data.recipientUid == request.auth.uid;
+      allow create: if isSignedIn() && (
+        (request.resource.data.recipientUid == request.auth.uid)
+        || (
+          (isInstructor() || isOwner())
+          && request.resource.data.keys().hasAll(['recipientUid', 'message', 'type'])
+          && request.resource.data.type in ['info', 'grade', 'homework', 'attendance', 'warning']
+        )
+      );
+      allow update: if isSignedIn() && resource.data.recipientUid == request.auth.uid
+        && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['read']);
+      allow delete: if false;
+    }
+
+    // ===================== notes =====================
+    match /notes/{noteId} {
+      allow read: if isSignedIn();
+      allow create, update: if teachesSubject(request.resource.data.courseId)
+        && request.resource.data.instructorUid == request.auth.uid;
+      allow delete: if false;
+    }
+
+    // ===================== questions =====================
+    match /questions/{qId} {
+      allow read: if isSignedIn() && (
+        resource.data.studentUid == request.auth.uid
+        || teachesSubject(resource.data.subjectId)
+        || isOwner()
+      );
+      allow create: if isStudent() && request.resource.data.studentUid == request.auth.uid;
+      allow update: if teachesSubject(resource.data.subjectId)
+        && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['answer', 'answeredAt']);
+      allow delete: if false;
+    }
+
+    // ===================== marks =====================
+    match /marks/{markId} {
+      allow read: if isSignedIn() && (
+        resource.data.studentUid == request.auth.uid
+        || isParentOf(resource.data.studentUid)
+        || resource.data.teacherUid == request.auth.uid
+        || isOwner()
+      );
+      // لازم يكون معلّم المادة نفسها، وكمان الطالب فعلاً بشعبة هالمادة (مو أي طالب بالمدرسة)
+      allow create: if teachesStudentInSubject(request.resource.data.subjectId, request.resource.data.studentUid)
+        && request.resource.data.teacherUid == request.auth.uid
+        && request.resource.data.keys().hasAll(['subjectId', 'studentUid', 'categoryId', 'score', 'maxScore', 'teacherUid']);
+      // بالتحديث: ممنوع تغيير هوية الطالب أو المادة أو صاحب العلامة الأصلي (يمنع "سرقة"/نقل علامة طالب لطالب تاني)
+      allow update: if teachesStudentInSubject(request.resource.data.subjectId, request.resource.data.studentUid)
+        && request.resource.data.teacherUid == request.auth.uid
+        && resource.data.teacherUid == request.auth.uid
+        && resource.data.studentUid == request.resource.data.studentUid
+        && resource.data.subjectId == request.resource.data.subjectId
+        && request.resource.data.keys().hasAll(['subjectId', 'studentUid', 'categoryId', 'score', 'maxScore', 'teacherUid']);
+      allow delete: if false;
+    }
+
+    // ===================== attendance =====================
+    match /attendance/{attId} {
+      allow read: if isSignedIn() && (
+        resource.data.studentUid == request.auth.uid
+        || isParentOf(resource.data.studentUid)
+        || resource.data.teacherUid == request.auth.uid
+        || isOwner()
+      );
+      allow create, update: if isInstructor()
+        && request.resource.data.teacherUid == request.auth.uid
+        && studentInSection(request.resource.data.studentUid, request.resource.data.sectionId);
+      allow delete: if isInstructor() && resource.data.teacherUid == request.auth.uid;
+    }
+
+    // كل شي مو مذكور فوق ممنوع تلقائياً (سلوك Firestore الافتراضي أصلاً)
+  }
+}

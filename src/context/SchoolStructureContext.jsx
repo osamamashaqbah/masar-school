@@ -39,6 +39,11 @@ export function SchoolStructureProvider({ children }) {
         { id: 'final', label: 'الاختبار النهائي', weight: 40, auto: false },
       ],
     })
+    // نسجّل الشعبة على وثيقة المعلّم حتى تقدر قواعد Firestore تتحقق إنو المعلّم فعلاً
+    // مرتبط بهاي الشعبة قبل ما تسمحله يقرا/يكتب بيانات طلابها (marks/progress/users...)
+    if (teacherUid) {
+      await updateDoc(doc(db, 'users', teacherUid), { taughtSectionIds: arrayUnion(sectionId) })
+    }
   }
 
   function getSectionsForGrade(gradeId) {

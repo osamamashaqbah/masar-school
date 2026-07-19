@@ -87,12 +87,12 @@ a{
   text-decoration:none;
 }
 
-/* خلفية زخرفية */
+/* خلفية زخرفية - خفّفناها حتى تناسب هوية مدرسة خاصة أكثر جدّية (بدل الطابع اللعوب) */
 body::before, body::after{
   content:''; position:fixed; border-radius:50%; z-index:0; pointer-events:none; filter:blur(2px);
 }
-body::before{ width:420px; height:420px; background:var(--accent-bg); opacity:0.35; top:-160px; left:-160px; }
-body::after{ width:360px; height:360px; background:var(--paper-deep); opacity:0.5; bottom:-140px; left:35%; }
+body::before{ width:320px; height:320px; background:var(--accent-bg); opacity:0.18; top:-140px; left:-140px; }
+body::after{ width:280px; height:280px; background:var(--paper-deep); opacity:0.3; bottom:-120px; left:35%; }
 
 .app{ display:flex; min-height:100vh; }
 
@@ -556,10 +556,16 @@ body::after{ width:360px; height:360px; background:var(--paper-deep); opacity:0.
 }
 @keyframes bell-ring{
   0%, 100%{ transform: rotate(0); }
-  20%{ transform: rotate(-12deg); }
-  40%{ transform: rotate(10deg); }
-  60%{ transform: rotate(-6deg); }
-  80%{ transform: rotate(4deg); }
+  20%{ transform: rotate(-10deg); }
+  40%{ transform: rotate(8deg); }
+  60%{ transform: rotate(-4deg); }
+  80%{ transform: rotate(3deg); }
+}
+/* رنّة واحدة فقط لأيقونة الجرس لما يكون في إشعار غير مقروء (مو تكرار لا نهائي) */
+.notif-bell-row.has-unread i.ti-bell{
+  display: inline-block;
+  transform-origin: top center;
+  animation: bell-ring .5s ease-in-out 1;
 }
 
 .animate-pop{ animation: pop-in .35s ease; }
@@ -667,18 +673,18 @@ body::after{ width:360px; height:360px; background:var(--paper-deep); opacity:0.
   margin-top: 8px;
 }
 
-/* شعار "مسار" بالـ Sidebar - نبضة خفيفة جداً كل فترة (يبقي العلامة حيّة بدون ما تكون مزعجة) */
+/* شعار "مسار" بالـ Sidebar - نبضة واحدة عند التحميل فقط (بدل النبض اللانهائي اللي كان مشتت بواجهة مؤسسية) */
 .brand-mark{ position: relative; z-index: 1; }
 .brand-mark::before{
   content: '';
   position: absolute; inset: 0; border-radius: inherit;
   background: var(--accent);
-  animation: beacon-pulse 2.8s ease-out infinite;
+  animation: beacon-pulse-once 1s ease-out 1;
   z-index: -1;
 }
-@keyframes beacon-pulse{
+@keyframes beacon-pulse-once{
   0%{ opacity: 0.5; transform: scale(1); }
-  100%{ opacity: 0; transform: scale(1.9); }
+  100%{ opacity: 0; transform: scale(1.5); }
 }
 
 .notif-popover{
@@ -733,6 +739,38 @@ body::after{ width:360px; height:360px; background:var(--paper-deep); opacity:0.
 
 .children-checklist{ display: flex; flex-direction: column; gap: 6px; max-height: 180px; overflow-y: auto; }
 .child-check-row{ display: flex; align-items: center; gap: 8px; font-size: 13px; cursor: pointer; }
+
+/* ---------- تركيز واضح لكل عناصر التحكم (تنقّل بلوحة المفاتيح) — كان ناقص بكل الواجهات ---------- */
+.btn:focus-visible,
+.nav-item:focus-visible,
+.link-btn:focus-visible,
+.theme-swatch:focus-visible,
+.theme-dot:focus-visible,
+a:focus-visible,
+button:focus-visible,
+input:focus-visible,
+select:focus-visible,
+textarea:focus-visible{
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+
+/* ---------- حدّ أدنى لحجم اللمس على الموبايل (44×44) لكل الأزرار الأيقونية ---------- */
+@media (max-width: 720px){
+  .mobile-menu-btn, .mobile-close-btn, .logout-btn, .theme-swatch, .theme-dot{
+    min-width: 44px; min-height: 44px;
+  }
+}
+
+/* ---------- احترام تفضيل تقليل الحركة على مستوى النظام ---------- */
+@media (prefers-reduced-motion: reduce){
+  *, *::before, *::after{
+    animation-duration: 0.001ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.001ms !important;
+    scroll-behavior: auto !important;
+  }
+}
 
 
 

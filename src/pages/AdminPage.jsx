@@ -187,6 +187,13 @@ export default function AdminPage() {
                   الأبناء: {u.childUids.map((cid) => users.find((x) => x.id === cid)?.name || '؟').join('، ')}
                 </div>
               )}
+              {u.role === 'student' && (
+                <div style={{ fontSize: '11px', marginTop: '2px', color: u.parentUids?.length > 0 ? 'var(--ink-faint)' : 'var(--berry)' }}>
+                  {u.parentUids?.length > 0
+                    ? `ولي الأمر: ${u.parentUids.map((pid) => users.find((x) => x.id === pid)?.name || '؟').join('، ')}`
+                    : 'ما في ولي أمر مرتبط — ما رح توصله إشعارات'}
+                </div>
+              )}
             </div>
             <span className="tag" style={{ background: roleColor(u.role) + '22', color: roleColor(u.role) }}>
               {roleLabel(u.role)}

@@ -74,12 +74,18 @@ export function MarksProvider({ children }) {
         const label = category?.label || 'درجة'
         const scoreText = `${Number(score)}/${Number(maxScore)}`
         await sendNotification(studentUid, `انحطّت لك علامة جديدة بمادة ${subject.name} (${label}): ${scoreText}.`, 'grade')
+        if (!student.parentUids || student.parentUids.length === 0) {
+          console.warn(`[إشعارات] الطالب ${student.name} (${studentUid}) ما إله parentUids — ما رح يوصل إشعار لولي أمره.`)
+        }
         for (const parentUid of student.parentUids || []) {
           await sendNotification(parentUid, `حصل/ت ${student.name} على ${scoreText} بمادة ${subject.name} (${label}).`, 'grade')
         }
+      } else {
+        console.warn('[إشعارات] ما لقينا وثيقة الطالب أو المادة', { studentExists: studentSnap.exists(), subjectExists: subjectSnap.exists() })
       }
-    } catch {
-      // ما منوقف عملية حفظ العلامة بسبب فشل الإشعار
+    } catch (err) {
+      // ما منوقف عملية حفظ العلامة بسبب فشل الإشعار، بس نسجّل الخطأ حتى نقدر نشخّصه
+      console.error('[إشعارات] فشل إرسال إشعار العلامة:', err)
     }
   }
 

@@ -55,12 +55,18 @@ export function AttendanceProvider({ children }) {
         const student = studentSnap.data()
         const excuseText = excused ? 'بعذر' : 'بدون عذر'
         await sendNotification(studentUid, `تسجّل غياب عليك (${excuseText}) بتاريخ ${date}.`, 'attendance')
+        if (!student.parentUids || student.parentUids.length === 0) {
+          console.warn(`[إشعارات] الطالب ${student.name} (${studentUid}) ما إله parentUids — ما رح يوصل إشعار لولي أمره.`)
+        }
         for (const parentUid of student.parentUids || []) {
           await sendNotification(parentUid, `غاب/ت ${student.name} (${excuseText}) بتاريخ ${date}.`, 'attendance')
         }
+      } else {
+        console.warn('[إشعارات] ما لقينا وثيقة الطالب', studentUid)
       }
-    } catch {
-      // ما منوقف عملية تسجيل الحضور بسبب فشل الإشعار
+    } catch (err) {
+      // ما منوقف عملية تسجيل الحضور بسبب فشل الإشعار، بس نسجّل الخطأ حتى نقدر نشخّصه
+      console.error('[إشعارات] فشل إرسال إشعار الغياب:', err)
     }
   }
 

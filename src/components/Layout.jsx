@@ -1,8 +1,7 @@
-import { useState } from 'react'
+import { useState, useEffect, useRef } from 'react'
 import { NavLink, Outlet, Navigate, useLocation } from 'react-router-dom'
 import { useSession } from '../context/SessionContext'
 import { useNotifications } from '../context/NotificationContext'
-import { useSchoolStructure } from '../context/SchoolStructureContext'
 import { getAvatar } from '../utils/avatars'
 
 function roleLabel(role) {
@@ -28,19 +27,48 @@ function timeAgo(ts) {
   return ts.toDate().toLocaleDateString('ar-EG', { dateStyle: 'short' })
 }
 
+const instructorLinks = [
+  { to: '/app/instructor', icon: 'ti-layout-grid', label: 'نظرة عامة' },
+  { to: '/app/instructor/lessons', icon: 'ti-plus', label: 'إضافة دروس' },
+  { to: '/app/instructor/materials', icon: 'ti-paperclip', label: 'مرفقات إضافية' },
+  { to: '/app/instructor/homework', icon: 'ti-clipboard-list', label: 'الواجبات' },
+  { to: '/app/instructor/notes', icon: 'ti-notes', label: 'ملاحظات الدروس' },
+  { to: '/app/instructor/analytics', icon: 'ti-chart-bar', label: 'دفتر الدرجات' },
+  { to: '/app/instructor/questions', icon: 'ti-message-question', label: 'أسئلة الطلاب' },
+  { to: '/app/instructor/grade-homework', icon: 'ti-checkbox', label: 'تقييم الواجبات' },
+  { to: '/app/instructor/manual-grades', icon: 'ti-certificate', label: 'الدرجات اليدوية' },
+  { to: '/app/instructor/attendance', icon: 'ti-calendar-check', label: 'الحضور والغياب' },
+]
+
 export default function Layout() {
   const { session, logout, authLoading } = useSession()
   const { notifications, unreadCount, markAsRead, markAllAsRead } = useNotifications()
-  const { subjects } = useSchoolStructure()
   const location = useLocation()
 
-  const [menuOpen, setMenuOpen] = useState(false)
   const [notifOpen, setNotifOpen] = useState(false)
-  const [instructorMenuOpen, setInstructorMenuOpen] = useState(location.pathname.startsWith('/app/instructor'))
+  const [instructorOpen, setInstructorOpen] = useState(false)
+  const [sheetOpen, setSheetOpen] = useState(false)
+  const navRef = useRef(null)
 
-  // بيانات الدخول المحفوظة بتتفحّص بشكل غير متزامن (Firebase Auth) — بدون هاد الانتظار كنا
-  // نطرد المستخدم لصفحة الدخول لحظيًا بكل refresh لحد ما تكتمل عملية التحقق، وكانت بتبين وكأنه
-  // طلع من حسابه فعليًا رغم إنه كان لسا مسجّل دخول.
+  // إغلاق أي قائمة منسدلة عند تغيير الصفحة
+  useEffect(() => {
+    setNotifOpen(false)
+    setInstructorOpen(false)
+    setSheetOpen(false)
+  }, [location.pathname])
+
+  // إغلاق القوائم عند الضغط خارجها
+  useEffect(() => {
+    function onDocClick(e) {
+      if (navRef.current && !navRef.current.contains(e.target)) {
+        setNotifOpen(false)
+        setInstructorOpen(false)
+      }
+    }
+    document.addEventListener('pointerdown', onDocClick)
+    return () => document.removeEventListener('pointerdown', onDocClick)
+  }, [])
+
   if (authLoading) {
     return (
       <div className="auth-loading-screen">
@@ -52,128 +80,179 @@ export default function Layout() {
   if (!session) return <Navigate to="/" replace />
 
   const myAvatar = getAvatar(session.avatarId)
+  const isInstructorPath = location.pathname.startsWith('/app/instructor')
 
-  function closeMenu() { setMenuOpen(false) }
   function handleNotifClick(n) { if (!n.read) markAsRead(n.id) }
 
-  const instructorLinks = [
-    { to: '/app/instructor', icon: 'ti-layout-grid', label: 'نظرة عامة' },
-    { to: '/app/instructor/lessons', icon: 'ti-plus', label: 'إضافة دروس' },
-    { to: '/app/instructor/materials', icon: 'ti-paperclip', label: 'مرفقات إضافية' },
-    { to: '/app/instructor/homework', icon: 'ti-clipboard-list', label: 'الواجبات' },
-    { to: '/app/instructor/notes', icon: 'ti-notes', label: 'ملاحظات الدروس' },
-    { to: '/app/instructor/analytics', icon: 'ti-chart-bar', label: 'دفتر الدرجات' },
-    { to: '/app/instructor/questions', icon: 'ti-message-question', label: 'أسئلة الطلاب' },
-    { to: '/app/instructor/grade-homework', icon: 'ti-checkbox', label: 'تقييم الواجبات' },
-    { to: '/app/instructor/manual-grades', icon: 'ti-certificate', label: 'الدرجات اليدوية' },
-    { to: '/app/instructor/attendance', icon: 'ti-calendar-check', label: 'الحضور والغياب' },
-  ]
+  const navClass = ({ isActive }) => 'nav-pill' + (isActive ? ' active' : '')
+
+  const roleLinks = []
+  if (session.role === 'parent') roleLinks.push({ to: '/app/parent-dashboard', icon: 'ti-user-heart', label: 'متابعة أبنائي' })
+  if (session.role === 'student') {
+    roleLinks.push({ to: '/app/dashboard', icon: 'ti-route', label: 'لوحتي' })
+    roleLinks.push({ to: '/app/grades', icon: 'ti-certificate', label: 'درجاتي' })
+  }
+  if (session.role === 'owner') {
+    roleLinks.push({ to: '/app/admin', icon: 'ti-user-cog', label: 'إدارة المستخدمين' })
+    roleLinks.push({ to: '/app/school-structure', icon: 'ti-building-community', label: 'هيكل المدرسة' })
+  }
+
+  const notifPopover = notifOpen && (
+    <div className="notif-popover">
+      <div className="notif-popover-header">
+        <span>الإشعارات</span>
+        {unreadCount > 0 && <button className="mark-all-read-btn" onClick={markAllAsRead}>تحديد الكل كمقروء</button>}
+      </div>
+      <div className="notif-popover-list">
+        {notifications.length === 0 ? <p className="notif-empty">ما في إشعارات بعد.</p> : (
+          notifications.slice(0, 20).map((n) => (
+            <div key={n.id} className={`notif-item-clean${!n.read ? ' unread' : ''}`} onClick={() => handleNotifClick(n)}>
+              <i className={`ti ${notifIcon(n.type)} notif-item-icon ${n.type}`} />
+              <div className="notif-item-body">
+                <div className="notif-item-text">{n.message}</div>
+                <div className="notif-time">{timeAgo(n.createdAt)}</div>
+              </div>
+            </div>
+          ))
+        )}
+      </div>
+    </div>
+  )
 
   return (
     <div className="app">
-      <div className="mesh-bg" aria-hidden="true">
-        <div className="aurora-ring" />
-        <div className="mesh-blob" />
-        <div className="mesh-blob" />
-        <div className="mesh-blob" />
+      {/* الخلفية الحيّة: شفق دوّار + كرات ضوء + شبكة نقاط */}
+      <div className="bg-scene" aria-hidden="true">
+        <div className="bg-aurora" />
+        <div className="bg-orb orb-1" />
+        <div className="bg-orb orb-2" />
+        <div className="bg-orb orb-3" />
+        <div className="bg-grid" />
       </div>
-      <button className="mobile-menu-btn" onClick={() => setMenuOpen(true)} aria-label="فتح القائمة"><i className="ti ti-menu-2" /></button>
-      {menuOpen && <div className="sidebar-overlay" onClick={closeMenu} />}
 
-      <aside className={`sidebar${menuOpen ? ' open' : ''}`}>
-        <div className="sidebar-top">
-          <div className="brand"><div className="brand-mark"><i className="ti ti-school" /></div><div className="brand-name">مسار</div></div>
-          <button className="mobile-close-btn" onClick={closeMenu} aria-label="إغلاق"><i className="ti ti-x" /></button>
+      <header className="topnav" ref={navRef}>
+        <div className="brand">
+          <div className="brand-mark"><i className="ti ti-school" /></div>
+          <div className="brand-name">مسار</div>
         </div>
 
-        <div style={{ position: 'relative' }}>
-          <button className={`nav-item notif-bell-row${unreadCount > 0 ? ' has-unread' : ''}`} onClick={() => setNotifOpen((o) => !o)}>
-            <i className="ti ti-bell" /> الإشعارات
-            {unreadCount > 0 && <span className="pending-count-badge">{unreadCount}</span>}
-          </button>
-          {notifOpen && (
-            <div className="notif-popover">
-              <div className="notif-popover-header">
-                <span>الإشعارات</span>
-                {unreadCount > 0 && <button className="mark-all-read-btn" onClick={markAllAsRead}>تحديد الكل كمقروء</button>}
-              </div>
-              <div className="notif-popover-list">
-                {notifications.length === 0 ? <p className="notif-empty">ما في إشعارات بعد.</p> : (
-                  notifications.slice(0, 20).map((n) => (
-                    <div key={n.id} className={`notif-item-clean${!n.read ? ' unread' : ''}`} onClick={() => handleNotifClick(n)}>
-                      <i className={`ti ${notifIcon(n.type)} notif-item-icon ${n.type}`} />
-                      <div className="notif-item-body">
-                        <div className="notif-item-text">{n.message}</div>
-                        <div className="notif-time">{timeAgo(n.createdAt)}</div>
-                      </div>
-                    </div>
-                  ))
-                )}
-              </div>
+        <nav className="topnav-links">
+          {roleLinks.map((l) => (
+            <NavLink key={l.to} to={l.to} className={navClass}>
+              <i className={`ti ${l.icon}`} /> <span>{l.label}</span>
+            </NavLink>
+          ))}
+
+          {session.role === 'instructor' && (
+            <div className="nav-dropdown-wrap">
+              <button
+                className={`nav-pill dropdown-toggle${isInstructorPath ? ' active' : ''}${instructorOpen ? ' open' : ''}`}
+                onClick={() => { setInstructorOpen((o) => !o); setNotifOpen(false) }}
+              >
+                <i className="ti ti-chalkboard" /> <span>لوحة المعلّم</span>
+                <i className="ti ti-chevron-down dropdown-chevron" />
+              </button>
+              {instructorOpen && (
+                <div className="nav-dropdown">
+                  {instructorLinks.map((link, idx) => (
+                    <NavLink
+                      key={link.to} to={link.to} end={link.to === '/app/instructor'}
+                      style={{ animationDelay: `${idx * 28}ms` }}
+                      className={({ isActive }) => 'dropdown-item' + (isActive ? ' active' : '')}
+                    >
+                      <i className={`ti ${link.icon}`} /> {link.label}
+                    </NavLink>
+                  ))}
+                </div>
+              )}
             </div>
           )}
-        </div>
 
-       {session.role === 'parent' ? (
-          <NavLink to="/app/parent-dashboard" onClick={closeMenu} className={({ isActive }) => 'nav-item' + (isActive ? ' active' : '')}>
-            <i className="ti ti-user-heart" /> متابعة أبنائي
+          <NavLink to="/app/settings" className={navClass}>
+            <i className="ti ti-settings" /> <span>الإعدادات</span>
           </NavLink>
-        ) : session.role === 'student' ? (
-          <NavLink to="/app/dashboard" onClick={closeMenu} className={({ isActive }) => 'nav-item' + (isActive ? ' active' : '')}>
-            <i className="ti ti-route" /> لوحتي
-          </NavLink>
-        ) : null}
-        {session.role === 'student' && (
-          <NavLink to="/app/grades" onClick={closeMenu} className={({ isActive }) => 'nav-item' + (isActive ? ' active' : '')}>
-            <i className="ti ti-certificate" /> درجاتي
-          </NavLink>
-        )}
+        </nav>
 
-        {session.role === 'owner' && (
-          <>
-            <NavLink to="/app/admin" onClick={closeMenu} className={({ isActive }) => 'nav-item' + (isActive ? ' active' : '')}>
-              <i className="ti ti-user-cog" /> إدارة المستخدمين
-            </NavLink>
-            <NavLink to="/app/school-structure" onClick={closeMenu} className={({ isActive }) => 'nav-item' + (isActive ? ' active' : '')}>
-              <i className="ti ti-building-community" /> هيكل المدرسة
-            </NavLink>
-          </>
-        )}
-
-        {session.role === 'instructor' && (
-          <>
-            <button className="nav-item instructor-menu-toggle" onClick={() => setInstructorMenuOpen((o) => !o)}>
-              <i className="ti ti-chalkboard" /> لوحة المعلّم
-              <i className={`ti ti-chevron-down instructor-menu-chevron${instructorMenuOpen ? ' open' : ''}`} />
+        <div className="topnav-actions">
+          <div className="nav-dropdown-wrap">
+            <button
+              className={`icon-btn notif-bell${unreadCount > 0 ? ' has-unread' : ''}`}
+              onClick={() => { setNotifOpen((o) => !o); setInstructorOpen(false) }}
+              aria-label="الإشعارات"
+            >
+              <i className="ti ti-bell" />
+              {unreadCount > 0 && <span className="notif-dot">{unreadCount}</span>}
             </button>
-            {instructorMenuOpen && (
-              <div className="instructor-submenu">
-                {instructorLinks.map((link) => (
-                  <NavLink key={link.to} to={link.to} end={link.to === '/app/instructor'} onClick={closeMenu} className={({ isActive }) => 'nav-item nav-subitem' + (isActive ? ' active' : '')}>
-                    <i className={`ti ${link.icon}`} /> {link.label}
-                  </NavLink>
-                ))}
-              </div>
-            )}
-          </>
-        )}
-
-        <NavLink to="/app/settings" onClick={closeMenu} className={({ isActive }) => 'nav-item' + (isActive ? ' active' : '')}>
-          <i className="ti ti-settings" /> الإعدادات
-        </NavLink>
-
-        <div className="sidebar-footer">
-          <div className="avatar-mini" style={myAvatar ? { background: myAvatar.bg } : undefined}>
-            {myAvatar ? myAvatar.emoji : (session.name.trim().charAt(0) || '؟')}
+            {notifPopover}
           </div>
-          <span>{session.name} · {roleLabel(session.role)}</span>
-          <button className="logout-btn" onClick={logout} aria-label="تسجيل الخروج" title="تسجيل الخروج"><i className="ti ti-logout" /></button>
+
+          <div className="user-chip">
+            <div className="avatar-mini" style={myAvatar ? { background: myAvatar.bg } : undefined}>
+              {myAvatar ? myAvatar.emoji : (session.name.trim().charAt(0) || '؟')}
+            </div>
+            <div className="user-chip-text">
+              <span className="user-chip-name">{session.name}</span>
+              <span className="user-chip-role">{roleLabel(session.role)}</span>
+            </div>
+          </div>
+
+          <button className="icon-btn logout-btn" onClick={logout} aria-label="تسجيل الخروج" title="تسجيل الخروج">
+            <i className="ti ti-logout" />
+          </button>
         </div>
-      </aside>
+      </header>
 
       <main className="main">
         <div key={location.pathname} className="page-transition"><Outlet /></div>
       </main>
+
+      {/* شريط تنقّل سفلي للشاشات الصغيرة */}
+      <nav className="bottomnav">
+        {roleLinks.map((l) => (
+          <NavLink key={l.to} to={l.to} className={({ isActive }) => 'bottomnav-item' + (isActive ? ' active' : '')}>
+            <i className={`ti ${l.icon}`} />
+            <span>{l.label.split(' ')[0] === 'متابعة' ? 'أبنائي' : l.label.split(' ').slice(-1)[0]}</span>
+          </NavLink>
+        ))}
+
+        {session.role === 'instructor' && (
+          <button
+            className={`bottomnav-item${isInstructorPath ? ' active' : ''}`}
+            onClick={() => setSheetOpen(true)}
+          >
+            <i className="ti ti-chalkboard" />
+            <span>المعلّم</span>
+          </button>
+        )}
+
+        <NavLink to="/app/settings" className={({ isActive }) => 'bottomnav-item' + (isActive ? ' active' : '')}>
+          <i className="ti ti-settings" />
+          <span>الإعدادات</span>
+        </NavLink>
+      </nav>
+
+      {/* لوحة سفلية منزلقة بروابط المعلّم على الموبايل */}
+      {sheetOpen && (
+        <>
+          <div className="sheet-overlay" onClick={() => setSheetOpen(false)} />
+          <div className="bottom-sheet">
+            <div className="sheet-handle" />
+            <div className="sheet-title"><i className="ti ti-chalkboard" /> لوحة المعلّم</div>
+            <div className="sheet-grid">
+              {instructorLinks.map((link, idx) => (
+                <NavLink
+                  key={link.to} to={link.to} end={link.to === '/app/instructor'}
+                  style={{ animationDelay: `${idx * 30}ms` }}
+                  className={({ isActive }) => 'sheet-item' + (isActive ? ' active' : '')}
+                >
+                  <i className={`ti ${link.icon}`} />
+                  <span>{link.label}</span>
+                </NavLink>
+              ))}
+            </div>
+          </div>
+        </>
+      )}
     </div>
   )
 }

@@ -3,7 +3,53 @@ import { EmailAuthProvider, reauthenticateWithCredential, updatePassword } from 
 import { auth } from '../firebase'
 import { useSession } from '../context/SessionContext'
 import { useTheme } from '../context/ThemeContext'
-import { AVATAR_OPTIONS } from '../utils/avatars'
+import { AVATAR_OPTIONS, getAvatar } from '../utils/avatars'
+
+function roleLabel(role) {
+  if (role === 'instructor') return 'معلّم'
+  if (role === 'owner') return 'إدارة المدرسة'
+  if (role === 'parent') return 'ولي أمر'
+  return 'طالب'
+}
+
+function AccountSection() {
+  const { session, logout } = useSession()
+  const [confirming, setConfirming] = useState(false)
+  const myAvatar = getAvatar(session.avatarId)
+
+  return (
+    <div style={{ marginBottom: '34px' }}>
+      <h3 style={{ fontSize: '16px', marginBottom: '4px' }}>الحساب</h3>
+      <p style={{ fontSize: '12.5px', color: 'var(--ink-soft)', margin: '0 0 16px' }}>معلومات حسابك وتسجيل الخروج.</p>
+
+      <div className="panel account-panel" style={{ maxWidth: '520px' }}>
+        <div className="account-panel-row">
+          <div className="avatar-mini account-avatar" style={myAvatar ? { background: myAvatar.bg } : undefined}>
+            {myAvatar ? myAvatar.emoji : (session.name.trim().charAt(0) || '؟')}
+          </div>
+          <div className="account-panel-info">
+            <div className="account-panel-name">{session.name}</div>
+            <div className="account-panel-role">{roleLabel(session.role)}{session.email ? ` · ${session.email}` : ''}</div>
+          </div>
+        </div>
+
+        {!confirming ? (
+          <button type="button" className="btn account-logout-btn" onClick={() => setConfirming(true)}>
+            <i className="ti ti-logout" /> تسجيل الخروج
+          </button>
+        ) : (
+          <div className="delete-confirm" style={{ marginTop: '14px' }}>
+            <span>متأكد إنك بدك تسجل خروج؟</span>
+            <button type="button" className="btn" style={{ padding: '7px 14px' }} onClick={() => setConfirming(false)}>لأ</button>
+            <button type="button" className="btn account-logout-btn" style={{ padding: '7px 14px' }} onClick={logout}>
+              <i className="ti ti-logout" /> نعم، خروج
+            </button>
+          </div>
+        )}
+      </div>
+    </div>
+  )
+}
 
 function ThemePickerSection() {
   const { theme, setTheme, themes } = useTheme()
@@ -160,6 +206,8 @@ export default function SettingsPage() {
     <div>
       <div className="eyebrow">الإعدادات</div>
       <h2 className="page-title" style={{ marginBottom: '24px' }}>الإعدادات</h2>
+
+      <AccountSection />
 
       <ProfileSection />
 

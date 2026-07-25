@@ -7,7 +7,7 @@ import { AVATAR_OPTIONS, getAvatar } from '../utils/avatars'
 
 function roleLabel(role) {
   if (role === 'instructor') return 'معلّم'
-  if (role === 'owner') return 'إدارة المدرسة'
+  if (role === 'admin') return 'إدارة المدرسة'
   if (role === 'parent') return 'ولي أمر'
   return 'طالب'
 }

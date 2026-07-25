@@ -40,6 +40,7 @@ export function NotesProvider({ children }) {
       lessonIndex,
       text,
       instructorUid: session.uid,
+      schoolId: session.schoolId,
     })
   }
 

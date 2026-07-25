@@ -24,8 +24,9 @@ export function ProgressProvider({ children }) {
   useEffect(() => {
     if (!session) { setAllProgress([]); return }
 
-    if (session.role === 'instructor' || session.role === 'owner') {
-      const unsub = onSnapshot(collection(db, 'progress'), (snapshot) => {
+    if (session.role === 'instructor' || session.role === 'admin') {
+      const q = query(collection(db, 'progress'), where('schoolId', '==', session.schoolId))
+      const unsub = onSnapshot(q, (snapshot) => {
         setAllProgress(snapshot.docs.map((d) => d.data()))
       })
       return () => unsub()
@@ -47,7 +48,7 @@ export function ProgressProvider({ children }) {
     const current = progress[subjectId] || 0
     const updated = Math.max(current, lessonIndex + 1)
     const docId = `${session.uid}_${subjectId}`
-    await setDoc(doc(db, 'progress', docId), { uid: session.uid, subjectId, completedLessons: updated })
+    await setDoc(doc(db, 'progress', docId), { uid: session.uid, subjectId, completedLessons: updated, schoolId: session.schoolId })
   }
 
   function getStudentProgress(uid, subjectId) {

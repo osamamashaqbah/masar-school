@@ -25,8 +25,9 @@ export function MarksProvider({ children }) {
   useEffect(() => {
     if (!session) { setAllMarks([]); return }
 
-    if (session.role === 'owner') {
-      const unsub = onSnapshot(collection(db, 'marks'), (s) => setAllMarks(s.docs.map((d) => ({ id: d.id, ...d.data() }))))
+    if (session.role === 'admin') {
+      const q = query(collection(db, 'marks'), where('schoolId', '==', session.schoolId))
+      const unsub = onSnapshot(q, (s) => setAllMarks(s.docs.map((d) => ({ id: d.id, ...d.data() }))))
       return () => unsub()
     }
 
@@ -58,6 +59,7 @@ export function MarksProvider({ children }) {
       homeworkId: homeworkId || null,
       source: homeworkId ? 'homework' : 'manual',
       teacherUid: session.uid,
+      schoolId: session.schoolId,
       updatedAt: Date.now(),
     })
 
@@ -73,12 +75,12 @@ export function MarksProvider({ children }) {
         const category = categoriesFor(subject).find((c) => c.id === categoryId)
         const label = category?.label || 'درجة'
         const scoreText = `${Number(score)}/${Number(maxScore)}`
-        await sendNotification(studentUid, `انحطّت لك علامة جديدة بمادة ${subject.name} (${label}): ${scoreText}.`, 'grade')
+        await sendNotification(studentUid, `انحطّت لك علامة جديدة بمادة ${subject.name} (${label}): ${scoreText}.`, 'grade', session.schoolId)
         if (!student.parentUids || student.parentUids.length === 0) {
           console.warn(`[إشعارات] الطالب ${student.name} (${studentUid}) ما إله parentUids — ما رح يوصل إشعار لولي أمره.`)
         }
         for (const parentUid of student.parentUids || []) {
-          await sendNotification(parentUid, `حصل/ت ${student.name} على ${scoreText} بمادة ${subject.name} (${label}).`, 'grade')
+          await sendNotification(parentUid, `حصل/ت ${student.name} على ${scoreText} بمادة ${subject.name} (${label}).`, 'grade', session.schoolId)
         }
       } else {
         console.warn('[إشعارات] ما لقينا وثيقة الطالب أو المادة', { studentExists: studentSnap.exists(), subjectExists: subjectSnap.exists() })

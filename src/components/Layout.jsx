@@ -6,7 +6,7 @@ import { getAvatar } from '../utils/avatars'
 
 function roleLabel(role) {
   if (role === 'instructor') return 'معلّم'
-  if (role === 'owner') return 'إدارة المدرسة'
+  if (role === 'admin') return 'إدارة المدرسة'
   if (role === 'parent') return 'ولي أمر'
   return 'طالب'
 }
@@ -92,7 +92,7 @@ export default function Layout() {
     roleLinks.push({ to: '/app/dashboard', icon: 'ti-route', label: 'لوحتي' })
     roleLinks.push({ to: '/app/grades', icon: 'ti-certificate', label: 'درجاتي' })
   }
-  if (session.role === 'owner') {
+  if (session.role === 'admin') {
     roleLinks.push({ to: '/app/admin', icon: 'ti-user-cog', label: 'إدارة المستخدمين' })
     roleLinks.push({ to: '/app/school-structure', icon: 'ti-building-community', label: 'هيكل المدرسة' })
   }

@@ -1,5 +1,5 @@
 import { createContext, useContext, useState, useEffect } from 'react'
-import { collection, addDoc, updateDoc, doc, onSnapshot, arrayUnion } from 'firebase/firestore'
+import { collection, addDoc, updateDoc, doc, onSnapshot, arrayUnion, query, where } from 'firebase/firestore'
 import { db } from '../firebase'
 import { useSession } from './SessionContext'
 
@@ -21,16 +21,17 @@ export function SchoolStructureProvider({ children }) {
 
   useEffect(() => {
     if (!session) return
-    const unsub1 = onSnapshot(collection(db, 'grades'), (s) => setGrades(s.docs.map((d) => ({ id: d.id, ...d.data() }))))
-    const unsub2 = onSnapshot(collection(db, 'sections'), (s) => setSections(s.docs.map((d) => ({ id: d.id, ...d.data() }))))
-    const unsub3 = onSnapshot(collection(db, 'subjects'), (s) => setAllSubjects(s.docs.map((d) => ({ id: d.id, ...d.data(), lessons: d.data().lessons || [] }))))
+    const unsub1 = onSnapshot(query(collection(db, 'grades'), where('schoolId', '==', session.schoolId)), (s) => setGrades(s.docs.map((d) => ({ id: d.id, ...d.data() }))))
+    const unsub2 = onSnapshot(query(collection(db, 'sections'), where('schoolId', '==', session.schoolId)), (s) => setSections(s.docs.map((d) => ({ id: d.id, ...d.data() }))))
+    const unsub3 = onSnapshot(query(collection(db, 'subjects'), where('schoolId', '==', session.schoolId)), (s) => setAllSubjects(s.docs.map((d) => ({ id: d.id, ...d.data(), lessons: d.data().lessons || [] }))))
     return () => { unsub1(); unsub2(); unsub3() }
   }, [session])
 
-  // بيانات كل المستخدمين — بس لصاحب المنصة، مطلوبة للإصلاح الذاتي تحت (ربط أولياء الأمور بأبنائهم)
+  // بيانات كل المستخدمين — بس لإدارة المدرسة، مطلوبة للإصلاح الذاتي تحت (ربط أولياء الأمور بأبنائهم)
   useEffect(() => {
-    if (session?.role !== 'owner') { setAllUsers([]); return }
-    const unsub = onSnapshot(collection(db, 'users'), (s) => setAllUsers(s.docs.map((d) => ({ id: d.id, ...d.data() }))))
+    if (session?.role !== 'admin') { setAllUsers([]); return }
+    const q = query(collection(db, 'users'), where('schoolId', '==', session.schoolId))
+    const unsub = onSnapshot(q, (s) => setAllUsers(s.docs.map((d) => ({ id: d.id, ...d.data() }))))
     return () => unsub()
   }, [session])
 
@@ -39,7 +40,7 @@ export function SchoolStructureProvider({ children }) {
   // بس القائمة بتطلع فاضية). نعيد مزامنته تلقائيًا مرة وحدة كل ما صاحب المنصة يفتح لوحته، حتى ما يحتاج
   // أي إجراء يدوي ولا ننتظر إجراء تاني (متل تسجيل دخول الطالب) يصلحه بالصدفة.
   useEffect(() => {
-    if (syncedPermissions || session?.role !== 'owner' || subjects.length === 0) return
+    if (syncedPermissions || session?.role !== 'admin' || subjects.length === 0) return
     setSyncedPermissions(true)
     const pairs = new Map()
     subjects.forEach((s) => {
@@ -58,7 +59,7 @@ export function SchoolStructureProvider({ children }) {
   // لولي الأمر). هاد كان معلّق بصفحة إدارة المستخدمين بس، فما كان ينفّذ إلا لو صاحب المنصة يفتحها
   // بالذات — نقلناه هون حتى ينفّذ تلقائيًا بأول صفحة يفتحها صاحب المنصة، أي صفحة كانت.
   useEffect(() => {
-    if (syncedParentLinks || session?.role !== 'owner' || allUsers.length === 0) return
+    if (syncedParentLinks || session?.role !== 'admin' || allUsers.length === 0) return
     setSyncedParentLinks(true)
     const parents = allUsers.filter((u) => u.role === 'parent' && u.childUids?.length > 0)
     Promise.all(
@@ -74,16 +75,16 @@ export function SchoolStructureProvider({ children }) {
   }, [allUsers, session, syncedParentLinks])
 
   async function addGrade(name) {
-    await addDoc(collection(db, 'grades'), { name })
+    await addDoc(collection(db, 'grades'), { name, schoolId: session.schoolId })
   }
 
   async function addSection(gradeId, name) {
-    await addDoc(collection(db, 'sections'), { gradeId, name })
+    await addDoc(collection(db, 'sections'), { gradeId, name, schoolId: session.schoolId })
   }
 
   async function addSubject({ sectionId, name, teacherUid, teacherName }) {
     await addDoc(collection(db, 'subjects'), {
-      sectionId, name, teacherUid: teacherUid || null, teacherName, lessons: [],
+      sectionId, name, teacherUid: teacherUid || null, teacherName, lessons: [], schoolId: session.schoolId,
       gradeCategories: [
         { id: 'quiz', label: 'اختبارات الدروس', weight: 10, auto: true },
         { id: 'homework', label: 'الواجبات', weight: 10, auto: true },

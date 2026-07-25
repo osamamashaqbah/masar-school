@@ -2,7 +2,6 @@ import { createContext, useContext, useState, useEffect } from 'react'
 import { signInWithEmailAndPassword, signOut, onAuthStateChanged } from 'firebase/auth'
 import { doc, getDoc, updateDoc } from 'firebase/firestore'
 import { auth, db } from '../firebase'
-import { OWNER_EMAIL } from '../config/owner'
 
 const SessionContext = createContext(null)
 
@@ -11,9 +10,9 @@ export function SessionProvider({ children }) {
   const [authLoading, setAuthLoading] = useState(true)
 
   function buildSession(uid, email, data) {
-    const role = email === OWNER_EMAIL ? 'owner' : data.role
     return {
-      uid, email, role,
+      uid, email, role: data.role,
+      schoolId: data.schoolId,
       name: data.name,
       avatarId: data.avatarId || null,
       sectionId: data.sectionId || null,

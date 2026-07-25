@@ -8,20 +8,21 @@ service cloud.firestore {
 
     function isSignedIn() { return request.auth != null; }
 
-    function isOwner() {
-      return isSignedIn() && request.auth.token.email == 'osamaplus17@gmail.com';
-    }
-
     function myData() {
       return get(/databases/$(database)/documents/users/$(request.auth.uid)).data;
     }
 
     function myRole() { return myData().role; }
+    function mySchoolId() { return myData().schoolId; }
     function mySectionId() { return myData().sectionId; }
 
+    function isAdmin() { return isSignedIn() && myRole() == 'admin'; }
     function isInstructor() { return isSignedIn() && myRole() == 'instructor'; }
     function isStudent() { return isSignedIn() && myRole() == 'student'; }
     function isParent() { return isSignedIn() && myRole() == 'parent'; }
+
+    // بوابة العزل بين المدارس: أي وثيقة عندها schoolId لازم تطابق مدرسة المستخدم الحالي
+    function sameSchool(schoolId) { return isSignedIn() && mySchoolId() == schoolId; }
 
     function isParentOf(uid) {
       return isParent() && myData().childUids.hasAny([uid]);
@@ -31,8 +32,10 @@ service cloud.firestore {
       return get(/databases/$(database)/documents/subjects/$(subjectId)).data;
     }
 
+    // لازم يكون معلّم المادة فعلاً وبنفس مدرسته (دفاع إضافي حتى لو كان teacherUid متطابق بالغلط)
     function teachesSubject(subjectId) {
-      return isInstructor() && subjectData(subjectId).teacherUid == request.auth.uid;
+      return isInstructor() && subjectData(subjectId).teacherUid == request.auth.uid
+        && subjectData(subjectId).schoolId == mySchoolId();
     }
 
     // بالنسبة للمادة: يقدر يشوفها المعلّم يلي بيدرّسها، أو الإدارة، أو أي حدا بنفس شعبة المادة
@@ -46,7 +49,7 @@ service cloud.firestore {
     }
 
     // شعب المعلّم يلي فعلاً بيدرّسها (محفوظة على وثيقة المعلّم نفسه، ومحدثة فقط من addSubject
-    // يلي هي عملية إدارة حصراً - owner). هاد بديل عن استعلام "where" غير المتاح جوا القواعد
+    // يلي هي عملية إدارة حصراً - admin). هاد بديل عن استعلام "where" غير المتاح جوا القواعد
     function myTaughtSectionIds() {
       return isInstructor() && ('taughtSectionIds' in myData()) ? myData().taughtSectionIds : [];
     }
@@ -57,47 +60,66 @@ service cloud.firestore {
       return teachesSubject(subjectId) && studentInSection(studentUid, subjectData(subjectId).sectionId);
     }
 
+    // ===================== schools =====================
+    // وثيقة كل مدرسة (tenant). ما في تسجيل ذاتي — مدرسة جديدة بتنعمل بس عن طريق سكربت
+    // الإدارة (scripts/create-school.mjs) يلي بيستخدم صلاحيات admin SDK وبيتخطى هاي القواعد أصلاً.
+    match /schools/{schoolId} {
+      allow read: if isSignedIn() && mySchoolId() == schoolId;
+      allow create, update, delete: if false;
+    }
+
     // ===================== users =====================
     match /users/{uid} {
       allow read: if isSignedIn() && (
         request.auth.uid == uid
-        || isOwner()
         || isParentOf(uid)
+        || (isAdmin() && sameSchool(resource.data.schoolId))
         // المعلّم يشوف بس الطلاب يلي فعلاً بشعبة مادة بيدرّسها (وليس أي طالب بالمدرسة)
-        || (isInstructor() && resource.data.role == 'student' && resource.data.sectionId in myTaughtSectionIds())
+        || (isInstructor() && resource.data.role == 'student' && resource.data.sectionId in myTaughtSectionIds() && sameSchool(resource.data.schoolId))
       );
-      allow create: if isOwner()
-        && request.resource.data.keys().hasAll(['name', 'role', 'email'])
-        && request.resource.data.role in ['student', 'instructor', 'parent'];
+      // ما في تسجيل ذاتي ولا إنشاء حساب "admin" من المتصفح إطلاقًا — أول حساب إدارة لأي مدرسة
+      // بينعمل بس عن طريق سكربت الإدارة (admin SDK، بيتخطى هاي القواعد). من هون، admin موجود
+      // فقط يقدر يدعو حسابات جديدة (معلّم/طالب/ولي أمر) داخل مدرسته هو.
+      allow create: if isAdmin()
+        && mySchoolId() == request.resource.data.schoolId
+        && request.resource.data.role in ['student', 'instructor', 'parent']
+        && request.resource.data.keys().hasAll(['name', 'role', 'email', 'schoolId']);
       // المستخدم يقدر يعدّل بس اسمه وصورته الرمزية بحسابه هو (تخصيص البروفايل)، وممنوع يلمس
-      // أي حقل حساس متل role أو sectionId أو childUids عن هالطريق
-      allow update: if isOwner() || (
+      // أي حقل حساس متل role أو sectionId أو childUids أو schoolId عن هالطريق
+      allow update: if (
+        isAdmin() && sameSchool(resource.data.schoolId) && request.resource.data.schoolId == resource.data.schoolId
+      ) || (
         isSignedIn() && request.auth.uid == uid
         && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['name', 'avatarId'])
         && request.resource.data.name is string && request.resource.data.name.size() > 0 && request.resource.data.name.size() <= 60
       );
-      allow delete: if isOwner();
+      allow delete: if isAdmin() && sameSchool(resource.data.schoolId);
     }
 
     // ===================== grades / sections =====================
     match /grades/{id} {
-      allow read: if isSignedIn();
-      allow write: if isOwner();
+      allow read: if isSignedIn() && sameSchool(resource.data.schoolId);
+      allow create: if isAdmin() && request.resource.data.schoolId == mySchoolId();
+      allow update: if isAdmin() && sameSchool(resource.data.schoolId) && request.resource.data.schoolId == resource.data.schoolId;
+      allow delete: if isAdmin() && sameSchool(resource.data.schoolId);
     }
     match /sections/{id} {
-      allow read: if isSignedIn();
-      allow write: if isOwner();
+      allow read: if isSignedIn() && sameSchool(resource.data.schoolId);
+      allow create: if isAdmin() && request.resource.data.schoolId == mySchoolId();
+      allow update: if isAdmin() && sameSchool(resource.data.schoolId) && request.resource.data.schoolId == resource.data.schoolId;
+      allow delete: if isAdmin() && sameSchool(resource.data.schoolId);
     }
 
     // ===================== subjects =====================
     match /subjects/{id} {
-      allow read: if isSignedIn();
-      allow create: if isOwner();
-      allow delete: if isOwner();
-      allow update: if isOwner() || (
+      allow read: if isSignedIn() && sameSchool(resource.data.schoolId);
+      allow create: if isAdmin() && request.resource.data.schoolId == mySchoolId();
+      allow delete: if isAdmin() && sameSchool(resource.data.schoolId);
+      allow update: if (isAdmin() && sameSchool(resource.data.schoolId) && request.resource.data.schoolId == resource.data.schoolId) || (
         teachesSubject(id)
         && request.resource.data.teacherUid == resource.data.teacherUid
         && request.resource.data.sectionId == resource.data.sectionId
+        && request.resource.data.schoolId == resource.data.schoolId
       );
     }
 
@@ -107,12 +129,13 @@ service cloud.firestore {
         resource.data.uid == request.auth.uid
         || isParentOf(resource.data.uid)
         || teachesSubject(resource.data.subjectId)
-        || isOwner()
+        || (isAdmin() && sameSchool(resource.data.schoolId))
       );
       // حدّينا completedLessons بحد أعلى معقول حتى ما يقدر الطالب يزوّر رقم عشوائي كبير
       allow create, update: if isStudent()
         && request.resource.data.uid == request.auth.uid
-        && request.resource.data.keys().hasAll(['uid', 'subjectId', 'completedLessons'])
+        && request.resource.data.schoolId == mySchoolId()
+        && request.resource.data.keys().hasAll(['uid', 'subjectId', 'completedLessons', 'schoolId'])
         && request.resource.data.completedLessons is int
         && request.resource.data.completedLessons >= 0
         && request.resource.data.completedLessons <= 10000
@@ -123,9 +146,10 @@ service cloud.firestore {
 
     // ===================== homework =====================
     match /homework/{hwId} {
-      allow read: if isSignedIn();
+      allow read: if isSignedIn() && sameSchool(resource.data.schoolId);
       allow create: if teachesSubject(request.resource.data.courseId)
-        && request.resource.data.keys().hasAll(['courseId', 'title', 'deadline']);
+        && request.resource.data.schoolId == mySchoolId()
+        && request.resource.data.keys().hasAll(['courseId', 'title', 'deadline', 'schoolId']);
       allow update, delete: if false;
     }
 
@@ -135,12 +159,14 @@ service cloud.firestore {
         resource.data.studentUid == request.auth.uid
         || isParentOf(resource.data.studentUid)
         || teachesSubject(get(/databases/$(database)/documents/homework/$(resource.data.homeworkId)).data.courseId)
-        || isOwner()
+        || (isAdmin() && sameSchool(resource.data.schoolId))
       );
-      allow create: if isStudent() && request.resource.data.studentUid == request.auth.uid;
+      allow create: if isStudent() && request.resource.data.studentUid == request.auth.uid
+        && request.resource.data.schoolId == mySchoolId();
       allow update: if isStudent()
         && resource.data.studentUid == request.auth.uid
         && request.resource.data.studentUid == request.auth.uid
+        && request.resource.data.schoolId == resource.data.schoolId
         && !exists(/databases/$(database)/documents/marks/$(request.auth.uid + '_' + get(/databases/$(database)/documents/homework/$(resource.data.homeworkId)).data.courseId + '_homework'));
       allow delete: if false;
     }
@@ -151,11 +177,12 @@ service cloud.firestore {
         resource.data.uid == request.auth.uid
         || isParentOf(resource.data.uid)
         || teachesSubject(resource.data.subjectId)
-        || isOwner()
+        || (isAdmin() && sameSchool(resource.data.schoolId))
       );
       allow create, update: if isStudent()
         && request.resource.data.uid == request.auth.uid
-        && request.resource.data.keys().hasAll(['uid', 'subjectId', 'score', 'maxScore'])
+        && request.resource.data.schoolId == mySchoolId()
+        && request.resource.data.keys().hasAll(['uid', 'subjectId', 'score', 'maxScore', 'schoolId'])
         && request.resource.data.score is number
         && request.resource.data.maxScore is number
         && request.resource.data.score >= 0
@@ -169,9 +196,11 @@ service cloud.firestore {
       allow create: if isSignedIn() && (
         (request.resource.data.recipientUid == request.auth.uid)
         || (
-          (isInstructor() || isOwner())
-          && request.resource.data.keys().hasAll(['recipientUid', 'message', 'type'])
+          (isInstructor() || isAdmin())
+          && request.resource.data.keys().hasAll(['recipientUid', 'message', 'type', 'schoolId'])
           && request.resource.data.type in ['info', 'grade', 'homework', 'attendance', 'warning']
+          && request.resource.data.schoolId == mySchoolId()
+          && get(/databases/$(database)/documents/users/$(request.resource.data.recipientUid)).data.schoolId == mySchoolId()
         )
       );
       allow update: if isSignedIn() && resource.data.recipientUid == request.auth.uid
@@ -181,9 +210,10 @@ service cloud.firestore {
 
     // ===================== notes =====================
     match /notes/{noteId} {
-      allow read: if isSignedIn();
+      allow read: if isSignedIn() && sameSchool(resource.data.schoolId);
       allow create, update: if teachesSubject(request.resource.data.courseId)
-        && request.resource.data.instructorUid == request.auth.uid;
+        && request.resource.data.instructorUid == request.auth.uid
+        && request.resource.data.schoolId == mySchoolId();
       allow delete: if false;
     }
 
@@ -192,9 +222,10 @@ service cloud.firestore {
       allow read: if isSignedIn() && (
         resource.data.studentUid == request.auth.uid
         || teachesSubject(resource.data.subjectId)
-        || isOwner()
+        || (isAdmin() && sameSchool(resource.data.schoolId))
       );
-      allow create: if isStudent() && request.resource.data.studentUid == request.auth.uid;
+      allow create: if isStudent() && request.resource.data.studentUid == request.auth.uid
+        && request.resource.data.schoolId == mySchoolId();
       allow update: if teachesSubject(resource.data.subjectId)
         && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['answer', 'answeredAt']);
       allow delete: if false;
@@ -206,19 +237,21 @@ service cloud.firestore {
         resource.data.studentUid == request.auth.uid
         || isParentOf(resource.data.studentUid)
         || resource.data.teacherUid == request.auth.uid
-        || isOwner()
+        || (isAdmin() && sameSchool(resource.data.schoolId))
       );
       // لازم يكون معلّم المادة نفسها، وكمان الطالب فعلاً بشعبة هالمادة (مو أي طالب بالمدرسة)
       allow create: if teachesStudentInSubject(request.resource.data.subjectId, request.resource.data.studentUid)
         && request.resource.data.teacherUid == request.auth.uid
-        && request.resource.data.keys().hasAll(['subjectId', 'studentUid', 'categoryId', 'score', 'maxScore', 'teacherUid']);
+        && request.resource.data.schoolId == mySchoolId()
+        && request.resource.data.keys().hasAll(['subjectId', 'studentUid', 'categoryId', 'score', 'maxScore', 'teacherUid', 'schoolId']);
       // بالتحديث: ممنوع تغيير هوية الطالب أو المادة أو صاحب العلامة الأصلي (يمنع "سرقة"/نقل علامة طالب لطالب تاني)
       allow update: if teachesStudentInSubject(request.resource.data.subjectId, request.resource.data.studentUid)
         && request.resource.data.teacherUid == request.auth.uid
         && resource.data.teacherUid == request.auth.uid
         && resource.data.studentUid == request.resource.data.studentUid
         && resource.data.subjectId == request.resource.data.subjectId
-        && request.resource.data.keys().hasAll(['subjectId', 'studentUid', 'categoryId', 'score', 'maxScore', 'teacherUid']);
+        && request.resource.data.schoolId == resource.data.schoolId
+        && request.resource.data.keys().hasAll(['subjectId', 'studentUid', 'categoryId', 'score', 'maxScore', 'teacherUid', 'schoolId']);
       allow delete: if false;
     }
 
@@ -228,10 +261,11 @@ service cloud.firestore {
         resource.data.studentUid == request.auth.uid
         || isParentOf(resource.data.studentUid)
         || resource.data.teacherUid == request.auth.uid
-        || isOwner()
+        || (isAdmin() && sameSchool(resource.data.schoolId))
       );
       allow create, update: if isInstructor()
         && request.resource.data.teacherUid == request.auth.uid
+        && request.resource.data.schoolId == mySchoolId()
         && studentInSection(request.resource.data.studentUid, request.resource.data.sectionId);
       allow delete: if isInstructor() && resource.data.teacherUid == request.auth.uid;
     }

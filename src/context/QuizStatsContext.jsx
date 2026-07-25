@@ -12,8 +12,9 @@ export function QuizStatsProvider({ children }) {
   useEffect(() => {
     if (!session) { setAllStats([]); return }
 
-    if (session.role === 'instructor' || session.role === 'owner') {
-      const unsub = onSnapshot(collection(db, 'quizStats'), (snapshot) => {
+    if (session.role === 'instructor' || session.role === 'admin') {
+      const q = query(collection(db, 'quizStats'), where('schoolId', '==', session.schoolId))
+      const unsub = onSnapshot(q, (snapshot) => {
         setAllStats(snapshot.docs.map((d) => d.data()))
       })
       return () => unsub()
@@ -35,7 +36,7 @@ export function QuizStatsProvider({ children }) {
     const docId = `${session.uid}_${subjectId}`
     await setDoc(
       doc(db, 'quizStats', docId),
-      { uid: session.uid, subjectId, attempts: increment(1), correct: increment(isCorrect ? 1 : 0) },
+      { uid: session.uid, subjectId, schoolId: session.schoolId, attempts: increment(1), correct: increment(isCorrect ? 1 : 0) },
       { merge: true }
     )
   }

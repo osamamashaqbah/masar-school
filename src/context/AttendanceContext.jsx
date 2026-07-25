@@ -45,6 +45,7 @@ export function AttendanceProvider({ children }) {
       date,
       excused,
       teacherUid: session.uid,
+      schoolId: session.schoolId,
       createdAt: Date.now(),
     })
 
@@ -54,12 +55,12 @@ export function AttendanceProvider({ children }) {
       if (studentSnap.exists()) {
         const student = studentSnap.data()
         const excuseText = excused ? 'بعذر' : 'بدون عذر'
-        await sendNotification(studentUid, `تسجّل غياب عليك (${excuseText}) بتاريخ ${date}.`, 'attendance')
+        await sendNotification(studentUid, `تسجّل غياب عليك (${excuseText}) بتاريخ ${date}.`, 'attendance', session.schoolId)
         if (!student.parentUids || student.parentUids.length === 0) {
           console.warn(`[إشعارات] الطالب ${student.name} (${studentUid}) ما إله parentUids — ما رح يوصل إشعار لولي أمره.`)
         }
         for (const parentUid of student.parentUids || []) {
-          await sendNotification(parentUid, `غاب/ت ${student.name} (${excuseText}) بتاريخ ${date}.`, 'attendance')
+          await sendNotification(parentUid, `غاب/ت ${student.name} (${excuseText}) بتاريخ ${date}.`, 'attendance', session.schoolId)
         }
       } else {
         console.warn('[إشعارات] ما لقينا وثيقة الطالب', studentUid)

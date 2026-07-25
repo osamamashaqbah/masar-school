@@ -2,7 +2,7 @@ import { useState, useEffect } from 'react'
 import { Navigate } from 'react-router-dom'
 import { initializeApp, deleteApp } from 'firebase/app'
 import { getAuth, createUserWithEmailAndPassword, signOut } from 'firebase/auth'
-import { doc, setDoc, updateDoc, arrayUnion, collection, onSnapshot } from 'firebase/firestore'
+import { doc, setDoc, updateDoc, arrayUnion, collection, onSnapshot, query, where } from 'firebase/firestore'
 import { db, firebaseConfig } from '../firebase'
 import { useSession } from '../context/SessionContext'
 import { useSchoolStructure } from '../context/SchoolStructureContext'
@@ -22,14 +22,15 @@ export default function AdminPage() {
   const [loading, setLoading] = useState(false)
 
   useEffect(() => {
-    if (session?.role !== 'owner') return
-    const unsubscribe = onSnapshot(collection(db, 'users'), (snapshot) => {
+    if (session?.role !== 'admin') return
+    const q = query(collection(db, 'users'), where('schoolId', '==', session.schoolId))
+    const unsubscribe = onSnapshot(q, (snapshot) => {
       setUsers(snapshot.docs.map((d) => ({ id: d.id, ...d.data() })))
     })
     return () => unsubscribe()
   }, [session])
 
-  if (session?.role !== 'owner') return <Navigate to="/app/dashboard" replace />
+  if (session?.role !== 'admin') return <Navigate to="/app/dashboard" replace />
 
   const instructorCount = users.filter((u) => u.role === 'instructor').length
   const studentCount = users.filter((u) => u.role === 'student').length
@@ -52,7 +53,7 @@ export default function AdminPage() {
     try {
       const credential = await createUserWithEmailAndPassword(secondaryAuth, email.trim(), password)
 
-      const profile = { name: name.trim(), role, email: email.trim() }
+      const profile = { name: name.trim(), role, email: email.trim(), schoolId: session.schoolId }
       if (role === 'parent') {
         profile.childUids = selectedChildren
       }
@@ -207,14 +208,14 @@ export default function AdminPage() {
 
 function roleLabel(role) {
   if (role === 'instructor') return 'معلّم'
-  if (role === 'owner') return 'إدارة المدرسة'
+  if (role === 'admin') return 'إدارة المدرسة'
   if (role === 'parent') return 'ولي أمر'
   return 'طالب'
 }
 
 function roleColor(role) {
   if (role === 'instructor') return 'var(--pine)'
-  if (role === 'owner') return 'var(--sunset)'
+  if (role === 'admin') return 'var(--sunset)'
   if (role === 'parent') return 'var(--sky)'
   return 'var(--berry)'
 }

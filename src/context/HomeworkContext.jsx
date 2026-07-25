@@ -15,7 +15,8 @@ export function HomeworkProvider({ children }) {
       setHomework([])
       return
     }
-    const unsubscribe = onSnapshot(collection(db, 'homework'), (snapshot) => {
+    const q = query(collection(db, 'homework'), where('schoolId', '==', session.schoolId))
+    const unsubscribe = onSnapshot(q, (snapshot) => {
       setHomework(snapshot.docs.map((d) => ({ id: d.id, ...d.data() })))
     })
     return () => unsubscribe()
@@ -49,6 +50,7 @@ export function HomeworkProvider({ children }) {
       description,
       materialUrl: materialUrl || null,
       deadline: new Date(deadline),
+      schoolId: session.schoolId,
       createdAt: serverTimestamp(),
     })
   }
@@ -63,6 +65,7 @@ export function HomeworkProvider({ children }) {
       studentUid: session.uid,
       homeworkId,
       url,
+      schoolId: session.schoolId,
       submittedAt: serverTimestamp(),
     })
   }

@@ -18,7 +18,8 @@ export function QuestionsProvider({ children }) {
       return () => unsub()
     }
     if (session.role === 'instructor') {
-      const unsub = onSnapshot(collection(db, 'questions'), (s) => setTeacherQuestions(s.docs.map((d) => ({ id: d.id, ...d.data() }))))
+      const q2 = query(collection(db, 'questions'), where('schoolId', '==', session.schoolId))
+      const unsub = onSnapshot(q2, (s) => setTeacherQuestions(s.docs.map((d) => ({ id: d.id, ...d.data() }))))
       return () => unsub()
     }
   }, [session])
@@ -30,6 +31,7 @@ export function QuestionsProvider({ children }) {
       studentName: session.name,
       text,
       answer: null,
+      schoolId: session.schoolId,
       createdAt: serverTimestamp(),
     })
   }

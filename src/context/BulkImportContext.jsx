@@ -3,6 +3,7 @@ import { initializeApp, deleteApp } from 'firebase/app'
 import { getAuth, createUserWithEmailAndPassword, signOut } from 'firebase/auth'
 import { doc, setDoc, updateDoc, arrayUnion } from 'firebase/firestore'
 import { db, firebaseConfig } from '../firebase'
+import { useSession } from './SessionContext'
 
 const BulkImportContext = createContext(null)
 
@@ -31,6 +32,7 @@ function slugify(name) {
 }
 
 export function BulkImportProvider({ children }) {
+  const { session } = useSession()
   // students: [{ name, sectionId }, ...]
   // لكل طالب بننشئ حسابين: حساب الطالب نفسه، وحساب ولي أمر مرتبط فيه تلقائيًا (childUids)،
   // حتى ما يضطر صاحب المنصة يرجع يعمل حساب ولي أمر يدوي لكل طالب لحاله.
@@ -57,6 +59,7 @@ export function BulkImportProvider({ children }) {
           role: 'student',
           email: studentEmail,
           sectionId,
+          schoolId: session.schoolId,
         })
         results.push({ name, email: studentEmail, password: studentPassword, status: 'ok', role: 'student' })
 
@@ -67,6 +70,7 @@ export function BulkImportProvider({ children }) {
             role: 'parent',
             email: parentEmail,
             childUids: [studentUid],
+            schoolId: session.schoolId,
           })
           // منعكسة على وثيقة الطالب نفسه (parentUids) حتى يقدر المعلّم يعرف مين أهل الطالب
           // ويبعتلهم إشعار (حضور/علامة) بدون ما يحتاج صلاحية جديدة يقرا فيها كل حسابات أولياء الأمور.

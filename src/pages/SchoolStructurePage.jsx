@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react'
 import { Navigate } from 'react-router-dom'
-import { collection, onSnapshot } from 'firebase/firestore'
+import { collection, onSnapshot, query, where } from 'firebase/firestore'
 import { db } from '../firebase'
 import { useSession } from '../context/SessionContext'
 import { useSchoolStructure } from '../context/SchoolStructureContext'
@@ -31,14 +31,15 @@ const { importStudents } = useBulkImport()
   const [importLoading, setImportLoading] = useState(false)
 
   useEffect(() => {
-    if (session?.role !== 'owner') return
-    const unsub = onSnapshot(collection(db, 'users'), (snap) => {
+    if (session?.role !== 'admin') return
+    const q = query(collection(db, 'users'), where('schoolId', '==', session.schoolId))
+    const unsub = onSnapshot(q, (snap) => {
       setInstructors(snap.docs.map((d) => ({ id: d.id, ...d.data() })).filter((u) => u.role === 'instructor'))
     })
     return () => unsub()
   }, [session])
 
-  if (session?.role !== 'owner') return <Navigate to="/app/dashboard" replace />
+  if (session?.role !== 'admin') return <Navigate to="/app/dashboard" replace />
 
   async function handleAddGrade(e) {
     e.preventDefault()

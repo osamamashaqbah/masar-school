@@ -16,6 +16,10 @@ export default function SubjectPage() {
   if (!subject) return <div>المادة غير موجودة</div>
 
   const done = progress[subjectId] || 0
+  const total = subject.lessons.length
+  const pct = total > 0 ? done / total : 0
+  const R = 26
+  const circumference = 2 * Math.PI * R
 
   function openLesson(index) {
     navigate(`/app/lesson/${subjectId}/${index}`)
@@ -30,15 +34,33 @@ export default function SubjectPage() {
   return (
     <div>
       <div className="eyebrow">دروس المادة</div>
-      <div className="topbar" style={{ marginBottom: '8px' }}>
-        <h2 className="page-title">{subject.name}</h2>
+      <div className="subject-hero">
+        <div className="subject-progress-ring">
+          <svg width="64" height="64" viewBox="0 0 64 64">
+            <defs>
+              <linearGradient id="subjectRingGradient" x1="0" y1="0" x2="1" y2="1">
+                <stop offset="0%" stopColor="var(--accent)" />
+                <stop offset="100%" stopColor="var(--accent-2)" />
+              </linearGradient>
+            </defs>
+            <circle className="subject-progress-ring-track" cx="32" cy="32" r={R} />
+            <circle
+              className="subject-progress-ring-value"
+              cx="32" cy="32" r={R}
+              strokeDasharray={circumference}
+              strokeDashoffset={circumference * (1 - pct)}
+            />
+          </svg>
+          <div className="subject-progress-ring-label">{Math.round(pct * 100)}٪</div>
+        </div>
+        <div className="subject-hero-text">
+          <h2 className="page-title">{subject.name}</h2>
+          <p className="subject-hero-sub"><i className="ti ti-flag" /> تقدمك: {done} من {total} دروس</p>
+        </div>
         <button className="btn" onClick={() => navigate(`/app/homework/${subjectId}`)}>
           <i className="ti ti-clipboard-list" /> الواجبات
         </button>
       </div>
-      <p className="course-progress-text">
-        <i className="ti ti-flag" /> تقدمك: {done} من {subject.lessons.length} دروس
-      </p>
 
       <div className="lesson-list-clean">
         {subject.lessons.map((l, i) => {
@@ -60,17 +82,22 @@ export default function SubjectPage() {
       </div>
 
       <div className="eyebrow" style={{ marginTop: '28px' }}>اسأل أستاذك</div>
-      <div className="panel" style={{ maxWidth: '520px' }}>
-        <div style={{ display: 'flex', gap: '8px', marginBottom: '14px' }}>
-          <input type="text" placeholder="اكتب سؤالك هون..." value={questionText} onChange={(e) => setQuestionText(e.target.value)} style={{ flex: 1 }} />
+      <div className="panel ask-card">
+        <div className="ask-card-title"><i className="ti ti-message-2-question" /> عندك سؤال عن الدرس؟</div>
+        <div className="ask-row">
+          <input type="text" placeholder="اكتب سؤالك هون..." value={questionText} onChange={(e) => setQuestionText(e.target.value)} />
           <button className="btn btn-accent" onClick={handleAsk}>إرسال</button>
         </div>
-        {getQuestionsForSubject(subjectId).map((q) => (
-          <div key={q.id} style={{ marginBottom: '10px', fontSize: '13px' }}>
-            <strong>سؤالك:</strong> {q.text}
-            {q.answer && <div style={{ color: 'var(--pine)', marginTop: '4px' }}><strong>الرد:</strong> {q.answer}</div>}
-          </div>
-        ))}
+        {getQuestionsForSubject(subjectId).length === 0 ? (
+          <p className="question-empty">ما في أسئلة بعد — كن أول من يسأل.</p>
+        ) : (
+          getQuestionsForSubject(subjectId).map((q, i) => (
+            <div key={q.id} className="question-item" style={{ animationDelay: `${i * 50}ms` }}>
+              <div className="question-item-q"><i className="ti ti-help-circle" /> {q.text}</div>
+              {q.answer && <div className="question-item-a"><i className="ti ti-corner-down-left" /> {q.answer}</div>}
+            </div>
+          ))
+        )}
       </div>
     </div>
   )

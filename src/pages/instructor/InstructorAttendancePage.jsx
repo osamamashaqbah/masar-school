@@ -4,6 +4,7 @@ import { db } from '../../firebase'
 import { useSession } from '../../context/SessionContext'
 import { useSchoolStructure } from '../../context/SchoolStructureContext'
 import { useAttendance } from '../../context/AttendanceContext'
+import { useExcuseRequests } from '../../context/ExcuseRequestContext'
 
 function todayStr() {
   return new Date().toISOString().slice(0, 10)
@@ -13,6 +14,8 @@ export default function InstructorAttendancePage() {
   const { session } = useSession()
   const { grades, subjects, getSectionsForGrade } = useSchoolStructure()
   const { getAttendanceForDate, setAbsent, setPresent, updateExcused } = useAttendance()
+  const { sectionRequests, decideRequest } = useExcuseRequests()
+  const pendingRequests = sectionRequests.filter((r) => r.status === 'pending')
 
   const myTaughtSectionIds = [...new Set(subjects.filter((s) => s.teacherUid === session.uid).map((s) => s.sectionId))]
   const myGrades = grades.filter((g) => getSectionsForGrade(g.id).some((s) => myTaughtSectionIds.includes(s.id)))
@@ -95,10 +98,30 @@ export default function InstructorAttendancePage() {
 
   return (
     <div>
-      <div className="eyebrow">الحضور والغياب</div>
-      <h2 className="page-title" style={{ marginBottom: '16px' }}>خذ حضور الصف</h2>
+      <div className="topbar">
+        <div>
+          <div className="eyebrow">الحضور والغياب</div>
+          <h2 className="page-title">خذ حضور الصف</h2>
+        </div>
+        <div className="role-badge"><i className="ti ti-calendar-check" /> {date}</div>
+      </div>
 
-      <div className="panel" style={{ maxWidth: '620px' }}>
+      {pendingRequests.length > 0 && (
+        <div className="panel card-hover-lift animate-stagger" style={{ maxWidth: '620px', marginBottom: '18px' }}>
+          <div style={{ fontWeight: 800, marginBottom: '10px' }}><i className="ti ti-calendar-off" /> طلبات عذر مسبق ({pendingRequests.length})</div>
+          {pendingRequests.map((r) => (
+            <div key={r.id} className="attendance-check-row" style={{ alignItems: 'center' }}>
+              <span>{r.studentName} — {r.date} — {r.reason}</span>
+              <div className="excuse-toggle">
+                <button type="button" className="excuse-toggle-btn active excused" onClick={() => decideRequest(r, 'approved')}>موافقة</button>
+                <button type="button" className="excuse-toggle-btn active unexcused" onClick={() => decideRequest(r, 'rejected')}>رفض</button>
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
+
+      <div className="panel animate-stagger" style={{ maxWidth: '620px' }}>
         <div className="field">
           <label htmlFor="att-grade">الصف</label>
           <select id="att-grade" value={gradeId} onChange={(e) => { setGradeId(e.target.value); setSectionId('') }}>
@@ -133,11 +156,11 @@ export default function InstructorAttendancePage() {
             {!studentsError && students.length === 0 ? (
               <p style={{ fontSize: '12.5px', color: 'var(--ink-faint)' }}>ما في طلاب بهاي الشعبة بعد.</p>
             ) : (
-              students.map((st) => {
+              students.map((st, si) => {
                 const isAbsent = absentSet.has(st.id)
                 const isExcused = !!excusedMap[st.id]
                 return (
-                  <div key={st.id} className="attendance-check-row">
+                  <div key={st.id} className="attendance-check-row animate-stagger" style={{ animationDelay: `${si * 30}ms` }}>
                     <label className="child-check-row">
                       <input type="checkbox" checked={isAbsent} onChange={() => toggleAbsent(st.id)} />
                       <span>{st.name}</span>

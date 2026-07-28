@@ -2,11 +2,13 @@ import { createContext, useContext, useState, useRef } from 'react'
 import { collection, doc, setDoc, onSnapshot, query, where } from 'firebase/firestore'
 import { db } from '../firebase'
 import { useSession } from './SessionContext'
+import { useSchoolStructure } from './SchoolStructureContext'
 
 const NotesContext = createContext(null)
 
 export function NotesProvider({ children }) {
   const { session } = useSession()
+  const { currentAcademicYear } = useSchoolStructure()
   const [notesMap, setNotesMap] = useState({})
   const loadedCourseRef = useRef(null)
   const unsubscribeRef = useRef(null)
@@ -41,6 +43,7 @@ export function NotesProvider({ children }) {
       text,
       instructorUid: session.uid,
       schoolId: session.schoolId,
+      academicYear: currentAcademicYear,
     })
   }
 

@@ -2,7 +2,10 @@ import { useState, useEffect, useRef } from 'react'
 import { NavLink, Outlet, Navigate, useLocation } from 'react-router-dom'
 import { useSession } from '../context/SessionContext'
 import { useNotifications } from '../context/NotificationContext'
+import { useSchoolStructure } from '../context/SchoolStructureContext'
 import { getAvatar } from '../utils/avatars'
+import { isRamadan } from '../utils/hijriDate'
+import ConsentGate from './ConsentGate'
 
 function roleLabel(role) {
   if (role === 'instructor') return 'معلّم'
@@ -40,13 +43,26 @@ const instructorLinks = [
   { to: '/app/instructor/attendance', icon: 'ti-calendar-check', label: 'الحضور والغياب' },
 ]
 
+// روابط إدارية ثانوية — مجمّعة بقائمة منسدلة وحدة بدل ما تاخذ مكان لحالها بشريط التنقّل
+function buildAdminToolLinks(features) {
+  const links = []
+  if (features.honorBoards !== false) links.push({ to: '/app/admin/insights', icon: 'ti-award', label: 'لوحات الشرف' })
+  links.push({ to: '/app/admin/rollover', icon: 'ti-calendar-event', label: 'سنة دراسية جديدة' })
+  links.push({ to: '/app/admin/audit-log', icon: 'ti-history', label: 'سجل التدقيق' })
+  links.push({ to: '/app/admin/export', icon: 'ti-download', label: 'تصدير البيانات' })
+  return links
+}
+
 export default function Layout() {
   const { session, logout, authLoading } = useSession()
   const { notifications, unreadCount, markAsRead, markAllAsRead } = useNotifications()
+  const { features, ramadanSchedule } = useSchoolStructure()
+  const showRamadanBanner = ramadanSchedule.enabled && isRamadan()
   const location = useLocation()
 
   const [notifOpen, setNotifOpen] = useState(false)
   const [instructorOpen, setInstructorOpen] = useState(false)
+  const [adminToolsOpen, setAdminToolsOpen] = useState(false)
   const [sheetOpen, setSheetOpen] = useState(false)
   const navRef = useRef(null)
 
@@ -54,6 +70,7 @@ export default function Layout() {
   useEffect(() => {
     setNotifOpen(false)
     setInstructorOpen(false)
+    setAdminToolsOpen(false)
     setSheetOpen(false)
   }, [location.pathname])
 
@@ -63,6 +80,7 @@ export default function Layout() {
       if (navRef.current && !navRef.current.contains(e.target)) {
         setNotifOpen(false)
         setInstructorOpen(false)
+        setAdminToolsOpen(false)
       }
     }
     document.addEventListener('pointerdown', onDocClick)
@@ -81,20 +99,32 @@ export default function Layout() {
 
   const myAvatar = getAvatar(session.avatarId)
   const isInstructorPath = location.pathname.startsWith('/app/instructor')
+  const adminToolLinks = session.role === 'admin' ? buildAdminToolLinks(features) : []
+  const isAdminToolsPath = adminToolLinks.some((l) => location.pathname === l.to)
 
   function handleNotifClick(n) { if (!n.read) markAsRead(n.id) }
 
   const navClass = ({ isActive }) => 'nav-pill' + (isActive ? ' active' : '')
 
   const roleLinks = []
-  if (session.role === 'parent') roleLinks.push({ to: '/app/parent-dashboard', icon: 'ti-user-heart', label: 'متابعة أبنائي' })
+  if (features.announcements !== false) roleLinks.push({ to: '/app/announcements', icon: 'ti-speakerphone', label: 'الإعلانات' })
+  if (session.role === 'parent') {
+    roleLinks.push({ to: '/app/parent-dashboard', icon: 'ti-user-heart', label: 'متابعة أبنائي' })
+    if (features.messaging !== false) roleLinks.push({ to: '/app/messages', icon: 'ti-message-circle', label: 'الرسائل' })
+  }
+  if (session.role === 'instructor' && features.messaging !== false) roleLinks.push({ to: '/app/messages', icon: 'ti-message-circle', label: 'الرسائل' })
   if (session.role === 'student') {
     roleLinks.push({ to: '/app/dashboard', icon: 'ti-route', label: 'لوحتي' })
     roleLinks.push({ to: '/app/grades', icon: 'ti-certificate', label: 'درجاتي' })
+    roleLinks.push({ to: '/app/timetable', icon: 'ti-calendar-week', label: 'جدولي' })
+  }
+  if (session.role === 'parent') {
+    roleLinks.push({ to: '/app/timetable', icon: 'ti-calendar-week', label: 'جدول أبنائي' })
   }
   if (session.role === 'admin') {
     roleLinks.push({ to: '/app/admin', icon: 'ti-user-cog', label: 'إدارة المستخدمين' })
     roleLinks.push({ to: '/app/school-structure', icon: 'ti-building-community', label: 'هيكل المدرسة' })
+    roleLinks.push({ to: '/app/timetable', icon: 'ti-calendar-week', label: 'جدول الحصص' })
   }
 
   const notifPopover = notifOpen && (
@@ -121,6 +151,13 @@ export default function Layout() {
 
   return (
     <div className="app">
+      <ConsentGate />
+      {showRamadanBanner && (
+        <div className="ramadan-banner">
+          <i className="ti ti-moon-stars" /> رمضان كريم — دوام اليوم مختصر
+          {ramadanSchedule.shortDayHours ? ` (${ramadanSchedule.shortDayHours} ساعات)` : ''}
+        </div>
+      )}
       {/* الخلفية الحيّة: شفق دوّار + كرات ضوء + شبكة نقاط */}
       <div className="bg-scene" aria-hidden="true">
         <div className="bg-aurora" />
@@ -133,15 +170,20 @@ export default function Layout() {
       <header className="topnav" ref={navRef}>
         <div className="brand">
           <div className="brand-mark"><i className="ti ti-school" /></div>
-          <div className="brand-name">مسار</div>
+          <div className="brand-text">
+            <div className="brand-name">مسار</div>
+            <div className="brand-tagline">منصة مدرسية</div>
+          </div>
         </div>
 
         <nav className="topnav-links">
-          {roleLinks.map((l) => (
-            <NavLink key={l.to} to={l.to} className={navClass}>
-              <i className={`ti ${l.icon}`} /> <span>{l.label}</span>
-            </NavLink>
-          ))}
+          <div className="topnav-links-scroll">
+            {roleLinks.map((l) => (
+              <NavLink key={l.to} to={l.to} className={navClass}>
+                <i className={`ti ${l.icon}`} /> <span>{l.label}</span>
+              </NavLink>
+            ))}
+          </div>
 
           {session.role === 'instructor' && (
             <div className="nav-dropdown-wrap">
@@ -157,6 +199,31 @@ export default function Layout() {
                   {instructorLinks.map((link, idx) => (
                     <NavLink
                       key={link.to} to={link.to} end={link.to === '/app/instructor'}
+                      style={{ animationDelay: `${idx * 28}ms` }}
+                      className={({ isActive }) => 'dropdown-item' + (isActive ? ' active' : '')}
+                    >
+                      <i className={`ti ${link.icon}`} /> {link.label}
+                    </NavLink>
+                  ))}
+                </div>
+              )}
+            </div>
+          )}
+
+          {session.role === 'admin' && (
+            <div className="nav-dropdown-wrap">
+              <button
+                className={`nav-pill dropdown-toggle${isAdminToolsPath ? ' active' : ''}${adminToolsOpen ? ' open' : ''}`}
+                onClick={() => { setAdminToolsOpen((o) => !o); setNotifOpen(false) }}
+              >
+                <i className="ti ti-adjustments" /> <span>أدوات الإدارة</span>
+                <i className="ti ti-chevron-down dropdown-chevron" />
+              </button>
+              {adminToolsOpen && (
+                <div className="nav-dropdown">
+                  {adminToolLinks.map((link, idx) => (
+                    <NavLink
+                      key={link.to} to={link.to}
                       style={{ animationDelay: `${idx * 28}ms` }}
                       className={({ isActive }) => 'dropdown-item' + (isActive ? ' active' : '')}
                     >
@@ -192,7 +259,7 @@ export default function Layout() {
             </div>
             <div className="user-chip-text">
               <span className="user-chip-name">{session.name}</span>
-              <span className="user-chip-role">{roleLabel(session.role)}</span>
+              <span className="user-chip-role"><i className="ti ti-shield-check" /> {roleLabel(session.role)}</span>
             </div>
           </div>
 
@@ -225,6 +292,16 @@ export default function Layout() {
           </button>
         )}
 
+        {session.role === 'admin' && (
+          <button
+            className={`bottomnav-item${isAdminToolsPath ? ' active' : ''}`}
+            onClick={() => setSheetOpen(true)}
+          >
+            <i className="ti ti-adjustments" />
+            <span>الإدارة</span>
+          </button>
+        )}
+
         <NavLink to="/app/settings" className={({ isActive }) => 'bottomnav-item' + (isActive ? ' active' : '')}>
           <i className="ti ti-settings" />
           <span>الإعدادات</span>
@@ -237,9 +314,12 @@ export default function Layout() {
           <div className="sheet-overlay" onClick={() => setSheetOpen(false)} />
           <div className="bottom-sheet">
             <div className="sheet-handle" />
-            <div className="sheet-title"><i className="ti ti-chalkboard" /> لوحة المعلّم</div>
+            <div className="sheet-title">
+              <i className={`ti ${session.role === 'admin' ? 'ti-adjustments' : 'ti-chalkboard'}`} />
+              {session.role === 'admin' ? 'أدوات الإدارة' : 'لوحة المعلّم'}
+            </div>
             <div className="sheet-grid">
-              {instructorLinks.map((link, idx) => (
+              {(session.role === 'admin' ? adminToolLinks : instructorLinks).map((link, idx) => (
                 <NavLink
                   key={link.to} to={link.to} end={link.to === '/app/instructor'}
                   style={{ animationDelay: `${idx * 30}ms` }}

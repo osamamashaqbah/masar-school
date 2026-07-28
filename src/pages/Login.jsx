@@ -56,13 +56,12 @@ export default function Login() {
 
   return (
     <div className="login-page">
-      <svg className="login-logo-svg" width="56" height="56" viewBox="0 0 52 52" aria-hidden="true">
-        <circle cx="26" cy="26" r="24" fill="none" stroke="var(--line)" strokeWidth="1.5" />
-        <path className="login-logo-path" d="M14 32 C18 20, 24 20, 26 26 C28 32, 34 32, 38 20" fill="none" stroke="var(--accent)" strokeWidth="2.5" strokeLinecap="round" />
-      </svg>
+      <div className="login-mark">
+        <i className="ti ti-school" />
+      </div>
 
       <h1 className="login-title-anim">مسار</h1>
-      <p className="sub login-sub-anim">منصة مدرسية</p>
+      <p className="sub login-sub-anim">منصة مدرسية متكاملة لإدارة التعليم</p>
 
       {mode === 'login' ? (
         <form key="login" className="login-card login-card-anim animate-scale-in" onSubmit={handleSubmit}>
@@ -81,7 +80,7 @@ export default function Login() {
           <button type="button" className="link-btn" onClick={() => switchMode('reset')}>
             نسيت كلمة السر؟
           </button>
-          <p className="login-note">الحسابات تُنشأ من إدارة المدرسة فقط.</p>
+          <p className="login-note"><i className="ti ti-shield-lock" /> الحسابات تُنشأ من إدارة المدرسة فقط.</p>
         </form>
       ) : (
         <form key="reset" className="login-card login-card-anim animate-scale-in" onSubmit={handleReset}>

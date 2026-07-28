@@ -46,6 +46,7 @@ console.log(`أنشأنا مدرسة "${school}" (${schoolId}) وحوّلنا ${
 const collections = [
   'users', 'grades', 'sections', 'subjects', 'homework', 'submissions',
   'quizStats', 'notifications', 'notes', 'questions', 'marks', 'attendance', 'progress',
+  'threads', 'messages', 'earlyWarnings', 'honorBoards',
 ]
 
 for (const name of collections) {

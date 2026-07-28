@@ -3,7 +3,135 @@ import { EmailAuthProvider, reauthenticateWithCredential, updatePassword } from 
 import { auth } from '../firebase'
 import { useSession } from '../context/SessionContext'
 import { useTheme } from '../context/ThemeContext'
+import { useSchoolStructure } from '../context/SchoolStructureContext'
 import { AVATAR_OPTIONS, getAvatar } from '../utils/avatars'
+
+const FEATURE_KEYS = [
+  { key: 'messaging', label: 'الرسائل (معلّم ↔ ولي أمر)' },
+  { key: 'announcements', label: 'إعلانات المدرسة' },
+  { key: 'honorBoards', label: 'لوحات الشرف والإنذار المبكر' },
+]
+
+function FeatureFlagsSection() {
+  const { features, setFeature } = useSchoolStructure()
+
+  return (
+    <div className="settings-section">
+      <div className="settings-section-head">
+        <h3><i className="ti ti-toggle-left" /> ميزات المنصة</h3>
+        <p>فعّل أو عطّل ميزات كاملة لمدرستك — التغيير فوري لكل المستخدمين.</p>
+      </div>
+      <div className="panel card-hover-lift" style={{ maxWidth: '480px' }}>
+        {FEATURE_KEYS.map((f) => {
+          const enabled = features[f.key] !== false
+          return (
+            <div key={f.key} className="account-panel-row" style={{ justifyContent: 'space-between', padding: '8px 0' }}>
+              <span style={{ fontSize: '13.5px' }}>{f.label}</span>
+              <button
+                type="button"
+                style={{ background: enabled ? 'var(--pine)' : 'var(--paper-deep)', color: enabled ? '#fff' : 'var(--ink-faint)', border: 'none', borderRadius: '99px', padding: '5px 14px', fontSize: '12px', fontWeight: 700, cursor: 'pointer' }}
+                onClick={() => setFeature(f.key, !enabled)}
+              >
+                {enabled ? 'مفعّل' : 'معطّل'}
+              </button>
+            </div>
+          )
+        })}
+      </div>
+    </div>
+  )
+}
+
+const CURRENCIES = [
+  { code: 'JOD', label: 'دينار أردني (JOD)' },
+  { code: 'SAR', label: 'ريال سعودي (SAR)' },
+  { code: 'AED', label: 'درهم إماراتي (AED)' },
+  { code: 'USD', label: 'دولار أمريكي (USD)' },
+]
+
+function GulfReadinessSection() {
+  const { ramadanSchedule, currency, paymentInfo, branding, updateRamadanSchedule, updateCurrency, updatePaymentInfo, updateBranding } = useSchoolStructure()
+  const [hours, setHours] = useState(ramadanSchedule.shortDayHours || '')
+  const [payment, setPayment] = useState({ bankName: '', iban: '', cliqAlias: '', notes: '', ...paymentInfo })
+  const [brand, setBrand] = useState({ logoUrl: '', primaryColor: '#2f5d50', ...branding })
+
+  return (
+    <div className="settings-section">
+      <div className="settings-section-head">
+        <h3><i className="ti ti-moon-stars" /> دوام رمضان والعملة</h3>
+        <p>يظهر تنبيه لكل المستخدمين تلقائيًا وقت رمضان (حسب التقويم الهجري) لو فعّلته.</p>
+      </div>
+      <div className="panel card-hover-lift" style={{ maxWidth: '480px' }}>
+        <div className="account-panel-row" style={{ justifyContent: 'space-between', padding: '8px 0' }}>
+          <span style={{ fontSize: '13.5px' }}>تفعيل دوام رمضان المختصر</span>
+          <button
+            type="button"
+            style={{ background: ramadanSchedule.enabled ? 'var(--pine)' : 'var(--paper-deep)', color: ramadanSchedule.enabled ? '#fff' : 'var(--ink-faint)', border: 'none', borderRadius: '99px', padding: '5px 14px', fontSize: '12px', fontWeight: 700, cursor: 'pointer' }}
+            onClick={() => updateRamadanSchedule(!ramadanSchedule.enabled, Number(hours) || null)}
+          >
+            {ramadanSchedule.enabled ? 'مفعّل' : 'معطّل'}
+          </button>
+        </div>
+        {ramadanSchedule.enabled && (
+          <div className="field" style={{ marginTop: '10px' }}>
+            <label htmlFor="ramadan-hours">عدد ساعات الدوام المختصر</label>
+            <input
+              id="ramadan-hours" type="number" min="1" max="8" value={hours}
+              onChange={(e) => setHours(e.target.value)}
+              onBlur={() => updateRamadanSchedule(true, Number(hours) || null)}
+              style={{ maxWidth: '120px' }}
+            />
+          </div>
+        )}
+        <div className="field" style={{ marginTop: '14px' }}>
+          <label htmlFor="school-currency">عملة المدرسة</label>
+          <select id="school-currency" value={currency} onChange={(e) => updateCurrency(e.target.value)}>
+            {CURRENCIES.map((c) => <option key={c.code} value={c.code}>{c.label}</option>)}
+          </select>
+        </div>
+      </div>
+
+      <div className="settings-section-head" style={{ marginTop: '20px' }}>
+        <h3><i className="ti ti-building-bank" /> بيانات الدفع للأهالي</h3>
+        <p>تظهر هذه البيانات لأولياء الأمور كتعليمات دفع يدوي (تحويل بنكي / CliQ) — لا يوجد تحصيل إلكتروني فعلي.</p>
+      </div>
+      <div className="panel card-hover-lift" style={{ maxWidth: '480px' }}>
+        <div className="field">
+          <label htmlFor="payment-bank">اسم البنك</label>
+          <input id="payment-bank" value={payment.bankName} onChange={(e) => setPayment({ ...payment, bankName: e.target.value })} onBlur={() => updatePaymentInfo(payment)} />
+        </div>
+        <div className="field" style={{ marginTop: '10px' }}>
+          <label htmlFor="payment-iban">رقم الحساب/الآيبان (IBAN)</label>
+          <input id="payment-iban" value={payment.iban} onChange={(e) => setPayment({ ...payment, iban: e.target.value })} onBlur={() => updatePaymentInfo(payment)} />
+        </div>
+        <div className="field" style={{ marginTop: '10px' }}>
+          <label htmlFor="payment-cliq">اسم CliQ (اختياري)</label>
+          <input id="payment-cliq" value={payment.cliqAlias} onChange={(e) => setPayment({ ...payment, cliqAlias: e.target.value })} onBlur={() => updatePaymentInfo(payment)} />
+        </div>
+        <div className="field" style={{ marginTop: '10px' }}>
+          <label htmlFor="payment-notes">ملاحظات إضافية</label>
+          <textarea id="payment-notes" rows={2} value={payment.notes} onChange={(e) => setPayment({ ...payment, notes: e.target.value })} onBlur={() => updatePaymentInfo(payment)} />
+        </div>
+      </div>
+
+      <div className="settings-section-head" style={{ marginTop: '20px' }}>
+        <h3><i className="ti ti-photo" /> هوية كشف العلامات المطبوع</h3>
+        <p>شعار ولون المدرسة يظهروا على كشف العلامات المطبوع لكل طالب.</p>
+      </div>
+      <div className="panel card-hover-lift" style={{ maxWidth: '480px' }}>
+        <div className="field">
+          <label htmlFor="brand-logo">رابط شعار المدرسة (URL لصورة)</label>
+          <input id="brand-logo" value={brand.logoUrl} onChange={(e) => setBrand({ ...brand, logoUrl: e.target.value })} onBlur={() => updateBranding(brand)} placeholder="https://..." />
+        </div>
+        <div className="field" style={{ marginTop: '10px' }}>
+          <label htmlFor="brand-color">اللون الأساسي</label>
+          <input id="brand-color" type="color" style={{ width: '60px', height: '32px', padding: '2px' }} value={brand.primaryColor} onChange={(e) => { const next = { ...brand, primaryColor: e.target.value }; setBrand(next); updateBranding(next) }} />
+        </div>
+        {brand.logoUrl && <img src={brand.logoUrl} alt="شعار المدرسة" style={{ maxHeight: '48px', marginTop: '10px' }} />}
+      </div>
+    </div>
+  )
+}
 
 function roleLabel(role) {
   if (role === 'instructor') return 'معلّم'
@@ -18,11 +146,13 @@ function AccountSection() {
   const myAvatar = getAvatar(session.avatarId)
 
   return (
-    <div style={{ marginBottom: '34px' }}>
-      <h3 style={{ fontSize: '16px', marginBottom: '4px' }}>الحساب</h3>
-      <p style={{ fontSize: '12.5px', color: 'var(--ink-soft)', margin: '0 0 16px' }}>معلومات حسابك وتسجيل الخروج.</p>
+    <div className="settings-section">
+      <div className="settings-section-head">
+        <h3><i className="ti ti-id-badge-2" /> الحساب</h3>
+        <p>معلومات حسابك وتسجيل الخروج.</p>
+      </div>
 
-      <div className="panel account-panel" style={{ maxWidth: '520px' }}>
+      <div className="panel account-panel card-hover-lift" style={{ maxWidth: '520px' }}>
         <div className="account-panel-row">
           <div className="avatar-mini account-avatar" style={myAvatar ? { background: myAvatar.bg } : undefined}>
             {myAvatar ? myAvatar.emoji : (session.name.trim().charAt(0) || '؟')}
@@ -55,9 +185,11 @@ function ThemePickerSection() {
   const { theme, setTheme, themes } = useTheme()
 
   return (
-    <div style={{ marginBottom: '34px' }}>
-      <h3 style={{ fontSize: '16px', marginBottom: '4px' }}>مظهر المنصة</h3>
-      <p style={{ fontSize: '12.5px', color: 'var(--ink-soft)', margin: '0 0 16px' }}>اختر الثيم يلي بريحك أكثر. التغيير فوري.</p>
+    <div className="settings-section">
+      <div className="settings-section-head">
+        <h3><i className="ti ti-palette" /> مظهر المنصة</h3>
+        <p>اختر الثيم يلي بريحك أكثر. التغيير فوري.</p>
+      </div>
       <div className="theme-picker-grid">
         {themes.map((t) => (
           <button
@@ -112,11 +244,13 @@ function ProfileSection() {
   }
 
   return (
-    <div style={{ marginBottom: '34px' }}>
-      <h3 style={{ fontSize: '16px', marginBottom: '4px' }}>الملف الشخصي</h3>
-      <p style={{ fontSize: '12.5px', color: 'var(--ink-soft)', margin: '0 0 16px' }}>غيّر اسمك وصورتك الرمزية يلي بتظهر بالمنصة.</p>
+    <div className="settings-section">
+      <div className="settings-section-head">
+        <h3><i className="ti ti-user-circle" /> الملف الشخصي</h3>
+        <p>غيّر اسمك وصورتك الرمزية يلي بتظهر بالمنصة.</p>
+      </div>
 
-      <div className="panel" style={{ maxWidth: '520px' }}>
+      <div className="panel card-hover-lift" style={{ maxWidth: '520px' }}>
         <div className="field">
           <label htmlFor="profile-name">الاسم</label>
           <input id="profile-name" type="text" value={name} onChange={(e) => setName(e.target.value)} maxLength={60} />
@@ -204,8 +338,13 @@ export default function SettingsPage() {
 
   return (
     <div>
-      <div className="eyebrow">الإعدادات</div>
-      <h2 className="page-title" style={{ marginBottom: '24px' }}>الإعدادات</h2>
+      <div className="topbar">
+        <div>
+          <div className="eyebrow">الإعدادات</div>
+          <h2 className="page-title">الإعدادات</h2>
+        </div>
+        <div className="role-badge"><i className="ti ti-settings" /> {roleLabel(session.role)}</div>
+      </div>
 
       <AccountSection />
 
@@ -213,8 +352,14 @@ export default function SettingsPage() {
 
       <ThemePickerSection />
 
-      <h3 style={{ fontSize: '16px', marginBottom: '14px' }}>تغيير كلمة السر</h3>
-      <form className="panel animate-stagger" style={{ maxWidth: '440px' }} onSubmit={handleSubmit}>
+      {session.role === 'admin' && <FeatureFlagsSection />}
+      {session.role === 'admin' && <GulfReadinessSection />}
+
+      <div className="settings-section-head">
+        <h3><i className="ti ti-lock" /> تغيير كلمة السر</h3>
+        <p>حافظ على أمان حسابك بكلمة سر قوية.</p>
+      </div>
+      <form className="panel card-hover-lift animate-stagger" style={{ maxWidth: '440px' }} onSubmit={handleSubmit}>
         <div className="field">
           <label htmlFor="current-password">كلمة السر الحالية</label>
           <input id="current-password" type="password" value={currentPassword} onChange={(e) => setCurrentPassword(e.target.value)} required />

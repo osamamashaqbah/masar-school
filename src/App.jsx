@@ -10,6 +10,7 @@ import { SchoolStructureProvider } from './context/SchoolStructureContext'
 import { BulkImportProvider } from './context/BulkImportContext'
 import Layout from './components/Layout'
 import Login from './pages/Login'
+import SuperAdminPage from './pages/SuperAdminPage'
 import Dashboard from './pages/Dashboard'
 import SubjectPage from './pages/SubjectPage'
 import LessonPage from './pages/LessonPage'
@@ -35,24 +36,40 @@ import InstructorGradeHomeworkPage from './pages/instructor/InstructorGradeHomew
 import InstructorManualGradesPage from './pages/instructor/InstructorManualGradesPage'
 import InstructorAttendancePage from './pages/instructor/InstructorAttendancePage'
 import StudentGradesPage from './pages/StudentGradesPage'
+import { MessagesProvider } from './context/MessagesContext'
+import MessagesPage from './pages/MessagesPage'
+import AdminInsightsPage from './pages/AdminInsightsPage'
+import AdminRolloverPage from './pages/AdminRolloverPage'
+import { AnnouncementsProvider } from './context/AnnouncementsContext'
+import AnnouncementsPage from './pages/AnnouncementsPage'
+import { ExcuseRequestProvider } from './context/ExcuseRequestContext'
+import AdminAuditLogPage from './pages/AdminAuditLogPage'
+import AdminExportPage from './pages/AdminExportPage'
+import { TimetableProvider } from './context/TimetableContext'
+import TimetablePage from './pages/TimetablePage'
 
 export default function App() {
   return (
     <ThemeProvider>
       <SessionProvider>
+        <SchoolStructureProvider>
         <ProgressProvider>
           <NotesProvider>
             <QuizStatsProvider>
               <HomeworkProvider>
                 <NotificationProvider>
-                  <SchoolStructureProvider>
+                  <AnnouncementsProvider>
                     <BulkImportProvider>
+                    <TimetableProvider>
                       <BrowserRouter>
                       <QuestionsProvider>
                         <MarksProvider>
                         <AttendanceProvider>
+                        <MessagesProvider>
+                        <ExcuseRequestProvider>
                         <Routes>
                           <Route path="/" element={<Login />} />
+                          <Route path="/superadmin" element={<SuperAdminPage />} />
                           <Route path="/app" element={<Layout />}>
 
                           <Route path="instructor/questions" element={<InstructorQuestionsPage />} />
@@ -76,19 +93,30 @@ export default function App() {
                             <Route path="homework-detail/:homeworkId" element={<HomeworkDetailPage />} />
                             <Route path="school-structure" element={<SchoolStructurePage />} />
                             <Route path="parent-dashboard" element={<ParentDashboardPage />} />
+                            <Route path="messages" element={<MessagesPage />} />
+                            <Route path="admin/insights" element={<AdminInsightsPage />} />
+                            <Route path="admin/rollover" element={<AdminRolloverPage />} />
+                            <Route path="announcements" element={<AnnouncementsPage />} />
+                            <Route path="admin/audit-log" element={<AdminAuditLogPage />} />
+                            <Route path="admin/export" element={<AdminExportPage />} />
+                            <Route path="timetable" element={<TimetablePage />} />
                           </Route>
                         </Routes>
+                        </ExcuseRequestProvider>
+                        </MessagesProvider>
                         </AttendanceProvider>
                         </MarksProvider>
                         </QuestionsProvider>
                       </BrowserRouter>
+                    </TimetableProvider>
                     </BulkImportProvider>
-                  </SchoolStructureProvider>
+                  </AnnouncementsProvider>
                 </NotificationProvider>
               </HomeworkProvider>
             </QuizStatsProvider>
           </NotesProvider>
         </ProgressProvider>
+        </SchoolStructureProvider>
       </SessionProvider>
     </ThemeProvider>
   )

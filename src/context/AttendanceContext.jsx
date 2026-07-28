@@ -2,14 +2,17 @@ import { createContext, useContext, useState, useEffect } from 'react'
 import { collection, query, where, doc, setDoc, deleteDoc, getDoc, getDocs, onSnapshot } from 'firebase/firestore'
 import { db } from '../firebase'
 import { useSession } from './SessionContext'
+import { useSchoolStructure } from './SchoolStructureContext'
 import { sendNotification } from '../utils/notify'
 
 const AttendanceContext = createContext(null)
 
 export function AttendanceProvider({ children }) {
   const { session } = useSession()
+  const { currentAcademicYear } = useSchoolStructure()
   const [myAbsences, setMyAbsences] = useState([])
   const [childrenAbsences, setChildrenAbsences] = useState([])
+  const [schoolAbsences, setSchoolAbsences] = useState([])
 
   useEffect(() => {
     if (!session || session.role !== 'student') { setMyAbsences([]); return }
@@ -24,6 +27,33 @@ export function AttendanceProvider({ children }) {
     const unsub = onSnapshot(q, (s) => setChildrenAbsences(s.docs.map((d) => ({ id: d.id, ...d.data() }))))
     return () => unsub()
   }, [session])
+
+  // للإدارة بس — مطلوب لحساب الإنذار المبكر (غياب) على مستوى المدرسة كلها.
+  // getDocs مرة وحدة لا real-time (نفس منطق refreshAdminMarks بـ MarksContext) — حضور مدرسة
+  // كاملة عبر السنين ممكن يوصل آلاف الوثائق، ما بستاهل استهلاك حصة القراءة اليومية عليه بشكل مستمر
+  async function refreshSchoolAbsences() {
+    if (!session || session.role !== 'admin') return []
+    const q = query(collection(db, 'attendance'), where('schoolId', '==', session.schoolId))
+    const snap = await getDocs(q)
+    const rows = snap.docs.map((d) => ({ id: d.id, ...d.data() }))
+    setSchoolAbsences(rows)
+    return rows
+  }
+
+  useEffect(() => {
+    if (!session || session.role !== 'admin') { setSchoolAbsences([]); return }
+    refreshSchoolAbsences()
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [session])
+
+  // بيرجع {unexcused, excused} لطالب معيّن (بالسنة الحالية بس) — يشتغل بس لحساب الإدارة (schoolAbsences)
+  function getAbsenceCounts(uid) {
+    const rows = schoolAbsences.filter((a) => a.studentUid === uid && (!a.academicYear || a.academicYear === currentAcademicYear))
+    return {
+      unexcused: rows.filter((a) => !a.excused).length,
+      excused: rows.filter((a) => a.excused).length,
+    }
+  }
 
   // بيرجع {studentUid, excused} لكل طالب غايب بهاي الشعبة بهاد التاريخ
   async function getAttendanceForDate(sectionId, date) {
@@ -46,6 +76,7 @@ export function AttendanceProvider({ children }) {
       excused,
       teacherUid: session.uid,
       schoolId: session.schoolId,
+      academicYear: currentAcademicYear,
       createdAt: Date.now(),
     })
 
@@ -86,13 +117,13 @@ export function AttendanceProvider({ children }) {
   function getAbsenceDatesFor(uid) {
     const pool = session?.role === 'student' ? myAbsences : childrenAbsences
     return pool
-      .filter((a) => a.studentUid === uid)
+      .filter((a) => a.studentUid === uid && (!a.academicYear || a.academicYear === currentAcademicYear))
       .map((a) => ({ date: a.date, excused: !!a.excused }))
       .sort((a, b) => (a.date < b.date ? 1 : -1))
   }
 
   return (
-    <AttendanceContext.Provider value={{ getAttendanceForDate, setAbsent, setPresent, updateExcused, getAbsenceDatesFor }}>
+    <AttendanceContext.Provider value={{ getAttendanceForDate, setAbsent, setPresent, updateExcused, getAbsenceDatesFor, getAbsenceCounts, schoolAbsences, refreshSchoolAbsences }}>
       {children}
     </AttendanceContext.Provider>
   )

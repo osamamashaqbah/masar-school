@@ -75,6 +75,9 @@ export default function QuizPage() {
       <div className="eyebrow">اختبار الدرس</div>
       <h2 className="page-title" style={{ marginBottom: '18px' }}>{lesson.title}</h2>
       <div className="quiz-card">
+        <div className="quiz-progress-track">
+          <div className="quiz-progress-fill" style={{ width: `${((current + 1) / questions.length) * 100}%` }} />
+        </div>
         <div className="quiz-progress">سؤال {current + 1} من {questions.length}</div>
         <div className="quiz-q">{question.q}</div>
         {!answered ? (
@@ -82,7 +85,7 @@ export default function QuizPage() {
             <div>{question.options.map((opt, i) => (
               <div key={i} className={`quiz-option${selected === i ? ' selected' : ''}`} onClick={() => setSelected(i)}>{opt}</div>
             ))}</div>
-            <button className="btn btn-accent" onClick={submit}>تأكيد الإجابة</button>
+            <button className="btn btn-accent" onClick={submit} disabled={selected === null}>تأكيد الإجابة</button>
           </>
         ) : (
           <>
@@ -90,7 +93,13 @@ export default function QuizPage() {
               let cls = 'quiz-option animate-pop'
               if (i === question.correct) cls += ' correct'
               else if (i === selected) cls += ' wrong'
-              return <div key={i} className={cls}>{opt}</div>
+              return (
+                <div key={i} className={cls}>
+                  {opt}
+                  {i === question.correct && <i className="ti ti-circle-check quiz-option-icon" />}
+                  {i === selected && i !== question.correct && <i className="ti ti-circle-x quiz-option-icon" />}
+                </div>
+              )
             })}</div>
             <button className="btn btn-accent" onClick={next}>{current + 1 < questions.length ? 'السؤال التالي' : 'عرض النتيجة'}</button>
           </>

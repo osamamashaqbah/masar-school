@@ -1,6 +1,6 @@
 import { createContext, useContext, useState, useEffect } from 'react'
 import { signInWithEmailAndPassword, signOut, onAuthStateChanged } from 'firebase/auth'
-import { doc, getDoc, updateDoc } from 'firebase/firestore'
+import { doc, getDoc, updateDoc, serverTimestamp } from 'firebase/firestore'
 import { auth, db } from '../firebase'
 
 const SessionContext = createContext(null)
@@ -17,6 +17,7 @@ export function SessionProvider({ children }) {
       avatarId: data.avatarId || null,
       sectionId: data.sectionId || null,
       childUids: data.childUids || [],
+      consentGivenAt: data.consentGivenAt || null,
     }
   }
 
@@ -54,8 +55,14 @@ export function SessionProvider({ children }) {
     setSession((prev) => ({ ...prev, ...updates }))
   }
 
+  // موافقة ولي الأمر على معالجة بيانات ابنه/ابنته (قانون حماية البيانات الشخصية رقم 24 لسنة 2023)
+  async function giveConsent() {
+    await updateDoc(doc(db, 'users', session.uid), { consentGivenAt: serverTimestamp() })
+    setSession((prev) => ({ ...prev, consentGivenAt: new Date() }))
+  }
+
   return (
-    <SessionContext.Provider value={{ session, login, logout, authLoading, updateProfile }}>
+    <SessionContext.Provider value={{ session, login, logout, authLoading, updateProfile, giveConsent }}>
       {children}
     </SessionContext.Provider>
   )

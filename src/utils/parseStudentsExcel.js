@@ -1,6 +1,7 @@
 import * as XLSX from 'xlsx'
 
 // يقرأ ملف Excel، يتوقع أعمدة بعناوين: الاسم | الصف | الشعبة
+// وعمودين اختياريين: جوال ولي الأمر (لربط الإخوان بنفس حساب ولي الأمر) | اسم ولي الأمر
 export function parseStudentsExcel(file) {
   return new Promise((resolve, reject) => {
     const reader = new FileReader()
@@ -16,6 +17,8 @@ export function parseStudentsExcel(file) {
             name: String(row['الاسم'] || '').trim(),
             gradeName: String(row['الصف'] || '').trim(),
             sectionName: String(row['الشعبة'] || '').trim(),
+            parentPhone: String(row['جوال ولي الأمر'] || '').trim(),
+            parentName: String(row['اسم ولي الأمر'] || '').trim(),
           }))
           .filter((r) => r.name !== '')
 

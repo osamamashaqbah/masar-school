@@ -2,11 +2,13 @@ import { createContext, useContext, useState, useEffect } from 'react'
 import { collection, addDoc, updateDoc, doc, onSnapshot, serverTimestamp, query, where } from 'firebase/firestore'
 import { db } from '../firebase'
 import { useSession } from './SessionContext'
+import { useSchoolStructure } from './SchoolStructureContext'
 
 const QuestionsContext = createContext(null)
 
 export function QuestionsProvider({ children }) {
   const { session } = useSession()
+  const { currentAcademicYear } = useSchoolStructure()
   const [myQuestions, setMyQuestions] = useState([])
   const [teacherQuestions, setTeacherQuestions] = useState([])
 
@@ -32,6 +34,7 @@ export function QuestionsProvider({ children }) {
       text,
       answer: null,
       schoolId: session.schoolId,
+      academicYear: currentAcademicYear,
       createdAt: serverTimestamp(),
     })
   }
@@ -41,11 +44,11 @@ export function QuestionsProvider({ children }) {
   }
 
   function getQuestionsForSubject(subjectId) {
-    return myQuestions.filter((q) => q.subjectId === subjectId)
+    return myQuestions.filter((q) => q.subjectId === subjectId && (!q.academicYear || q.academicYear === currentAcademicYear))
   }
 
   function getTeacherQuestionsForSubject(subjectId) {
-    return teacherQuestions.filter((q) => q.subjectId === subjectId)
+    return teacherQuestions.filter((q) => q.subjectId === subjectId && (!q.academicYear || q.academicYear === currentAcademicYear))
   }
 
   return (

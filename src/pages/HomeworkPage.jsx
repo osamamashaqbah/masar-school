@@ -19,7 +19,10 @@ export default function HomeworkPage() {
       <h2 className="page-title" style={{ marginBottom: '20px' }}>{course.name}</h2>
 
       {homeworkList.length === 0 ? (
-        <p style={{ color: 'var(--ink-soft)' }}>ما في واجبات مضافة لهذي المادة بعد.</p>
+        <div className="homework-empty">
+          <i className="ti ti-clipboard-off" />
+          <p>ما في واجبات مضافة لهذي المادة بعد.</p>
+        </div>
       ) : (
         <div className="homework-list">
           {homeworkList.map((hw, i) => {
@@ -34,7 +37,7 @@ export default function HomeworkPage() {
                 style={{ animationDelay: `${i * 60}ms` }}
                 onClick={() => navigate(`/app/homework-detail/${hw.id}`)}
               >
-                <div className="homework-card-title">{hw.title}</div>
+                <div className="homework-card-title"><i className="ti ti-notebook" /> {hw.title}</div>
                 <div className="homework-card-meta">
                   <i className="ti ti-calendar-due" />
                   الموعد النهائي: {deadlineDate.toLocaleString('ar-EG')}

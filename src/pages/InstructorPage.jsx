@@ -15,17 +15,28 @@ export default function InstructorPage() {
 
   return (
     <div>
-      <div className="eyebrow">لوحة المعلّم</div>
-      <h2 className="page-title" style={{ marginBottom: '16px' }}>شعبي</h2>
+      <div className="topbar">
+        <div>
+          <div className="eyebrow">لوحة المعلّم</div>
+          <h2 className="page-title">شعبي</h2>
+        </div>
+        <div className="role-badge"><i className="ti ti-chalkboard" /> معلّم</div>
+      </div>
 
       {mySubjects.length === 0 ? (
-        <p style={{ color: 'var(--ink-soft)' }}>ما في مواد مسندة لك بعد.</p>
+        <div className="quiz-card" style={{ maxWidth: '480px' }}>
+          <p style={{ color: 'var(--ink-soft)', margin: 0 }}>ما في مواد مسندة لك بعد. تواصل مع إدارة المدرسة.</p>
+        </div>
       ) : (
-        <div className="analytics-list">
-          {mySubjects.map((s) => (
-            <div className="analytics-row" key={s.id}>
-              <div className="analytics-title">{s.name}</div>
-              <div style={{ fontSize: '12.5px', color: 'var(--ink-soft)' }}>{labelFor(s)} · {s.lessons.length} دروس</div>
+        <div className="course-grid">
+          {mySubjects.map((s, i) => (
+            <div className="course-card-flat card-hover-lift animate-stagger" key={s.id} style={{ animationDelay: `${i * 45}ms` }}>
+              <div className="course-card-top">
+                <span className="course-card-icon"><i className="ti ti-book-2" /></span>
+                <span className="tag tag-sky">{s.lessons.length} دروس</span>
+              </div>
+              <div className="course-title">{s.name}</div>
+              <div className="course-meta"><i className="ti ti-users" /> {labelFor(s)}</div>
             </div>
           ))}
         </div>

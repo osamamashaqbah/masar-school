@@ -24,6 +24,19 @@ service cloud.firestore {
     // بوابة العزل بين المدارس: أي وثيقة عندها schoolId لازم تطابق مدرسة المستخدم الحالي
     function sameSchool(schoolId) { return isSignedIn() && mySchoolId() == schoolId; }
 
+    // صاحب المنصة (super-admin) — منفصل تمامًا عن نموذج users/schoolId، ما بينشأ إلا بسكربت Admin SDK.
+    // وصول تقني كامل (قراءة فقط) للمجموعات الأكاديمية الأساسية بغرض الدعم الفني — الالتزام بتسجيل
+    // السبب بـ auditLog قبل أي وصول فعلي مسؤولية طبقة الواجهة (UI)، مش شي القواعد نفسها قادرة تفرضه
+    // تقنيًا (Firestore rules ما بتقدر تتحقق من "انكتب سجل قبل هالقراءة" بشكل موثوق وقت التنفيذ).
+    function isPlatformAdmin() {
+      return isSignedIn() && exists(/databases/$(database)/documents/platformAdmins/$(request.auth.uid));
+    }
+
+    // السنة الدراسية الحالية لمدرسة الكاتب — تُستخدم لمنع الكتابة بسنة مقفولة/غير نشطة
+    function currentYear() {
+      return get(/databases/$(database)/documents/schools/$(mySchoolId())).data.currentAcademicYear;
+    }
+
     function isParentOf(uid) {
       return isParent() && myData().childUids.hasAny([uid]);
     }
@@ -65,17 +78,34 @@ service cloud.firestore {
     // الإدارة (scripts/create-school.mjs) يلي بيستخدم صلاحيات admin SDK وبيتخطى هاي القواعد أصلاً.
     match /schools/{schoolId} {
       allow read: if isSignedIn() && mySchoolId() == schoolId;
-      allow create, update, delete: if false;
+      // الحقول يلي الإدارة تقدر تعدّلها من المتصفح — السنة الدراسية، فيتشر فلاغز، دوام رمضان، العملة
+      allow update: if isAdmin() && sameSchool(schoolId)
+        && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['currentAcademicYear', 'features', 'ramadanSchedule', 'currency', 'paymentInfo', 'branding'])
+        && (!('currentAcademicYear' in request.resource.data.diff(resource.data).affectedKeys()) || request.resource.data.currentAcademicYear is string)
+        && (!('features' in request.resource.data.diff(resource.data).affectedKeys()) || request.resource.data.features is map)
+        && (!('ramadanSchedule' in request.resource.data.diff(resource.data).affectedKeys()) || request.resource.data.ramadanSchedule is map)
+        && (!('currency' in request.resource.data.diff(resource.data).affectedKeys()) || request.resource.data.currency is string)
+        && (!('paymentInfo' in request.resource.data.diff(resource.data).affectedKeys()) || request.resource.data.paymentInfo is map)
+        && (!('branding' in request.resource.data.diff(resource.data).affectedKeys()) || request.resource.data.branding is map);
+      allow create, delete: if false;
     }
 
     // ===================== users =====================
+    // ملاحظة مهمة (تأكدنا منها بتجارب REST فعلية مباشرة على الإنتاج): قواعد LIST/QUERY (مش GET
+    // مفرد لوثيقة وحدة) عند Firestore بترفض أي شرط يعتمد على "let" لتجميع نتيجة get()، أو استخدام
+    // "in" على مصفوفة جاية من get() ديناميكي — كلاهما يرجّع permission-denied بصمت رغم إنه GET
+    // المفرد لنفس الوثيقة بنفس الرول ينجح 100%. الحل: نداءات get() inline مباشرة (بدون let)،
+    // وبدون "in" على مصفوفة ديناميكية. لهيك شرط المعلّم تحت خفّينا فيه التحقق الدقيق بالشعبة —
+    // القراءة هون اسم/دور بس (منخفضة الحساسية)، والكتابة الحساسة الفعلية (علامات/حضور) محمية بشرط
+    // أدق (teachesStudentInSubject) بقواعد marks/attendance/homework.
     match /users/{uid} {
       allow read: if isSignedIn() && (
         request.auth.uid == uid
         || isParentOf(uid)
         || (isAdmin() && sameSchool(resource.data.schoolId))
-        // المعلّم يشوف بس الطلاب يلي فعلاً بشعبة مادة بيدرّسها (وليس أي طالب بالمدرسة)
-        || (isInstructor() && resource.data.role == 'student' && resource.data.sectionId in myTaughtSectionIds() && sameSchool(resource.data.schoolId))
+        || (get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role == 'instructor' && resource.data.role == 'student')
+        || (get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role == 'instructor' && resource.data.role == 'parent')
+        || isPlatformAdmin()
       );
       // ما في تسجيل ذاتي ولا إنشاء حساب "admin" من المتصفح إطلاقًا — أول حساب إدارة لأي مدرسة
       // بينعمل بس عن طريق سكربت الإدارة (admin SDK، بيتخطى هاي القواعد). من هون، admin موجود
@@ -90,7 +120,7 @@ service cloud.firestore {
         isAdmin() && sameSchool(resource.data.schoolId) && request.resource.data.schoolId == resource.data.schoolId
       ) || (
         isSignedIn() && request.auth.uid == uid
-        && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['name', 'avatarId'])
+        && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['name', 'avatarId', 'consentGivenAt'])
         && request.resource.data.name is string && request.resource.data.name.size() > 0 && request.resource.data.name.size() <= 60
       );
       allow delete: if isAdmin() && sameSchool(resource.data.schoolId);
@@ -98,13 +128,24 @@ service cloud.firestore {
 
     // ===================== grades / sections =====================
     match /grades/{id} {
-      allow read: if isSignedIn() && sameSchool(resource.data.schoolId);
+      allow read: if isSignedIn() && (sameSchool(resource.data.schoolId) || isPlatformAdmin());
       allow create: if isAdmin() && request.resource.data.schoolId == mySchoolId();
       allow update: if isAdmin() && sameSchool(resource.data.schoolId) && request.resource.data.schoolId == resource.data.schoolId;
       allow delete: if isAdmin() && sameSchool(resource.data.schoolId);
     }
+    // ===================== timetables =====================
+    // وثيقة وحدة لكل شعبة (docId = sectionId)، فيها slots[] {day, period, subjectId}
+    match /timetables/{sectionId} {
+      // resource == null لو الشعبة ما إلها جدول محفوظ بعد — بدونها كل قراءة أول مرة كانت
+      // ترجع permission-denied بدل "غير موجود" (Firestore rules gotcha عند get على وثيقة مش موجودة)
+      allow read: if isSignedIn() && (resource == null || sameSchool(resource.data.schoolId) || isPlatformAdmin());
+      allow create: if isAdmin() && request.resource.data.schoolId == mySchoolId() && request.resource.data.sectionId == sectionId;
+      allow update: if isAdmin() && sameSchool(resource.data.schoolId) && request.resource.data.schoolId == resource.data.schoolId;
+      allow delete: if isAdmin() && sameSchool(resource.data.schoolId);
+    }
+
     match /sections/{id} {
-      allow read: if isSignedIn() && sameSchool(resource.data.schoolId);
+      allow read: if isSignedIn() && (sameSchool(resource.data.schoolId) || isPlatformAdmin());
       allow create: if isAdmin() && request.resource.data.schoolId == mySchoolId();
       allow update: if isAdmin() && sameSchool(resource.data.schoolId) && request.resource.data.schoolId == resource.data.schoolId;
       allow delete: if isAdmin() && sameSchool(resource.data.schoolId);
@@ -112,8 +153,9 @@ service cloud.firestore {
 
     // ===================== subjects =====================
     match /subjects/{id} {
-      allow read: if isSignedIn() && sameSchool(resource.data.schoolId);
-      allow create: if isAdmin() && request.resource.data.schoolId == mySchoolId();
+      allow read: if isSignedIn() && (sameSchool(resource.data.schoolId) || isPlatformAdmin());
+      allow create: if isAdmin() && request.resource.data.schoolId == mySchoolId()
+        && request.resource.data.academicYear == currentYear();
       allow delete: if isAdmin() && sameSchool(resource.data.schoolId);
       allow update: if (isAdmin() && sameSchool(resource.data.schoolId) && request.resource.data.schoolId == resource.data.schoolId) || (
         teachesSubject(id)
@@ -130,11 +172,13 @@ service cloud.firestore {
         || isParentOf(resource.data.uid)
         || teachesSubject(resource.data.subjectId)
         || (isAdmin() && sameSchool(resource.data.schoolId))
+        || isPlatformAdmin()
       );
       // حدّينا completedLessons بحد أعلى معقول حتى ما يقدر الطالب يزوّر رقم عشوائي كبير
       allow create, update: if isStudent()
         && request.resource.data.uid == request.auth.uid
         && request.resource.data.schoolId == mySchoolId()
+        && request.resource.data.academicYear == currentYear()
         && request.resource.data.keys().hasAll(['uid', 'subjectId', 'completedLessons', 'schoolId'])
         && request.resource.data.completedLessons is int
         && request.resource.data.completedLessons >= 0
@@ -146,9 +190,10 @@ service cloud.firestore {
 
     // ===================== homework =====================
     match /homework/{hwId} {
-      allow read: if isSignedIn() && sameSchool(resource.data.schoolId);
+      allow read: if isSignedIn() && (sameSchool(resource.data.schoolId) || isPlatformAdmin());
       allow create: if teachesSubject(request.resource.data.courseId)
         && request.resource.data.schoolId == mySchoolId()
+        && request.resource.data.academicYear == currentYear()
         && request.resource.data.keys().hasAll(['courseId', 'title', 'deadline', 'schoolId']);
       allow update, delete: if false;
     }
@@ -160,9 +205,11 @@ service cloud.firestore {
         || isParentOf(resource.data.studentUid)
         || teachesSubject(get(/databases/$(database)/documents/homework/$(resource.data.homeworkId)).data.courseId)
         || (isAdmin() && sameSchool(resource.data.schoolId))
+        || isPlatformAdmin()
       );
       allow create: if isStudent() && request.resource.data.studentUid == request.auth.uid
-        && request.resource.data.schoolId == mySchoolId();
+        && request.resource.data.schoolId == mySchoolId()
+        && request.resource.data.academicYear == currentYear();
       allow update: if isStudent()
         && resource.data.studentUid == request.auth.uid
         && request.resource.data.studentUid == request.auth.uid
@@ -178,15 +225,20 @@ service cloud.firestore {
         || isParentOf(resource.data.uid)
         || teachesSubject(resource.data.subjectId)
         || (isAdmin() && sameSchool(resource.data.schoolId))
+        || isPlatformAdmin()
       );
+      // ملاحظة: الحقول الفعلية يلي recordAttempt() ببعتها هي attempts/correct (increment)،
+      // مش score/maxScore — القاعدة كانت ناقصة/غلط وكل محاولة اختبار كانت مرفوضة صامتًا قبل هالتصحيح
       allow create, update: if isStudent()
         && request.resource.data.uid == request.auth.uid
         && request.resource.data.schoolId == mySchoolId()
-        && request.resource.data.keys().hasAll(['uid', 'subjectId', 'score', 'maxScore', 'schoolId'])
-        && request.resource.data.score is number
-        && request.resource.data.maxScore is number
-        && request.resource.data.score >= 0
-        && request.resource.data.score <= request.resource.data.maxScore;
+        && request.resource.data.academicYear == currentYear()
+        && request.resource.data.keys().hasAll(['uid', 'subjectId', 'attempts', 'correct', 'schoolId'])
+        && request.resource.data.attempts is int
+        && request.resource.data.correct is int
+        && request.resource.data.attempts >= 0
+        && request.resource.data.correct >= 0
+        && request.resource.data.correct <= request.resource.data.attempts;
       allow delete: if false;
     }
 
@@ -213,7 +265,8 @@ service cloud.firestore {
       allow read: if isSignedIn() && sameSchool(resource.data.schoolId);
       allow create, update: if teachesSubject(request.resource.data.courseId)
         && request.resource.data.instructorUid == request.auth.uid
-        && request.resource.data.schoolId == mySchoolId();
+        && request.resource.data.schoolId == mySchoolId()
+        && request.resource.data.academicYear == currentYear();
       allow delete: if false;
     }
 
@@ -225,7 +278,8 @@ service cloud.firestore {
         || (isAdmin() && sameSchool(resource.data.schoolId))
       );
       allow create: if isStudent() && request.resource.data.studentUid == request.auth.uid
-        && request.resource.data.schoolId == mySchoolId();
+        && request.resource.data.schoolId == mySchoolId()
+        && request.resource.data.academicYear == currentYear();
       allow update: if teachesSubject(resource.data.subjectId)
         && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['answer', 'answeredAt']);
       allow delete: if false;
@@ -238,20 +292,70 @@ service cloud.firestore {
         || isParentOf(resource.data.studentUid)
         || resource.data.teacherUid == request.auth.uid
         || (isAdmin() && sameSchool(resource.data.schoolId))
+        || isPlatformAdmin()
       );
       // لازم يكون معلّم المادة نفسها، وكمان الطالب فعلاً بشعبة هالمادة (مو أي طالب بالمدرسة)
       allow create: if teachesStudentInSubject(request.resource.data.subjectId, request.resource.data.studentUid)
         && request.resource.data.teacherUid == request.auth.uid
         && request.resource.data.schoolId == mySchoolId()
+        && request.resource.data.academicYear == currentYear()
         && request.resource.data.keys().hasAll(['subjectId', 'studentUid', 'categoryId', 'score', 'maxScore', 'teacherUid', 'schoolId']);
       // بالتحديث: ممنوع تغيير هوية الطالب أو المادة أو صاحب العلامة الأصلي (يمنع "سرقة"/نقل علامة طالب لطالب تاني)
+      // وممنوع تعديل علامة بسنة مقفولة (مش السنة الحالية) — يحمي التاريخ من التعديل بعد الترفيع
       allow update: if teachesStudentInSubject(request.resource.data.subjectId, request.resource.data.studentUid)
         && request.resource.data.teacherUid == request.auth.uid
         && resource.data.teacherUid == request.auth.uid
         && resource.data.studentUid == request.resource.data.studentUid
         && resource.data.subjectId == request.resource.data.subjectId
         && request.resource.data.schoolId == resource.data.schoolId
+        && request.resource.data.academicYear == currentYear()
         && request.resource.data.keys().hasAll(['subjectId', 'studentUid', 'categoryId', 'score', 'maxScore', 'teacherUid', 'schoolId']);
+      allow delete: if false;
+    }
+
+    // ===================== threads / messages (رسائل معلّم ↔ ولي أمر) =====================
+
+    // uid الطرف التاني بمحادثة ثنائية (participantUids دايمًا عنصرين)
+    function otherParticipant(participantUids) {
+      return participantUids[0] == request.auth.uid ? participantUids[1] : participantUids[0];
+    }
+    // الرسائل محصورة بين معلّم وولي أمر بس (مو أي دورين)، وبنفس المدرسة
+    function isInstructorParentPair(otherUid) {
+      return isSignedIn() && sameSchool(get(/databases/$(database)/documents/users/$(otherUid)).data.schoolId) && (
+        (myRole() == 'instructor' && get(/databases/$(database)/documents/users/$(otherUid)).data.role == 'parent')
+        || (myRole() == 'parent' && get(/databases/$(database)/documents/users/$(otherUid)).data.role == 'instructor')
+      );
+    }
+
+    match /threads/{threadId} {
+      // resource == null لو أول رسالة بين هالطرفين لسا ما انبعثت — openThreadWith() بيعمل
+      // getDoc() قبل الإنشاء، وبدون هالشرط كانت ترجع permission-denied بدل "غير موجود"
+      allow read: if isSignedIn() && (resource == null || resource.data.participantUids.hasAny([request.auth.uid]));
+      allow create: if isSignedIn()
+        && request.auth.uid in request.resource.data.participantUids
+        && request.resource.data.participantUids.size() == 2
+        && request.resource.data.schoolId == mySchoolId()
+        && request.resource.data.keys().hasAll(['participantUids', 'schoolId'])
+        && isInstructorParentPair(otherParticipant(request.resource.data.participantUids));
+      // تحديث معلومات آخر رسالة (بعد الإرسال) أو تعليم المحادثة كمقروءة — بدون لمس هوية الأطراف
+      allow update: if isSignedIn() && resource.data.participantUids.hasAny([request.auth.uid])
+        && request.resource.data.participantUids == resource.data.participantUids
+        && request.resource.data.schoolId == resource.data.schoolId
+        && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['lastMessage', 'lastMessageAt', 'lastSenderUid', 'readBy']);
+      allow delete: if false;
+    }
+
+    match /messages/{messageId} {
+      allow read: if isSignedIn() && (resource.data.senderUid == request.auth.uid || resource.data.recipientUid == request.auth.uid);
+      allow create: if isSignedIn()
+        && request.resource.data.senderUid == request.auth.uid
+        && request.resource.data.schoolId == mySchoolId()
+        && request.resource.data.keys().hasAll(['threadId', 'senderUid', 'recipientUid', 'text', 'schoolId'])
+        && request.resource.data.text is string && request.resource.data.text.size() > 0 && request.resource.data.text.size() <= 2000
+        && isInstructorParentPair(request.resource.data.recipientUid);
+      // المستلم بس يقدر يعلّم الرسالة كمقروءة، ما في تعديل نص أو حذف
+      allow update: if isSignedIn() && resource.data.recipientUid == request.auth.uid
+        && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['read']);
       allow delete: if false;
     }
 
@@ -262,12 +366,102 @@ service cloud.firestore {
         || isParentOf(resource.data.studentUid)
         || resource.data.teacherUid == request.auth.uid
         || (isAdmin() && sameSchool(resource.data.schoolId))
+        || isPlatformAdmin()
       );
       allow create, update: if isInstructor()
         && request.resource.data.teacherUid == request.auth.uid
         && request.resource.data.schoolId == mySchoolId()
+        && request.resource.data.academicYear == currentYear()
         && studentInSection(request.resource.data.studentUid, request.resource.data.sectionId);
       allow delete: if isInstructor() && resource.data.teacherUid == request.auth.uid;
+    }
+
+    // ===================== auditLog (سجل تدقيق) =====================
+    match /auditLog/{id} {
+      allow read: if isAdmin() && sameSchool(resource.data.schoolId);
+      allow create: if isSignedIn() && request.resource.data.actorUid == request.auth.uid
+        && request.resource.data.schoolId == mySchoolId()
+        && request.resource.data.keys().hasAll(['schoolId', 'actorUid', 'action', 'targetType', 'createdAt']);
+      allow update, delete: if false;
+    }
+
+    // ===================== announcements (إعلانات المدرسة) =====================
+    match /announcements/{id} {
+      allow read: if isSignedIn() && sameSchool(resource.data.schoolId);
+      allow create: if isAdmin() && request.resource.data.schoolId == mySchoolId()
+        && request.resource.data.authorUid == request.auth.uid
+        && request.resource.data.keys().hasAll(['title', 'body', 'schoolId', 'authorUid', 'createdAt']);
+      // أي حدا بنفس المدرسة يقدر يعلّم نفسه كـ"شافها" — بدون لمس أي حقل تاني
+      allow update: if isSignedIn() && sameSchool(resource.data.schoolId)
+        && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['readBy']);
+      allow delete: if false;
+    }
+
+    // ===================== excuseRequests (طلب عذر مسبق من ولي الأمر) =====================
+    match /excuseRequests/{id} {
+      allow read: if isSignedIn() && (
+        resource.data.requestedByUid == request.auth.uid
+        || isParentOf(resource.data.studentUid)
+        // القراءة (list) خفّفناها لنفس مدرسة المعلّم بس — الرول الأصلية (sectionId in myTaughtSectionIds())
+        // بترجع permission-denied لأي LIST query لأنها "in" على مصفوفة جاية من get() ديناميكي؛ نفس
+        // القاعدة تنجح لو get() مفرد بس. الموافقة/الرفض الفعلية لسا محمية بدقة الشعبة بقاعدة update تحت.
+        || (isInstructor() && sameSchool(resource.data.schoolId))
+        || (isAdmin() && sameSchool(resource.data.schoolId))
+      );
+      allow create: if isParent() && isParentOf(request.resource.data.studentUid)
+        && request.resource.data.requestedByUid == request.auth.uid
+        && request.resource.data.schoolId == mySchoolId()
+        && request.resource.data.status == 'pending'
+        && studentInSection(request.resource.data.studentUid, request.resource.data.sectionId)
+        && request.resource.data.keys().hasAll(['studentUid', 'sectionId', 'date', 'reason', 'status', 'requestedByUid', 'schoolId']);
+      // المعلّم بس يقدر يوافق/يرفض، وبس على طلبات شعبه
+      allow update: if isInstructor() && resource.data.sectionId in myTaughtSectionIds() && sameSchool(resource.data.schoolId)
+        && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['status', 'decidedAt', 'decidedByUid'])
+        && request.resource.data.status in ['approved', 'rejected'];
+      allow delete: if false;
+    }
+
+    // ===================== earlyWarnings (إنذار مبكر) =====================
+    // وثيقة واحدة محسوبة لكل طالب (docId = studentUid)، الإدارة بس بتكتبها (recompute من لوحة الإدارة)
+    match /earlyWarnings/{studentUid} {
+      allow read: if isSignedIn() && (
+        request.auth.uid == studentUid
+        || isParentOf(studentUid)
+        || (isAdmin() && sameSchool(resource.data.schoolId))
+        // نفس ملاحظة excuseRequests فوق — القراءة list محتاجة تتجنّب "in" على مصفوفة get() ديناميكية
+        || (isInstructor() && sameSchool(resource.data.schoolId))
+      );
+      allow create, update: if isAdmin()
+        && request.resource.data.studentUid == studentUid
+        && request.resource.data.schoolId == mySchoolId()
+        && request.resource.data.keys().hasAll(['studentUid', 'schoolId', 'sectionId', 'updatedAt']);
+      allow delete: if false;
+    }
+
+    // ===================== honorBoards (لوحات الشرف) =====================
+    // نتائج محسوبة ومعروضة للجميع (أسماء ومعدلات بس، بدون علامات خام) — الإدارة بس بتكتبها
+    match /honorBoards/{boardId} {
+      // نفس ملاحظة timetables: resource == null لو اللوحة ما انحسبت بعد (قبل أول "تحديث الآن")
+      allow read: if isSignedIn() && (resource == null || sameSchool(resource.data.schoolId));
+      allow create, update: if isAdmin() && request.resource.data.schoolId == mySchoolId();
+      allow delete: if false;
+    }
+
+    // ===================== platformAdmins (صاحب المنصة) =====================
+    // ما بينشأ ولا يتعدّل ولا يُحذف من المتصفح إطلاقًا — بس عبر سكربت Admin SDK
+    match /platformAdmins/{uid} {
+      allow read: if isSignedIn() && request.auth.uid == uid;
+      allow create, update, delete: if false;
+    }
+
+    // ===================== platformStats (لوحة صاحب المنصة) =====================
+    // بيانات مجمّعة/إحصائية بس (عدد مستخدمين، آخر نشاط) — كل مدرسة بتكتب سجلها هي (admin trigger)،
+    // صاحب المنصة يقرأها كلها. ما في أي بيانات طالب فردية هون إطلاقًا.
+    match /platformStats/{schoolId} {
+      allow read: if isPlatformAdmin() || (isAdmin() && sameSchool(schoolId));
+      allow create, update: if isAdmin() && sameSchool(schoolId)
+        && request.resource.data.keys().hasAll(['schoolName', 'studentCount', 'instructorCount', 'parentCount', 'updatedAt']);
+      allow delete: if false;
     }
 
     // كل شي مو مذكور فوق ممنوع تلقائياً (سلوك Firestore الافتراضي أصلاً)

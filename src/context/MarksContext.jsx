@@ -1,14 +1,17 @@
 import { createContext, useContext, useState, useEffect } from 'react'
-import { collection, query, where, doc, setDoc, getDoc, onSnapshot } from 'firebase/firestore'
+import { collection, query, where, doc, setDoc, getDoc, getDocs, onSnapshot } from 'firebase/firestore'
 import { db } from '../firebase'
 import { useSession } from './SessionContext'
+import { useSchoolStructure } from './SchoolStructureContext'
 import { sendNotification } from '../utils/notify'
+import { logAudit } from '../utils/audit'
 import { categoriesFor } from '../utils/gradeCategories'
 
 const MarksContext = createContext(null)
 
 export function MarksProvider({ children }) {
   const { session } = useSession()
+  const { currentAcademicYear } = useSchoolStructure()
   const [myMarks, setMyMarks] = useState([])
   const [allMarks, setAllMarks] = useState([])
 
@@ -22,13 +25,24 @@ export function MarksProvider({ children }) {
     setMyMarks([])
   }, [session])
 
+  // للإدارة: قراءة مرة وحدة (getDocs) لا real-time — علامات المدرسة كلها ممكن توصل آلاف الوثائق،
+  // و real-time listener عليها هيك بيستهلك حصة القراءة اليومية بسرعة. refreshAdminMarks تحت
+  // بتعيد الجلب عند الطلب (مثلاً قبل إعادة حساب لوحات الشرف بـ AdminInsightsPage)
+  async function refreshAdminMarks() {
+    if (!session || session.role !== 'admin') return []
+    const q = query(collection(db, 'marks'), where('schoolId', '==', session.schoolId))
+    const snap = await getDocs(q)
+    const rows = snap.docs.map((d) => ({ id: d.id, ...d.data() }))
+    setAllMarks(rows)
+    return rows // بترجع الصفوف الطازة مباشرة — الاعتماد على allMarks state بعد await غير موثوق بنفس التشغيلة
+  }
+
   useEffect(() => {
     if (!session) { setAllMarks([]); return }
 
     if (session.role === 'admin') {
-      const q = query(collection(db, 'marks'), where('schoolId', '==', session.schoolId))
-      const unsub = onSnapshot(q, (s) => setAllMarks(s.docs.map((d) => ({ id: d.id, ...d.data() }))))
-      return () => unsub()
+      refreshAdminMarks()
+      return
     }
 
     if (session.role === 'instructor') {
@@ -44,6 +58,7 @@ export function MarksProvider({ children }) {
     }
 
     setAllMarks([])
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [session])
 
   // score و maxScore أرقام. homeworkId اختياري (بينحط تلقائي لما العلامة جايه من تقييم واجب)
@@ -60,8 +75,10 @@ export function MarksProvider({ children }) {
       source: homeworkId ? 'homework' : 'manual',
       teacherUid: session.uid,
       schoolId: session.schoolId,
+      academicYear: currentAcademicYear,
       updatedAt: Date.now(),
     })
+    logAudit(session.schoolId, session.uid, session.name, 'set_mark', 'student', studentUid, `${subjectId}/${categoryId}: ${score}/${maxScore}`)
 
     // إشعار الطالب وأهله بالعلامة الجديدة — أفضل جهد، ما لازم يوقف حفظ العلامة لو فشل لأي سبب.
     try {
@@ -93,7 +110,8 @@ export function MarksProvider({ children }) {
 
   function getMarksForStudentSubject(uid, subjectId) {
     const pool = session?.role === 'student' ? myMarks : allMarks
-    return pool.filter((m) => m.studentUid === uid && m.subjectId === subjectId)
+    return pool.filter((m) => m.studentUid === uid && m.subjectId === subjectId
+      && (!m.academicYear || m.academicYear === currentAcademicYear))
   }
 
   // بيرجع {score, maxScore} أو null إذا ما انحطت علامة بعد (أو إذا كانت بيانات قديمة ناقصة)
@@ -112,7 +130,7 @@ export function MarksProvider({ children }) {
 
   return (
     <MarksContext.Provider
-      value={{ setMarkValue, getMarksForStudentSubject, getMark, formatMark }}
+      value={{ setMarkValue, getMarksForStudentSubject, getMark, formatMark, allMarks, refreshAdminMarks }}
     >
       {children}
     </MarksContext.Provider>

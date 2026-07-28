@@ -1,7 +1,19 @@
+import { useEffect, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
+import { doc, onSnapshot } from 'firebase/firestore'
+import { db } from '../firebase'
 import { useSchoolStructure } from '../context/SchoolStructureContext'
 import { useSession } from '../context/SessionContext'
 import { useProgress } from '../context/ProgressContext'
+import { useHomework } from '../context/HomeworkContext'
+import HonorBoard from '../components/HonorBoard'
+
+function urgencyLabel(h) {
+  if (h.hoursLeft < 0) return { text: 'فات الموعد', color: 'var(--sunset)' }
+  if (h.urgency === 'urgent') return { text: `باقي ${Math.max(1, Math.round(h.hoursLeft))} ساعة`, color: 'var(--sunset)' }
+  if (h.urgency === 'soon') return { text: `باقي ${Math.round(h.hoursLeft / 24)} يوم`, color: 'var(--gold, #b8860b)' }
+  return { text: `باقي ${Math.round(h.hoursLeft / 24)} يوم`, color: 'var(--ink-soft)' }
+}
 
 function ringSvg(pct) {
   const r = 22
@@ -15,7 +27,29 @@ export default function Dashboard() {
   const { session } = useSession()
   const navigate = useNavigate()
 
+  const { getUpcomingDeadlines } = useHomework()
   const mySubjects = subjects.filter((s) => s.sectionId === session.sectionId)
+  const upcoming = getUpcomingDeadlines(mySubjects.map((s) => s.id))
+
+  const [sectionBoard, setSectionBoard] = useState(null)
+  const [topStudents, setTopStudents] = useState(null)
+  const [topSections, setTopSections] = useState(null)
+
+  useEffect(() => {
+    if (!session.sectionId) { setSectionBoard(null); return }
+    const unsub = onSnapshot(doc(db, 'honorBoards', `section_${session.sectionId}`), (snap) => setSectionBoard(snap.data() || null))
+    return () => unsub()
+  }, [session.sectionId])
+
+  useEffect(() => {
+    const unsub = onSnapshot(doc(db, 'honorBoards', 'school_top_students'), (snap) => setTopStudents(snap.data() || null))
+    return () => unsub()
+  }, [])
+
+  useEffect(() => {
+    const unsub = onSnapshot(doc(db, 'honorBoards', 'school_top_sections'), (snap) => setTopSections(snap.data() || null))
+    return () => unsub()
+  }, [])
 
   return (
     <div>
@@ -25,6 +59,51 @@ export default function Dashboard() {
           <h2 className="page-title">مسارك الدراسي</h2>
         </div>
         <div className="role-badge"><i className="ti ti-user" /> طالب</div>
+      </div>
+
+      {upcoming.length > 0 && (
+        <div className="panel" style={{ marginBottom: '20px' }}>
+          <div style={{ fontWeight: 700, fontSize: '13.5px', marginBottom: '8px' }}><i className="ti ti-calendar-due" /> واجبات قريبة</div>
+          {upcoming.map((h) => {
+            const subject = mySubjects.find((s) => s.id === h.courseId)
+            const label = urgencyLabel(h)
+            return (
+              <div key={h.id} className="account-panel-row" style={{ justifyContent: 'space-between', padding: '6px 0', cursor: 'pointer' }} onClick={() => navigate(`/app/homework-detail/${h.id}`)}>
+                <span style={{ fontSize: '13px' }}>{h.title} <span style={{ color: 'var(--ink-faint)' }}>· {subject?.name}</span></span>
+                <span style={{ fontSize: '12px', fontWeight: 700, color: label.color }}>{label.text}</span>
+              </div>
+            )
+          })}
+        </div>
+      )}
+
+      <div className="honor-board-grid">
+        <HonorBoard
+          title="لوحة شرف الشعبة"
+          icon="ti-star"
+          entries={sectionBoard?.top}
+          nameKey="studentName"
+          idKey="studentUid"
+          meId={session.uid}
+        />
+        <HonorBoard
+          title="أفضل 10 طلاب بالمدرسة"
+          icon="ti-trophy"
+          entries={topStudents?.top}
+          nameKey="studentName"
+          subKey="sectionName"
+          idKey="studentUid"
+          meId={session.uid}
+        />
+        <HonorBoard
+          title="أفضل 5 شعب بالمدرسة"
+          icon="ti-users-group"
+          entries={topSections?.top}
+          nameKey="sectionName"
+          subKey="gradeName"
+          idKey="sectionId"
+          meId={session.sectionId}
+        />
       </div>
 
       {mySubjects.length === 0 ? (

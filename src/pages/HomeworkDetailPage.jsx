@@ -46,10 +46,10 @@ export default function HomeworkDetailPage() {
     <div>
       <div className="eyebrow">{course.name}</div>
       <h2 className="page-title" style={{ marginBottom: '10px' }}>{hw.title}</h2>
-      <p className="course-progress-text">
-        <i className="ti ti-calendar-due" /> الموعد النهائي: {deadlineDate.toLocaleString('ar-EG')}
-        {isPast && <span style={{ color: 'var(--berry)', marginRight: '8px' }}>(انتهى الموعد)</span>}
-      </p>
+      <div className={`deadline-pill${isPast ? ' past' : ''}`}>
+        <i className={`ti ${isPast ? 'ti-calendar-x' : 'ti-calendar-due'}`} />
+        {isPast ? 'انتهى الموعد النهائي' : `الموعد النهائي: ${deadlineDate.toLocaleString('ar-EG')}`}
+      </div>
 
       <div className="lesson-body animate-stagger">
         <p>{hw.description}</p>

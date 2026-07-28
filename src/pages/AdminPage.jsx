@@ -6,6 +6,7 @@ import { doc, setDoc, updateDoc, arrayUnion, collection, onSnapshot, query, wher
 import { db, firebaseConfig } from '../firebase'
 import { useSession } from '../context/SessionContext'
 import { useSchoolStructure } from '../context/SchoolStructureContext'
+import { logAudit } from '../utils/audit'
 
 export default function AdminPage() {
   const { session } = useSession()
@@ -67,6 +68,7 @@ export default function AdminPage() {
         )
       }
       await signOut(secondaryAuth)
+      logAudit(session.schoolId, session.uid, session.name, 'create_user', role, credential.user.uid, `${name.trim()} (${email.trim()})`)
 
       const roleLabel = role === 'instructor' ? 'المعلّم' : role === 'parent' ? 'ولي الأمر' : 'الطالب'
       setSuccess(`تم إنشاء حساب ${roleLabel} بنجاح.`)

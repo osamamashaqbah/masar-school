@@ -15,6 +15,7 @@ export default function SchoolStructurePage() {
     grades, addGrade, addSection, addSubject, getSectionsForGrade, getSubjectsForSection,
     archivedSubjects, archiveSubject, restoreSubject,
   } = useSchoolStructure()
+  const [importCreatedCount, setImportCreatedCount] = useState(0)
   const [confirmArchiveId, setConfirmArchiveId] = useState('')
 
   const [instructors, setInstructors] = useState([])
@@ -51,16 +52,17 @@ function exportResultsToExcel() {
     if (!importResults) return
 
     const rows = importResults
-      .filter((r) => r.status === 'ok')
+      .filter((r) => r.status === 'ok' || r.status === 'linked')
       .map((r) => ({
         'الاسم': r.name,
         'الحساب': r.role === 'parent' ? 'ولي أمر' : 'طالب',
-        'البريد الإلكتروني': r.email,
-        'كلمة السر': r.password,
+        'البريد الإلكتروني': r.status === 'linked' ? '(حساب موجود مسبقاً)' : r.email,
+        'كلمة السر': r.status === 'linked' ? '—' : r.password,
+        'ملاحظة': r.status === 'linked' ? r.note : '',
       }))
 
     const worksheet = XLSX.utils.json_to_sheet(rows)
-    worksheet['!cols'] = [{ wch: 22 }, { wch: 12 }, { wch: 34 }, { wch: 16 }]
+    worksheet['!cols'] = [{ wch: 22 }, { wch: 12 }, { wch: 34 }, { wch: 16 }, { wch: 40 }]
 
     const workbook = XLSX.utils.book_new()
     XLSX.utils.book_append_sheet(workbook, worksheet, 'بيانات الدخول')
@@ -80,25 +82,34 @@ function exportResultsToExcel() {
     try {
       const rows = await parseStudentsExcel(importFile)
 
-      const matched = []
-      const unmatched = []
+      // نسخة قابلة للتعديل محليًا حتى ما نعيد إنشاء نفس الصف/الشعبة لصفين متتاليين بنفس الملف —
+      // context.sections ما بينحدّث فورًا (onSnapshot غير متزامن)، فما نقدر نعتمد عليه هون
+      const gradesDraft = grades.map((g) => ({ ...g }))
+      const sectionsDraft = getSectionsForGrade ? grades.flatMap((g) => getSectionsForGrade(g.id).map((s) => ({ ...s }))) : []
+      let createdCount = 0
 
-      rows.forEach((row) => {
-        const grade = grades.find((g) => g.name === row.gradeName)
-        const section = grade ? getSectionsForGrade(grade.id).find((s) => s.name === row.sectionName) : null
-
-        if (section) {
-          matched.push({ name: row.name, sectionId: section.id })
-        } else {
-          unmatched.push(row)
+      async function resolveSectionId(gradeName, sectionName) {
+        let grade = gradesDraft.find((g) => g.name === gradeName)
+        if (!grade) {
+          const gradeId = await addGrade(gradeName)
+          grade = { id: gradeId, name: gradeName }
+          gradesDraft.push(grade)
+          createdCount++
         }
-      })
-
-      if (unmatched.length > 0) {
-        setImportError(
-          `${unmatched.length} طالب ما انطابق صفهم/شعبتهم مع أي شعبة موجودة (تأكد الأسماء مطابقة تماماً): ${unmatched.map((u) => u.name).join('، ')}`
-        )
+        const existingSection = sectionsDraft.find((s) => s.gradeId === grade.id && s.name === sectionName)
+        if (existingSection) return existingSection.id
+        const sectionId = await addSection(grade.id, sectionName)
+        sectionsDraft.push({ id: sectionId, gradeId: grade.id, name: sectionName })
+        createdCount++
+        return sectionId
       }
+
+      const matched = []
+      for (const row of rows) {
+        const sectionId = await resolveSectionId(row.gradeName, row.sectionName)
+        matched.push({ name: row.name, sectionId, parentPhone: row.parentPhone, parentName: row.parentName })
+      }
+      setImportCreatedCount(createdCount)
 
       if (matched.length > 0) {
         const results = await importStudents(matched)
@@ -197,13 +208,15 @@ function exportResultsToExcel() {
       <div className="upload-help">
         <i className="ti ti-info-circle" />
         <div>
-          <strong>كيف تجهّز ملف Excel؟</strong> سوي جدول بـ3 أعمدة بالضبط بهاي العناوين، وسمّي الملف واحفظه كـ .xlsx:
+          <strong>كيف تجهّز ملف Excel؟</strong> سوي جدول بهاي الأعمدة، وسمّي الملف واحفظه كـ .xlsx:
           <table style={{ width: '100%', marginTop: '8px', fontSize: '12px', borderCollapse: 'collapse' }}>
             <thead>
               <tr>
                 <th style={{ border: '1px solid var(--line)', padding: '4px 8px' }}>الاسم</th>
                 <th style={{ border: '1px solid var(--line)', padding: '4px 8px' }}>الصف</th>
                 <th style={{ border: '1px solid var(--line)', padding: '4px 8px' }}>الشعبة</th>
+                <th style={{ border: '1px solid var(--line)', padding: '4px 8px' }}>جوال ولي الأمر (اختياري)</th>
+                <th style={{ border: '1px solid var(--line)', padding: '4px 8px' }}>اسم ولي الأمر (اختياري)</th>
               </tr>
             </thead>
             <tbody>
@@ -211,11 +224,23 @@ function exportResultsToExcel() {
                 <td style={{ border: '1px solid var(--line)', padding: '4px 8px' }}>أحمد سالم</td>
                 <td style={{ border: '1px solid var(--line)', padding: '4px 8px' }}>الصف السابع</td>
                 <td style={{ border: '1px solid var(--line)', padding: '4px 8px' }}>شعبة أ</td>
+                <td style={{ border: '1px solid var(--line)', padding: '4px 8px' }}>0791234567</td>
+                <td style={{ border: '1px solid var(--line)', padding: '4px 8px' }}>سالم أبو خالد</td>
+              </tr>
+              <tr>
+                <td style={{ border: '1px solid var(--line)', padding: '4px 8px' }}>سارة سالم</td>
+                <td style={{ border: '1px solid var(--line)', padding: '4px 8px' }}>الصف الخامس</td>
+                <td style={{ border: '1px solid var(--line)', padding: '4px 8px' }}>شعبة ب</td>
+                <td style={{ border: '1px solid var(--line)', padding: '4px 8px' }}>0791234567</td>
+                <td style={{ border: '1px solid var(--line)', padding: '4px 8px' }}>سالم أبو خالد</td>
               </tr>
             </tbody>
           </table>
           <p style={{ margin: '8px 0 0', fontSize: '11.5px' }}>
-            ⚠️ لازم "الصف" و"الشعبة" يطابقوا بالضبط الأسماء يلي أضفتها فوق بقسم "هيكل المدرسة".
+            ✅ لو "الصف" أو "الشعبة" مش موجودين أصلاً، رح ننشئهم تلقائيًا وقت الاستيراد — ما تحتاج تضيفهم يدويًا قبل.
+          </p>
+          <p style={{ margin: '4px 0 0', fontSize: '11.5px' }}>
+            👨‍👩‍👧‍👦 إذا كتبت نفس "جوال ولي الأمر" لأكثر من طالب (إخوان)، رح ينربطوا كلهم بحساب ولي أمر واحد بدل ما ينعمل حساب لكل وحد. لو تركت العمود فاضي، كل طالب بياخد حساب ولي أمر لحاله.
           </p>
         </div>
       </div>
@@ -240,7 +265,8 @@ function exportResultsToExcel() {
         <div className="panel" style={{ maxWidth: '520px', marginTop: '16px' }}>
           <p style={{ fontSize: '13px', fontWeight: 700, marginBottom: '10px' }}>
             نتيجة الاستيراد: {importResults.filter((r) => r.role === 'student' && r.status === 'ok').length} من {importResults.filter((r) => r.role === 'student').length} طالب نجحوا
-            (وانضاف حساب ولي أمر تلقائي لكل طالب نجح)
+            (حساب ولي أمر جديد لكل عيلة، أو ربط بحساب موجود لو الإخوان بنفس الجوال)
+            {importCreatedCount > 0 && ` — أُنشئ ${importCreatedCount} صف/شعبة تلقائيًا`}
           </p>
           <div className="import-results-table">
             <button type="button" className="btn btn-accent" onClick={exportResultsToExcel} style={{ marginBottom: '12px' }}>
@@ -255,6 +281,10 @@ function exportResultsToExcel() {
                 {r.status === 'ok' ? (
                   <span style={{ fontSize: '11px', color: 'var(--ink-soft)' }}>
                     {r.email} / {r.password}
+                  </span>
+                ) : r.status === 'linked' ? (
+                  <span style={{ fontSize: '11px', color: 'var(--pine)' }}>
+                    <i className="ti ti-link" /> {r.note}
                   </span>
                 ) : (
                   <span style={{ fontSize: '11px', color: 'var(--berry)' }}>فشل: {r.error}</span>

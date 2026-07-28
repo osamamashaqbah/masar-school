@@ -2,11 +2,13 @@ import { createContext, useContext, useState, useEffect } from 'react'
 import { collection, query, where, onSnapshot, doc, setDoc } from 'firebase/firestore'
 import { db } from '../firebase'
 import { useSession } from './SessionContext'
+import { useSchoolStructure } from './SchoolStructureContext'
 
 const ProgressContext = createContext(null)
 
 export function ProgressProvider({ children }) {
   const { session } = useSession()
+  const { currentAcademicYear } = useSchoolStructure()
   const [progress, setProgress] = useState({})
   const [allProgress, setAllProgress] = useState([])
 
@@ -15,11 +17,14 @@ export function ProgressProvider({ children }) {
     const q = query(collection(db, 'progress'), where('uid', '==', session.uid))
     const unsub = onSnapshot(q, (snapshot) => {
       const map = {}
-      snapshot.docs.forEach((d) => { const data = d.data(); map[data.subjectId] = data.completedLessons })
+      snapshot.docs.forEach((d) => {
+        const data = d.data()
+        if (!data.academicYear || data.academicYear === currentAcademicYear) map[data.subjectId] = data.completedLessons
+      })
       setProgress(map)
     })
     return () => unsub()
-  }, [session])
+  }, [session, currentAcademicYear])
 
   useEffect(() => {
     if (!session) { setAllProgress([]); return }
@@ -43,16 +48,20 @@ export function ProgressProvider({ children }) {
     setAllProgress([])
   }, [session])
 
+  // docId يتضمّن السنة الدراسية — التقدّم "ما يرجع للخلف" حسب قواعد Firestore، فلازم كل سنة توثيقها لحالها
   async function completeLesson(subjectId, lessonIndex) {
     if (!session) return
     const current = progress[subjectId] || 0
     const updated = Math.max(current, lessonIndex + 1)
-    const docId = `${session.uid}_${subjectId}`
-    await setDoc(doc(db, 'progress', docId), { uid: session.uid, subjectId, completedLessons: updated, schoolId: session.schoolId })
+    const docId = `${session.uid}_${subjectId}_${currentAcademicYear}`
+    await setDoc(doc(db, 'progress', docId), {
+      uid: session.uid, subjectId, completedLessons: updated, schoolId: session.schoolId, academicYear: currentAcademicYear,
+    })
   }
 
   function getStudentProgress(uid, subjectId) {
-    const row = allProgress.find((p) => p.uid === uid && p.subjectId === subjectId)
+    const row = allProgress.find((p) => p.uid === uid && p.subjectId === subjectId
+      && (!p.academicYear || p.academicYear === currentAcademicYear))
     return row ? row.completedLessons : 0
   }
 

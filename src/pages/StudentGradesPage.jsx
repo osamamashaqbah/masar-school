@@ -1,26 +1,83 @@
+import { useState, useEffect } from 'react'
 import { useSession } from '../context/SessionContext'
 import { useSchoolStructure } from '../context/SchoolStructureContext'
 import { useMarks } from '../context/MarksContext'
 
 import { useQuizStats } from '../context/QuizStatsContext'
 import { useAttendance } from '../context/AttendanceContext'
-import { categoriesFor } from '../utils/gradeCategories'
+import { useHomework } from '../context/HomeworkContext'
+import { categoriesFor, computeSubjectTotal } from '../utils/gradeCategories'
 import AttendanceReport from '../components/AttendanceReport'
+import ReportCardPrint from '../components/ReportCardPrint'
 
 export default function StudentGradesPage() {
   const { session } = useSession()
-  const { subjects } = useSchoolStructure()
+  const { subjects, schoolName, branding } = useSchoolStructure()
   const { getMark, formatMark } = useMarks()
   const { getStudentStats } = useQuizStats()
   const { getAbsenceDatesFor } = useAttendance()
+  const { getProcrastinationPattern } = useHomework()
+  const [printing, setPrinting] = useState(false)
+  const [bilingualPrint, setBilingualPrint] = useState(false)
+
+  const procrastination = getProcrastinationPattern(session.uid)
 
   const mySubjects = subjects.filter((s) => s.sectionId === session.sectionId)
   const absenceDates = getAbsenceDatesFor(session.uid)
 
+  useEffect(() => {
+    function onAfterPrint() { setPrinting(false) }
+    window.addEventListener('afterprint', onAfterPrint)
+    return () => window.removeEventListener('afterprint', onAfterPrint)
+  }, [])
+
+  function handlePrint() {
+    setPrinting(true)
+    requestAnimationFrame(() => window.print())
+  }
+
+  const printRows = mySubjects.map((s) => {
+    const { totalScore, totalMax } = computeSubjectTotal(s, session.uid, getMark, getStudentStats)
+    return { name: s.name, totalScore, totalMax }
+  })
+
   return (
     <div>
-      <div className="eyebrow">درجاتي</div>
-      <h2 className="page-title" style={{ marginBottom: '16px' }}>درجاتك بكل مادة</h2>
+      <div className="topbar">
+        <div>
+          <div className="eyebrow">درجاتي</div>
+          <h2 className="page-title" style={{ marginBottom: '16px' }}>درجاتك بكل مادة</h2>
+        </div>
+        <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+          <label style={{ display: 'flex', alignItems: 'center', gap: '5px', fontSize: '12.5px', color: 'var(--ink-soft)' }}>
+            <input type="checkbox" checked={bilingualPrint} onChange={(e) => setBilingualPrint(e.target.checked)} /> ثنائي اللغة
+          </label>
+          <button type="button" className="btn btn-primary" onClick={handlePrint}>
+            <i className="ti ti-printer" /> طباعة كشف العلامات
+          </button>
+        </div>
+      </div>
+
+      {printing && (
+        <ReportCardPrint
+          schoolName={schoolName}
+          studentName={session.name}
+          rows={printRows}
+          absentDays={absenceDates.length}
+          generatedAt={new Date().toLocaleDateString('ar-EG')}
+          bilingual={bilingualPrint}
+          branding={branding}
+        />
+      )}
+
+      {procrastination.isPattern && (
+        <div className="panel" style={{ marginBottom: '18px', maxWidth: '520px', borderColor: 'var(--sunset)' }}>
+          <p style={{ margin: 0, fontSize: '13px' }}>
+            <i className="ti ti-clock-hour-9" /> لاحظنا إنك بتسلّم أغلب واجباتك قريب جداً من الموعد النهائي
+            ({procrastination.lastMinuteCount} من {procrastination.total}). جرب تبلّش أبكر شوي، بريحك أكتر 🌱
+          </p>
+        </div>
+      )}
 
       <div className="eyebrow" style={{ marginBottom: '10px' }}>الحضور والغياب</div>
       <AttendanceReport absences={absenceDates} />
@@ -29,19 +86,7 @@ export default function StudentGradesPage() {
         {mySubjects.map((s, si) => {
           const categories = categoriesFor(s)
           const { attempts, correct } = getStudentStats(session.uid, s.id)
-
-          // مجموع بسيط: نجمع كل درجة انحطت مع أعلى درجة إلها، وبس. بدون أوزان أو نسب.
-          let totalScore = 0
-          let totalMax = 0
-          categories.forEach((cat) => {
-            if (cat.id === 'quiz') {
-              if (attempts > 0) { totalScore += correct; totalMax += attempts }
-              return
-            }
-            const mark = getMark(session.uid, s.id, cat.id)
-            if (mark) { totalScore += mark.score; totalMax += mark.maxScore }
-          })
-
+          const { totalScore, totalMax } = computeSubjectTotal(s, session.uid, getMark, getStudentStats)
           const pct = totalMax > 0 ? Math.round((totalScore / totalMax) * 100) : null
           const r = 30
           const circumference = 2 * Math.PI * r

@@ -14,6 +14,7 @@ export default function InstructorAnalyticsPage() {
 
   const [students, setStudents] = useState([])
   const [studentsError, setStudentsError] = useState('')
+  const [warnings, setWarnings] = useState([])
   const mySubjects = subjects.filter((s) => s.teacherUid === session.uid)
   const myTaughtSectionIds = [...new Set(mySubjects.map((s) => s.sectionId))]
   // Firestore بيرفض أي list query كامل (مش بس يفلتر) إذا القواعد ما قدرت تثبت إنه كل نتيجة محتملة
@@ -38,26 +39,68 @@ export default function InstructorAnalyticsPage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [sectionIdsKey])
 
+  useEffect(() => {
+    if (myTaughtSectionIds.length === 0) { setWarnings([]); return }
+    const q = query(collection(db, 'earlyWarnings'), where('sectionId', 'in', myTaughtSectionIds.slice(0, 30)))
+    const unsub = onSnapshot(q, (snap) => setWarnings(snap.docs.map((d) => d.data())))
+    return () => unsub()
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [sectionIdsKey])
+
+  const flaggedStudents = warnings
+    .filter((w) => w.attendanceAlert || w.averageAlert || w.subjectAlerts?.length > 0)
+    .map((w) => ({ ...w, student: students.find((st) => st.id === w.studentUid) }))
+    .filter((w) => w.student)
+
   return (
     <div>
-      <div className="eyebrow">تحليلات موادك</div>
-      <h2 className="page-title" style={{ marginBottom: '16px' }}>دفتر الدرجات</h2>
+      <div className="topbar">
+        <div>
+          <div className="eyebrow">تحليلات موادك</div>
+          <h2 className="page-title">دفتر الدرجات</h2>
+        </div>
+        <div className="role-badge"><i className="ti ti-chart-bar" /> {mySubjects.length} مادة</div>
+      </div>
 
       {studentsError && <p className="auth-error">{studentsError}</p>}
+
+      {flaggedStudents.length > 0 && (
+        <div className="panel card-hover-lift animate-stagger" style={{ marginBottom: '22px' }}>
+          <div style={{ fontWeight: 800, marginBottom: '10px', display: 'flex', alignItems: 'center', gap: '7px' }}>
+            <i className="ti ti-alert-triangle" style={{ color: 'var(--berry)' }} /> طلاب بحاجة لمتابعة ({flaggedStudents.length})
+          </div>
+          {flaggedStudents.map(({ student, attendanceAlert, averageAlert, subjectAlerts, average, unexcusedCount, excusedCount }) => (
+            <div key={student.id} className="analytics-row" style={{ marginBottom: '8px' }}>
+              <div className="analytics-title">{student.name}</div>
+              <div style={{ fontSize: '12.5px', color: 'var(--ink-soft)', marginTop: '4px', display: 'flex', flexDirection: 'column', gap: '3px' }}>
+                {attendanceAlert && <span><i className="ti ti-calendar-x" /> غياب: {unexcusedCount} بدون عذر، {excusedCount} بعذر</span>}
+                {averageAlert && <span><i className="ti ti-trending-down" /> المعدل العام: {Math.round(average)}%</span>}
+                {subjectAlerts?.filter((s) => mySubjects.some((m) => m.id === s.subjectId)).map((s) => (
+                  <span key={s.subjectId}><i className="ti ti-alert-triangle" /> خطر رسوب بمادتك: {s.totalScore}/{s.totalMax}</span>
+                ))}
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
+
       {mySubjects.length === 0 ? (
-        <p style={{ color: 'var(--ink-soft)' }}>ما في مواد مسندة لك بعد.</p>
+        <div className="quiz-card" style={{ maxWidth: '480px' }}>
+          <p style={{ color: 'var(--ink-soft)', margin: 0 }}>ما في مواد مسندة لك بعد.</p>
+        </div>
       ) : (
         <div className="analytics-list">
-          {mySubjects.map((s) => {
+          {mySubjects.map((s, si) => {
             const sectionStudents = students.filter((st) => st.sectionId === s.sectionId)
             const { attempts, correct } = getCourseAggregateStats(s.id)
             const accuracy = attempts > 0 ? Math.round((correct / attempts) * 100) : null
 
             return (
-              <div className="analytics-row" key={s.id}>
+              <div className="analytics-row animate-stagger" key={s.id} style={{ animationDelay: `${si * 60}ms` }}>
                 <div className="analytics-title">{s.name}</div>
                 <div className="analytics-stats-grid">
                   <div className="analytics-stat"><i className="ti ti-target-arrow" /><span>{attempts} محاولة إجابة</span></div>
+                  <div className="analytics-stat"><i className="ti ti-users" /><span>{sectionStudents.length} طالب</span></div>
                 </div>
                 {accuracy !== null && (
                   <div className="analytics-accuracy">

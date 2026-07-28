@@ -7,18 +7,87 @@ import { useProgress } from '../context/ProgressContext'
 import { useMarks } from '../context/MarksContext'
 import { useQuizStats } from '../context/QuizStatsContext'
 import { useAttendance } from '../context/AttendanceContext'
-import { categoriesFor } from '../utils/gradeCategories'
+import { useExcuseRequests } from '../context/ExcuseRequestContext'
+import { useHomework } from '../context/HomeworkContext'
+import { categoriesFor, computeSubjectTotal } from '../utils/gradeCategories'
 import AttendanceReport from '../components/AttendanceReport'
+import ReportCardPrint from '../components/ReportCardPrint'
+
+function excuseStatusLabel(status) {
+  if (status === 'approved') return { text: 'تمت الموافقة', className: 'excused' }
+  if (status === 'rejected') return { text: 'مرفوض', className: 'unexcused' }
+  return { text: 'بانتظار المعلّم', className: '' }
+}
+
+function ExcuseRequestForm({ child }) {
+  const { myRequests, submitRequest } = useExcuseRequests()
+  const [date, setDate] = useState('')
+  const [reason, setReason] = useState('')
+  const [sending, setSending] = useState(false)
+
+  const childRequests = myRequests.filter((r) => r.studentUid === child.id).sort((a, b) => (a.date < b.date ? 1 : -1))
+
+  async function handleSubmit(e) {
+    e.preventDefault()
+    if (!date || !reason.trim() || !child.sectionId) return
+    setSending(true)
+    try {
+      await submitRequest(child.id, child.name, child.sectionId, date, reason)
+      setDate('')
+      setReason('')
+    } finally {
+      setSending(false)
+    }
+  }
+
+  return (
+    <div className="panel" style={{ marginBottom: '18px' }}>
+      <div className="ask-card-title"><i className="ti ti-calendar-off" /> طلب عذر مسبق لغياب معروف</div>
+      <form style={{ display: 'flex', gap: '8px', flexWrap: 'wrap', marginBottom: '10px' }} onSubmit={handleSubmit}>
+        <input type="date" value={date} onChange={(e) => setDate(e.target.value)} required style={{ flex: '1', minWidth: '150px' }} />
+        <input type="text" placeholder="سبب الغياب" value={reason} onChange={(e) => setReason(e.target.value)} required style={{ flex: '2', minWidth: '180px' }} />
+        <button type="submit" className="btn btn-accent" disabled={sending} style={{ width: 'auto' }}>إرسال</button>
+      </form>
+      {childRequests.length > 0 && (
+        <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
+          {childRequests.slice(0, 5).map((r) => {
+            const badge = excuseStatusLabel(r.status)
+            return (
+              <div key={r.id} style={{ fontSize: '12px', color: 'var(--ink-soft)', display: 'flex', justifyContent: 'space-between', gap: '8px' }}>
+                <span>{r.date} — {r.reason}</span>
+                <span className={`excuse-toggle-btn active ${badge.className}`} style={{ padding: '2px 8px', fontSize: '10.5px' }}>{badge.text}</span>
+              </div>
+            )
+          })}
+        </div>
+      )}
+    </div>
+  )
+}
 
 export default function ParentDashboardPage() {
   const { session } = useSession()
-  const { subjects } = useSchoolStructure()
+  const { subjects, schoolName, currency, paymentInfo, branding } = useSchoolStructure()
   const { getStudentProgress } = useProgress()
   const { getMark, formatMark } = useMarks()
   const { getStudentStats } = useQuizStats()
   const { getAbsenceDatesFor } = useAttendance()
+  const { getProcrastinationPattern } = useHomework()
 
   const [children, setChildren] = useState([])
+  const [printChildId, setPrintChildId] = useState(null)
+  const [bilingualPrint, setBilingualPrint] = useState(false)
+
+  useEffect(() => {
+    function onAfterPrint() { setPrintChildId(null) }
+    window.addEventListener('afterprint', onAfterPrint)
+    return () => window.removeEventListener('afterprint', onAfterPrint)
+  }, [])
+
+  function handlePrint(childId) {
+    setPrintChildId(childId)
+    requestAnimationFrame(() => window.print())
+  }
 
   useEffect(() => {
     if (!session?.childUids || session.childUids.length === 0) return
@@ -44,19 +113,68 @@ export default function ParentDashboardPage() {
       <div className="eyebrow">لوحة ولي الأمر</div>
       <h2 className="page-title" style={{ marginBottom: '20px' }}>متابعة أبنائك</h2>
 
+      {paymentInfo && (paymentInfo.bankName || paymentInfo.iban || paymentInfo.cliqAlias || paymentInfo.notes) && (
+        <div className="panel" style={{ marginBottom: '20px' }}>
+          <div style={{ fontWeight: 700, fontSize: '13.5px', marginBottom: '8px' }}><i className="ti ti-building-bank" /> بيانات دفع الرسوم ({currency})</div>
+          {paymentInfo.bankName && <p style={{ margin: '4px 0', fontSize: '13px' }}>البنك: {paymentInfo.bankName}</p>}
+          {paymentInfo.iban && <p style={{ margin: '4px 0', fontSize: '13px' }}>رقم الحساب/الآيبان: {paymentInfo.iban}</p>}
+          {paymentInfo.cliqAlias && <p style={{ margin: '4px 0', fontSize: '13px' }}>CliQ: {paymentInfo.cliqAlias}</p>}
+          {paymentInfo.notes && <p style={{ margin: '4px 0', fontSize: '13px', color: 'var(--ink-soft)' }}>{paymentInfo.notes}</p>}
+        </div>
+      )}
+
       {children.map((child) => {
         const childSubjects = subjects.filter((s) => s.sectionId === child.sectionId)
         const absenceDates = getAbsenceDatesFor(child.id)
+        const procrastination = getProcrastinationPattern(child.id)
+
+        const printRows = childSubjects.map((s) => {
+          const { totalScore, totalMax } = computeSubjectTotal(s, child.id, getMark, getStudentStats)
+          return { name: s.name, totalScore, totalMax }
+        })
 
         return (
           <div key={child.id} className="child-report-block">
-            <div className="child-report-head">
-              <div className="child-report-avatar"><i className="ti ti-user" /></div>
-              <div>
-                <div className="child-report-name">{child.name}</div>
-                <div className="child-report-sub">{childSubjects.length} مادة</div>
+            <div className="child-report-head" style={{ justifyContent: 'space-between' }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+                <div className="child-report-avatar"><i className="ti ti-user" /></div>
+                <div>
+                  <div className="child-report-name">{child.name}</div>
+                  <div className="child-report-sub">{childSubjects.length} مادة</div>
+                </div>
+              </div>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+                <label style={{ display: 'flex', alignItems: 'center', gap: '5px', fontSize: '12.5px', color: 'var(--ink-soft)' }}>
+                  <input type="checkbox" checked={bilingualPrint} onChange={(e) => setBilingualPrint(e.target.checked)} /> ثنائي اللغة
+                </label>
+                <button type="button" className="btn" style={{ width: 'auto' }} onClick={() => handlePrint(child.id)}>
+                  <i className="ti ti-printer" /> طباعة كشف العلامات
+                </button>
               </div>
             </div>
+
+            {printChildId === child.id && (
+              <ReportCardPrint
+                schoolName={schoolName}
+                studentName={child.name}
+                rows={printRows}
+                absentDays={absenceDates.length}
+                generatedAt={new Date().toLocaleDateString('ar-EG')}
+                bilingual={bilingualPrint}
+                branding={branding}
+              />
+            )}
+
+            {procrastination.isPattern && (
+              <div className="panel" style={{ marginBottom: '18px', borderColor: 'var(--sunset)' }}>
+                <p style={{ margin: 0, fontSize: '13px' }}>
+                  <i className="ti ti-clock-hour-9" /> {child.name} بتسلّم أغلب الواجبات قريب جداً من الموعد النهائي
+                  ({procrastination.lastMinuteCount} من {procrastination.total}) — تشجيعه يبلّش أبكر ممكن يخفف الضغط عليه.
+                </p>
+              </div>
+            )}
+
+            <ExcuseRequestForm child={child} />
 
             <AttendanceReport absences={absenceDates} />
 
@@ -70,18 +188,7 @@ export default function ParentDashboardPage() {
 
                   const categories = categoriesFor(s)
                   const { attempts, correct } = getStudentStats(child.id, s.id)
-
-                  let totalScore = 0
-                  let totalMax = 0
-                  categories.forEach((cat) => {
-                    if (cat.id === 'quiz') {
-                      if (attempts > 0) { totalScore += correct; totalMax += attempts }
-                      return
-                    }
-                    const mark = getMark(child.id, s.id, cat.id)
-                    if (mark) { totalScore += mark.score; totalMax += mark.maxScore }
-                  })
-
+                  const { totalScore, totalMax } = computeSubjectTotal(s, child.id, getMark, getStudentStats)
                   const pct = totalMax > 0 ? Math.round((totalScore / totalMax) * 100) : null
                   const r = 30
                   const circumference = 2 * Math.PI * r

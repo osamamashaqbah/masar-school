@@ -2,11 +2,13 @@ import { createContext, useContext, useState, useEffect } from 'react'
 import { collection, query, where, doc, setDoc, onSnapshot, increment } from 'firebase/firestore'
 import { db } from '../firebase'
 import { useSession } from './SessionContext'
+import { useSchoolStructure } from './SchoolStructureContext'
 
 const QuizStatsContext = createContext(null)
 
 export function QuizStatsProvider({ children }) {
   const { session } = useSession()
+  const { currentAcademicYear } = useSchoolStructure()
   const [allStats, setAllStats] = useState([])
 
   useEffect(() => {
@@ -31,23 +33,24 @@ export function QuizStatsProvider({ children }) {
     setAllStats([])
   }, [session])
 
+  // docId يتضمّن السنة الدراسية — وإلا الـ increment كان رح يضل يتراكم عبر السنين على نفس الوثيقة للأبد
   async function recordAttempt(subjectId, isCorrect) {
     if (!session) return
-    const docId = `${session.uid}_${subjectId}`
+    const docId = `${session.uid}_${subjectId}_${currentAcademicYear}`
     await setDoc(
       doc(db, 'quizStats', docId),
-      { uid: session.uid, subjectId, schoolId: session.schoolId, attempts: increment(1), correct: increment(isCorrect ? 1 : 0) },
+      { uid: session.uid, subjectId, schoolId: session.schoolId, academicYear: currentAcademicYear, attempts: increment(1), correct: increment(isCorrect ? 1 : 0) },
       { merge: true }
     )
   }
 
   function getCourseAggregateStats(subjectId) {
-    const rows = allStats.filter((s) => s.subjectId === subjectId)
+    const rows = allStats.filter((s) => s.subjectId === subjectId && (!s.academicYear || s.academicYear === currentAcademicYear))
     return rows.reduce((acc, r) => ({ attempts: acc.attempts + r.attempts, correct: acc.correct + r.correct }), { attempts: 0, correct: 0 })
   }
 
   function getStudentStats(uid, subjectId) {
-    const row = allStats.find((s) => s.uid === uid && s.subjectId === subjectId)
+    const row = allStats.find((s) => s.uid === uid && s.subjectId === subjectId && (!s.academicYear || s.academicYear === currentAcademicYear))
     return row || { attempts: 0, correct: 0 }
   }
 

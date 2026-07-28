@@ -18,7 +18,12 @@ export default function LessonPage() {
   return (
     <div>
       <div className="eyebrow">الدرس {index + 1} من {subject.lessons.length} · {subject.name}</div>
-      <h2 className="page-title animate-stagger">{lesson.title}</h2>
+      <div className="lesson-hero">
+        <div className="lesson-hero-icon"><i className="ti ti-book-2" /></div>
+        <div className="lesson-hero-text">
+          <h2 className="page-title animate-stagger" style={{ marginTop: 0 }}>{lesson.title}</h2>
+        </div>
+      </div>
 
       <div className="lesson-body animate-stagger" style={{ animationDelay: '60ms' }}>
         <p>{lesson.content}</p>

@@ -1,0 +1,64 @@
+# masar-admin-ops (Cloudflare Worker)
+
+بديل عن Firebase Cloud Functions لعملية إنشاء الحساب الفردي (`createSchoolUser`) — بدون
+الحاجة لترقية Firebase لخطة Blaze. يشتغل كسيرفر موثوق يحمل مفتاح Service Account، يتحقق من
+هوية المدير المتصل (Firebase ID token)، وينشئ حساب Auth + ملف Firestore بشكل ذرّي مع تراجع
+تلقائي لو فشلت أي خطوة بعد الأخرى.
+
+النطاق الحالي: `createSchoolUser` بس. باقي عمليات Bug 2 (الاستيراد الجماعي، الترفيع السنوي،
+المؤشرات، الإشعارات) لسا من جهة العميل — ممكن تنتقل لهون بنفس الطريقة لاحقًا.
+
+## أول مرة (إعداد)
+
+```bash
+cd worker
+npm install
+npx wrangler login          # بيفتح المتصفح لتسجيل الدخول لحساب Cloudflare
+```
+
+انسخ مفتاح Service Account (نفسه يلي بـ `serviceAccountKey.json` بجذر المشروع) كسر محلي
+للتطوير:
+
+```bash
+cp .dev.vars.example .dev.vars
+# افتح .dev.vars واستبدل القيمة بمحتوى serviceAccountKey.json كامل بصيغة JSON بسطر واحد
+```
+
+## تجربة محلية
+
+```bash
+npm run dev
+```
+
+بيشتغل على `http://127.0.0.1:8787`. جرب:
+
+```bash
+curl -X POST http://127.0.0.1:8787/create-school-user \
+  -H "Authorization: Bearer <ID token لمدير حقيقي>" \
+  -H "Content-Type: application/json" \
+  -d '{"name":"معلّم تجريبي","email":"test@example.com","password":"123456","role":"instructor"}'
+```
+
+للحصول على ID token لمدير حقيقي: سجّل دخول بالتطبيق من المتصفح، وبتبويب console نفّذ
+`await firebase.auth().currentUser.getIdToken()` (أو أضف زر مؤقت بالواجهة يطبعه).
+
+## النشر
+
+```bash
+npx wrangler secret put FIREBASE_SERVICE_ACCOUNT_KEY
+# الصق محتوى serviceAccountKey.json كامل (سطر واحد) لما يطلب منك، Enter
+
+npm run deploy
+```
+
+بعد النشر رح يطبع لك رابط شبيه بـ `https://masar-admin-ops.<subdomain>.workers.dev`. هذا
+الرابط هو يلي لازم تحطه بمتغيّر `VITE_ADMIN_OPS_WORKER_URL` بملف `.env` تبع الواجهة الرئيسية.
+
+**قبل ما تنشر:** افتح `wrangler.jsonc` وتأكد `ALLOWED_ORIGIN` مضبوط على دومين الاستضافة
+الفعلي تبع الواجهة (مو `localhost`)، وإلا رح يترفض كل طلب بسبب CORS.
+
+## ليش ما استخدمنا firebase-admin مباشرة؟
+
+حزمة `firebase-admin` الرسمية معتمدة على Node.js/gRPC وما بتشتغل بشكل موثوق على بيئة
+Cloudflare Workers. بدلها، `src/google.ts` و`src/firestore.ts` بيكلموا REST APIs تبع Google
+مباشرة (Identity Toolkit + Firestore) باستخدام `jose` لتوقيع/تحقق JWT عبر Web Crypto.

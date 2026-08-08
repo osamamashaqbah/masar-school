@@ -1,0 +1,14 @@
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "masar-admin-ops",
+  "main": "src/index.ts",
+  "compatibility_date": "2026-08-08",
+  "compatibility_flags": ["nodejs_compat"],
+  "vars": {
+    "FIREBASE_PROJECT_ID": "masar-school-demo",
+    // دومين الواجهة المسموح تنادي هالـ Worker منه — عدّله إذا تغيّر دومين الاستضافة
+    "ALLOWED_ORIGIN": "https://masar-school-demo.web.app"
+  }
+  // الأسرار (ما تنحط هون): FIREBASE_SERVICE_ACCOUNT_KEY — عبر:
+  //   npx wrangler secret put FIREBASE_SERVICE_ACCOUNT_KEY
+}

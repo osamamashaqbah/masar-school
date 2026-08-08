@@ -1,0 +1,86 @@
+// عميل REST خفيف لـ Firestore (بدل firebase-admin يلي ما بيشتغل على Workers). Firestore REST
+// بيستخدم صيغة قيم مكتوبة ({stringValue: "..."} بدل "..." مباشرة) — الدوال هون تحوّل تلقائيًا.
+
+type FirestoreValue = Record<string, unknown>
+
+function toFirestoreValue(v: unknown): FirestoreValue {
+  if (v === null || v === undefined) return { nullValue: null }
+  if (typeof v === 'string') return { stringValue: v }
+  if (typeof v === 'boolean') return { booleanValue: v }
+  if (typeof v === 'number') return Number.isInteger(v) ? { integerValue: String(v) } : { doubleValue: v }
+  if (Array.isArray(v)) return { arrayValue: { values: v.map(toFirestoreValue) } }
+  if (typeof v === 'object') return { mapValue: { fields: toFirestoreFields(v as Record<string, unknown>) } }
+  throw new Error(`نوع غير مدعوم لقيمة Firestore: ${typeof v}`)
+}
+
+function toFirestoreFields(obj: Record<string, unknown>): Record<string, FirestoreValue> {
+  const fields: Record<string, FirestoreValue> = {}
+  for (const [k, v] of Object.entries(obj)) {
+    if (v === undefined) continue
+    fields[k] = toFirestoreValue(v)
+  }
+  return fields
+}
+
+function fromFirestoreValue(v: FirestoreValue): unknown {
+  if ('stringValue' in v) return v.stringValue
+  if ('booleanValue' in v) return v.booleanValue
+  if ('integerValue' in v) return Number(v.integerValue)
+  if ('doubleValue' in v) return v.doubleValue
+  if ('nullValue' in v) return null
+  if ('timestampValue' in v) return v.timestampValue
+  if ('arrayValue' in v) {
+    const values = (v.arrayValue as { values?: FirestoreValue[] })?.values ?? []
+    return values.map(fromFirestoreValue)
+  }
+  if ('mapValue' in v) {
+    const fields = (v.mapValue as { fields?: Record<string, FirestoreValue> })?.fields ?? {}
+    return fromFirestoreFields(fields)
+  }
+  return null
+}
+
+function fromFirestoreFields(fields: Record<string, FirestoreValue>): Record<string, unknown> {
+  const obj: Record<string, unknown> = {}
+  for (const [k, v] of Object.entries(fields)) obj[k] = fromFirestoreValue(v)
+  return obj
+}
+
+const BASE = (projectId: string) => `https://firestore.googleapis.com/v1/projects/${projectId}/databases/(default)/documents`
+
+export async function firestoreGetDoc(
+  accessToken: string, projectId: string, path: string
+): Promise<Record<string, unknown> | null> {
+  const res = await fetch(`${BASE(projectId)}/${path}`, {
+    headers: { Authorization: `Bearer ${accessToken}` },
+  })
+  if (res.status === 404) return null
+  if (!res.ok) throw new Error(`فشلت قراءة ${path}: ${res.status} ${await res.text()}`)
+  const data = (await res.json()) as { fields?: Record<string, FirestoreValue> }
+  return fromFirestoreFields(data.fields || {})
+}
+
+export async function firestoreCreateDoc(
+  accessToken: string, projectId: string, collectionPath: string, docId: string, data: Record<string, unknown>
+): Promise<void> {
+  const url = `${BASE(projectId)}/${collectionPath}?documentId=${encodeURIComponent(docId)}`
+  const res = await fetch(url, {
+    method: 'POST',
+    headers: { Authorization: `Bearer ${accessToken}`, 'Content-Type': 'application/json' },
+    body: JSON.stringify({ fields: toFirestoreFields(data) }),
+  })
+  if (!res.ok) throw new Error(`فشلت كتابة ${collectionPath}/${docId}: ${res.status} ${await res.text()}`)
+}
+
+export async function firestorePatchDoc(
+  accessToken: string, projectId: string, path: string, data: Record<string, unknown>
+): Promise<void> {
+  const mask = Object.keys(data).map((k) => `updateMask.fieldPaths=${encodeURIComponent(k)}`).join('&')
+  const url = `${BASE(projectId)}/${path}?${mask}`
+  const res = await fetch(url, {
+    method: 'PATCH',
+    headers: { Authorization: `Bearer ${accessToken}`, 'Content-Type': 'application/json' },
+    body: JSON.stringify({ fields: toFirestoreFields(data) }),
+  })
+  if (!res.ok) throw new Error(`فشل تحديث ${path}: ${res.status} ${await res.text()}`)
+}

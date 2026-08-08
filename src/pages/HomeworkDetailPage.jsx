@@ -4,11 +4,18 @@ import { useSchoolStructure } from '../context/SchoolStructureContext'
 import { useHomework } from '../context/HomeworkContext'
 import { parseMaterialUrl } from '../utils/parseMaterialUrl'
 
+const STATUS_LABELS = {
+  submitted: 'تم التسليم، بانتظار المراجعة',
+  returned: 'المعلّم رجّع الواجب — يحتاج إعادة تسليم',
+  resubmitted: 'أعدت التسليم، بانتظار المراجعة',
+  graded: 'تم التصحيح ✅',
+}
+
 export default function HomeworkDetailPage() {
   const { homeworkId } = useParams()
   const navigate = useNavigate()
   const { subjects } = useSchoolStructure()
-  const { homework, getSubmission, submitHomework } = useHomework()
+  const { homework, getSubmission, submitHomework, resubmitHomework } = useHomework()
 
   const hw = homework.find((h) => h.id === homeworkId)
   const course = hw ? subjects.find((c) => c.id === hw.courseId) : null
@@ -23,6 +30,7 @@ export default function HomeworkDetailPage() {
   const deadlineDate = hw.deadline?.toDate ? hw.deadline.toDate() : new Date(hw.deadline)
   const isPast = deadlineDate < new Date()
   const materialParsed = hw.materialUrl ? parseMaterialUrl(hw.materialUrl) : null
+  const canResubmit = submission?.status === 'returned'
 
   async function handleSubmit(e) {
     e.preventDefault()
@@ -33,7 +41,11 @@ export default function HomeworkDetailPage() {
     }
     setLoading(true)
     try {
-      await submitHomework(hw.id, answerUrl.trim())
+      if (canResubmit) {
+        await resubmitHomework(hw.id, answerUrl.trim())
+      } else {
+        await submitHomework(hw.id, answerUrl.trim())
+      }
       setAnswerUrl('')
     } catch (err) {
       setError('صار خطأ أثناء التسليم: ' + err.message)
@@ -55,6 +67,13 @@ export default function HomeworkDetailPage() {
         <p>{hw.description}</p>
       </div>
 
+      {hw.rubric && (
+        <div className="lesson-body animate-stagger" style={{ marginTop: '10px' }}>
+          <div style={{ fontWeight: 700, fontSize: '13px', marginBottom: '4px' }}><i className="ti ti-list-check" /> معايير التصحيح</div>
+          <p style={{ whiteSpace: 'pre-wrap', fontSize: '13px', color: 'var(--ink-soft)' }}>{hw.rubric}</p>
+        </div>
+      )}
+
       {materialParsed && (
         <div className="materials-section animate-stagger" style={{ animationDelay: '60ms' }}>
           <div className="materials-heading"><i className="ti ti-paperclip" /> ملف الواجب</div>
@@ -73,14 +92,39 @@ export default function HomeworkDetailPage() {
       )}
 
       <div className="quiz-card animate-stagger" style={{ animationDelay: '120ms' }}>
-        {submission ? (
+        {submission && !canResubmit ? (
           <div>
-            <p style={{ color: 'var(--pine)', fontWeight: 600, margin: '0 0 10px' }}>
-              <i className="ti ti-circle-check" /> تم تسليم إجابتك
+            <p style={{ color: submission.status === 'graded' ? 'var(--pine)' : 'inherit', fontWeight: 600, margin: '0 0 6px' }}>
+              <i className={`ti ${submission.status === 'graded' ? 'ti-circle-check' : 'ti-clock'}`} />{' '}
+              {STATUS_LABELS[submission.status] || 'تم التسليم'}
             </p>
+            {submission.attemptCount > 1 && (
+              <p style={{ fontSize: '11.5px', color: 'var(--ink-faint)', margin: '0 0 10px' }}>المحاولة رقم {submission.attemptCount}</p>
+            )}
             <a href={submission.url} target="_blank" rel="noopener noreferrer" className="btn">
               <i className="ti ti-external-link" /> شوف إجابتك المسلّمة
             </a>
+          </div>
+        ) : canResubmit ? (
+          <div>
+            <p style={{ color: 'var(--berry)', fontWeight: 600, margin: '0 0 6px' }}>
+              <i className="ti ti-arrow-back-up" /> المعلّم رجّع الواجب — يحتاج إعادة تسليم
+            </p>
+            {submission.teacherComment && (
+              <p style={{ fontSize: '13px', color: 'var(--ink-soft)', margin: '0 0 12px', whiteSpace: 'pre-wrap' }}>
+                <i className="ti ti-message-2" /> {submission.teacherComment}
+              </p>
+            )}
+            <form onSubmit={handleSubmit}>
+              <div className="field">
+                <label htmlFor="answer-url">رابط إجابتك الجديدة (Google Drive)</label>
+                <input id="answer-url" type="text" placeholder="ارفع إجابتك على Drive والصق الرابط هون" value={answerUrl} onChange={(e) => setAnswerUrl(e.target.value)} />
+              </div>
+              {error && <p className="auth-error">{error}</p>}
+              <button type="submit" className="btn btn-primary" disabled={loading}>
+                {loading ? <i className="ti ti-loader-2 spin" /> : (<><i className="ti ti-upload" /> أعد التسليم</>)}
+              </button>
+            </form>
           </div>
         ) : isPast ? (
           <p style={{ color: 'var(--berry)' }}>انتهى الموعد النهائي، ما عاد فيك تسلّم هاد الواجب.</p>

@@ -14,6 +14,7 @@ export default function InstructorHomeworkPage() {
   const [hwTitle, setHwTitle] = useState('')
   const [hwDescription, setHwDescription] = useState('')
   const [hwMaterialUrl, setHwMaterialUrl] = useState('')
+  const [hwRubric, setHwRubric] = useState('')
   const [hwDeadline, setHwDeadline] = useState('')
   const [hwError, setHwError] = useState('')
   const [hwSaved, setHwSaved] = useState(false)
@@ -41,12 +42,14 @@ export default function InstructorHomeworkPage() {
         title: hwTitle.trim(),
         description: hwDescription.trim(),
         materialUrl: hwMaterialUrl.trim(),
+        rubric: hwRubric.trim(),
         deadline: hwDeadline,
       })
 
       setHwTitle('')
       setHwDescription('')
       setHwMaterialUrl('')
+      setHwRubric('')
       setHwDeadline('')
       setHwSaved(true)
       setTimeout(() => setHwSaved(false), 1800)
@@ -89,6 +92,11 @@ export default function InstructorHomeworkPage() {
           <div className="field">
             <label htmlFor="hw-material">رابط ملف مرفق (اختياري)</label>
             <input id="hw-material" type="text" placeholder="رابط Google Drive لملف يشرح الواجب" value={hwMaterialUrl} onChange={(e) => setHwMaterialUrl(e.target.value)} />
+          </div>
+
+          <div className="field">
+            <label htmlFor="hw-rubric">معايير التصحيح (Rubric، اختياري)</label>
+            <textarea id="hw-rubric" rows="3" placeholder="مثال: 5 علامات للدقة، 3 للترتيب، 2 للخط..." value={hwRubric} onChange={(e) => setHwRubric(e.target.value)} />
           </div>
 
           <div className="field">

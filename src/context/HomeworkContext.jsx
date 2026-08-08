@@ -1,5 +1,5 @@
 import { createContext, useContext, useState, useEffect } from 'react'
-import { collection, addDoc, onSnapshot, doc, setDoc, serverTimestamp, query, where } from 'firebase/firestore'
+import { collection, addDoc, onSnapshot, doc, setDoc, updateDoc, arrayUnion, increment, serverTimestamp, query, where } from 'firebase/firestore'
 import { db } from '../firebase'
 import { useSession } from './SessionContext'
 import { useSchoolStructure } from './SchoolStructureContext'
@@ -51,8 +51,7 @@ export function HomeworkProvider({ children }) {
     const unsubscribe = onSnapshot(q, (snapshot) => {
       const map = {}
       snapshot.docs.forEach((d) => {
-        const data = d.data()
-        map[data.homeworkId] = { url: data.url, submittedAt: data.submittedAt }
+        map[d.data().homeworkId] = { id: d.id, ...d.data() }
       })
       setSubmissions(map)
     })
@@ -63,12 +62,13 @@ export function HomeworkProvider({ children }) {
     return homework.filter((h) => h.courseId === courseId && (!h.academicYear || h.academicYear === currentAcademicYear))
   }
 
-  async function addHomework({ courseId, title, description, materialUrl, deadline }) {
+  async function addHomework({ courseId, title, description, materialUrl, deadline, rubric }) {
     await addDoc(collection(db, 'homework'), {
       courseId,
       title,
       description,
       materialUrl: materialUrl || null,
+      rubric: rubric || null,
       deadline: new Date(deadline),
       schoolId: session.schoolId,
       academicYear: currentAcademicYear,
@@ -89,6 +89,42 @@ export function HomeworkProvider({ children }) {
       schoolId: session.schoolId,
       academicYear: currentAcademicYear,
       submittedAt: serverTimestamp(),
+      status: 'submitted',
+      attemptCount: 1,
+      teacherComment: null,
+      gradedAt: null,
+      timeline: [{ atMs: Date.now(), kind: 'submitted', by: 'student' }],
+    })
+  }
+
+  // الطالب بيقدر يعيد التسليم بس لما المعلّم يرجّعها له صراحة (status == 'returned') —
+  // مفروضة كمان على مستوى قواعد Firestore، هون تكرار دفاعي بالواجهة
+  async function resubmitHomework(homeworkId, url) {
+    const docId = `${session.uid}_${homeworkId}`
+    await updateDoc(doc(db, 'submissions', docId), {
+      url,
+      submittedAt: serverTimestamp(),
+      status: 'resubmitted',
+      attemptCount: increment(1),
+      timeline: arrayUnion({ atMs: Date.now(), kind: 'resubmitted', by: 'student' }),
+    })
+  }
+
+  // إجراء المعلّم: يرجّع الواجب للطالب مع ملاحظة بدل ما يصحّحه — بيفتح باب إعادة التسليم
+  async function returnHomework(submissionId, comment) {
+    await updateDoc(doc(db, 'submissions', submissionId), {
+      status: 'returned',
+      teacherComment: comment.trim(),
+      timeline: arrayUnion({ atMs: Date.now(), kind: 'returned', by: 'instructor', note: comment.trim() }),
+    })
+  }
+
+  // يُستدعى مع setMarkValue (MarksContext) بعد ما المعلّم يحفظ الدرجة — يقفل دورة الحالة
+  async function markSubmissionGraded(submissionId) {
+    await updateDoc(doc(db, 'submissions', submissionId), {
+      status: 'graded',
+      gradedAt: serverTimestamp(),
+      timeline: arrayUnion({ atMs: Date.now(), kind: 'graded', by: 'instructor' }),
     })
   }
 
@@ -118,7 +154,11 @@ export function HomeworkProvider({ children }) {
   }
 
   return (
-    <HomeworkContext.Provider value={{ homework, getHomeworkForCourse, addHomework, getSubmission, submitHomework, getProcrastinationPattern, getUpcomingDeadlines }}>
+    <HomeworkContext.Provider value={{
+      homework, getHomeworkForCourse, addHomework, getSubmission, submitHomework,
+      resubmitHomework, returnHomework, markSubmissionGraded,
+      getProcrastinationPattern, getUpcomingDeadlines,
+    }}>
       {children}
     </HomeworkContext.Provider>
   )

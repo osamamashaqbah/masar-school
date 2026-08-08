@@ -980,3 +980,88 @@ describe('studentInterventions (خطط تدخل الطلاب)', () => {
     await assertFails(getDoc(doc(adminACtx.firestore(), 'studentInterventions', interventionId)))
   })
 })
+
+describe('homework submission status machine (submitted -> returned -> resubmitted -> graded)', () => {
+  async function seedSubmissionFixture(schoolId, suffix) {
+    await seedSchoolWithAdmin(schoolId, `admin${suffix}`)
+    await seedUser(schoolId, `teacher${suffix}`, { name: 'T', role: 'instructor', email: `t${suffix}@x.com` })
+    await seedUser(schoolId, `student${suffix}`, { name: 'St', role: 'student', email: `s${suffix}@x.com`, sectionId: `sec${suffix}` })
+    let subId
+    await testEnv.withSecurityRulesDisabled(async (ctx) => {
+      const db = ctx.firestore()
+      await setDoc(doc(db, 'subjects', `subj${suffix}`), {
+        name: 'رياضيات', schoolId, sectionId: `sec${suffix}`, teacherUid: `teacher${suffix}`, teacherName: 'T', lessons: [],
+      })
+      await setDoc(doc(db, 'homework', `hw${suffix}`), {
+        courseId: `subj${suffix}`, title: 'واجب', description: '', materialUrl: null, rubric: null,
+        deadline: Date.now() + 86400000, schoolId, academicYear: '2025-2026', createdAt: Date.now(),
+      })
+      const ref = doc(db, 'submissions', `student${suffix}_hw${suffix}`)
+      await setDoc(ref, {
+        studentUid: `student${suffix}`, homeworkId: `hw${suffix}`, url: 'https://drive.example/a', schoolId,
+        academicYear: '2025-2026', submittedAt: Date.now(), status: 'submitted', attemptCount: 1,
+        teacherComment: null, gradedAt: null, timeline: [{ atMs: Date.now(), kind: 'submitted', by: 'student' }],
+      })
+      subId = ref.id
+    })
+    return subId
+  }
+
+  it('the subject teacher can return a submission with a comment', async () => {
+    const subId = await seedSubmissionFixture('schoolA', 'A')
+
+    const teacherCtx = testEnv.authenticatedContext('teacherA')
+    await assertSucceeds(
+      updateDoc(doc(teacherCtx.firestore(), 'submissions', subId), {
+        status: 'returned', teacherComment: 'راجع سؤال 3', timeline: [{ atMs: Date.now(), kind: 'returned', by: 'instructor', note: 'راجع سؤال 3' }],
+      })
+    )
+  })
+
+  it('the teacher cannot rewrite the submission url while returning it', async () => {
+    const subId = await seedSubmissionFixture('schoolA', 'A')
+
+    const teacherCtx = testEnv.authenticatedContext('teacherA')
+    await assertFails(
+      updateDoc(doc(teacherCtx.firestore(), 'submissions', subId), {
+        status: 'returned', teacherComment: 'x', url: 'https://drive.example/tampered',
+      })
+    )
+  })
+
+  it('a student cannot resubmit before the teacher has returned it', async () => {
+    const subId = await seedSubmissionFixture('schoolA', 'A')
+
+    const studentCtx = testEnv.authenticatedContext('studentA')
+    await assertFails(
+      updateDoc(doc(studentCtx.firestore(), 'submissions', subId), {
+        url: 'https://drive.example/b', status: 'resubmitted', attemptCount: 2,
+      })
+    )
+  })
+
+  it('a student can resubmit once the teacher has returned it', async () => {
+    const subId = await seedSubmissionFixture('schoolA', 'A')
+    await testEnv.withSecurityRulesDisabled(async (ctx) => {
+      await updateDoc(doc(ctx.firestore(), 'submissions', subId), { status: 'returned', teacherComment: 'راجع سؤال 3' })
+    })
+
+    const studentCtx = testEnv.authenticatedContext('studentA')
+    await assertSucceeds(
+      updateDoc(doc(studentCtx.firestore(), 'submissions', subId), {
+        url: 'https://drive.example/b', submittedAt: Date.now(), status: 'resubmitted', attemptCount: 2,
+      })
+    )
+  })
+
+  it('another school\'s teacher cannot return or grade the submission', async () => {
+    const subId = await seedSubmissionFixture('schoolA', 'A')
+    await seedSchoolWithAdmin('schoolB', 'adminB')
+    await seedUser('schoolB', 'teacherB', { name: 'T2', role: 'instructor', email: 't2@x.com' })
+
+    const otherTeacherCtx = testEnv.authenticatedContext('teacherB')
+    await assertFails(
+      updateDoc(doc(otherTeacherCtx.firestore(), 'submissions', subId), { status: 'returned', teacherComment: 'x' })
+    )
+  })
+})

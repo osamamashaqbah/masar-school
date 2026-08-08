@@ -214,11 +214,17 @@ service cloud.firestore {
       allow create: if isStudent() && request.resource.data.studentUid == request.auth.uid
         && request.resource.data.schoolId == mySchoolId()
         && request.resource.data.academicYear == currentYear();
-      allow update: if isStudent()
-        && resource.data.studentUid == request.auth.uid
-        && request.resource.data.studentUid == request.auth.uid
-        && request.resource.data.schoolId == resource.data.schoolId
-        && !exists(/databases/$(database)/documents/marks/$(request.auth.uid + '_' + get(/databases/$(database)/documents/homework/$(resource.data.homeworkId)).data.courseId + '_homework'));
+      // دورة الحالة: submitted -> (returned <-> resubmitted)* -> graded. الطالب بس يقدر يعيد
+      // التسليم بعد ما المعلّم يرجّعها له صراحة (status == 'returned')، مش أي وقت قبل التصحيح —
+      // هيك ما بيقدر يبدّل جوابه بعد ما المعلّم بلّشه يصحح أو بعده مصحّح أصلًا.
+      allow update: if isSignedIn() && sameSchool(resource.data.schoolId) && request.resource.data.schoolId == resource.data.schoolId && (
+        (isStudent() && resource.data.studentUid == request.auth.uid && request.resource.data.studentUid == request.auth.uid
+          && resource.data.status == 'returned' && request.resource.data.status == 'resubmitted'
+          && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['url', 'submittedAt', 'status', 'attemptCount', 'timeline']))
+        || (teachesSubject(get(/databases/$(database)/documents/homework/$(resource.data.homeworkId)).data.courseId)
+          && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['status', 'teacherComment', 'gradedAt', 'timeline'])
+          && request.resource.data.status in ['returned', 'graded'])
+      );
       allow delete: if false;
     }
 

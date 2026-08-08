@@ -42,7 +42,11 @@ export default function HomeworkPage() {
                   <i className="ti ti-calendar-due" />
                   الموعد النهائي: {deadlineDate.toLocaleString('ar-EG')}
                 </div>
-                {submission ? (
+                {submission?.status === 'returned' ? (
+                  <span className="tag" style={{ background: 'var(--berry-bg)', color: 'var(--berry)' }}>رجّعها المعلّم — أعد التسليم</span>
+                ) : submission?.status === 'graded' ? (
+                  <span className="tag tag-pine">تم التصحيح</span>
+                ) : submission ? (
                   <span className="tag tag-pine">تم التسليم</span>
                 ) : isPast ? (
                   <span className="tag" style={{ background: 'var(--berry-bg)', color: 'var(--berry)' }}>انتهى الموعد</span>

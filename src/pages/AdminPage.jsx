@@ -1,12 +1,9 @@
 import { useState, useEffect } from 'react'
-import { Navigate } from 'react-router-dom'
-import { initializeApp, deleteApp } from 'firebase/app'
-import { getAuth, createUserWithEmailAndPassword, signOut } from 'firebase/auth'
-import { doc, setDoc, updateDoc, arrayUnion, collection, onSnapshot, query, where } from 'firebase/firestore'
-import { db, firebaseConfig } from '../firebase'
+import { Navigate, Link } from 'react-router-dom'
+import { collection, onSnapshot, query, where } from 'firebase/firestore'
+import { db, auth } from '../firebase'
 import { useSession } from '../context/SessionContext'
 import { useSchoolStructure } from '../context/SchoolStructureContext'
-import { logAudit } from '../utils/audit'
 
 export default function AdminPage() {
   const { session } = useSession()
@@ -48,27 +45,27 @@ export default function AdminPage() {
     setSuccess('')
     setLoading(true)
 
-    const secondaryApp = initializeApp(firebaseConfig, `secondary-${Date.now()}`)
-    const secondaryAuth = getAuth(secondaryApp)
-
     try {
-      const credential = await createUserWithEmailAndPassword(secondaryAuth, email.trim(), password)
-
-      const profile = { name: name.trim(), role, email: email.trim(), schoolId: session.schoolId }
-      if (role === 'parent') {
-        profile.childUids = selectedChildren
+      // إنشاء الحساب صار عبر Worker موثوق (worker/) بدل المتصفح مباشرة — بيتحقق من هوية
+      // المدير، وبيتراجع تلقائيًا لو فشلت كتابة الملف الشخصي بعد نجاح إنشاء حساب Auth
+      // (Bug 2.1، MASAR_CRITICAL_BUGS_DETAILED_AR.md). راجع worker/README.md للنشر.
+      const idToken = await auth.currentUser.getIdToken()
+      const res = await fetch(`${import.meta.env.VITE_ADMIN_OPS_WORKER_URL}/create-school-user`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${idToken}` },
+        body: JSON.stringify({
+          name: name.trim(),
+          email: email.trim(),
+          password,
+          role,
+          childUids: role === 'parent' ? selectedChildren : undefined,
+        }),
+      })
+      const data = await res.json().catch(() => ({}))
+      if (!res.ok) {
+        setError(translateWorkerError(data))
+        return
       }
-
-      await setDoc(doc(db, 'users', credential.user.uid), profile)
-      if (role === 'parent' && selectedChildren.length > 0) {
-        await Promise.all(
-          selectedChildren.map((childUid) =>
-            updateDoc(doc(db, 'users', childUid), { parentUids: arrayUnion(credential.user.uid) })
-          )
-        )
-      }
-      await signOut(secondaryAuth)
-      logAudit(session.schoolId, session.uid, session.name, 'create_user', role, credential.user.uid, `${name.trim()} (${email.trim()})`)
 
       const roleLabel = role === 'instructor' ? 'المعلّم' : role === 'parent' ? 'ولي الأمر' : 'الطالب'
       setSuccess(`تم إنشاء حساب ${roleLabel} بنجاح.`)
@@ -78,9 +75,9 @@ export default function AdminPage() {
       setRole('student')
       setSelectedChildren([])
     } catch (err) {
-      setError(translateFirebaseError(err.code))
+      console.error('[إنشاء حساب] خطأ غير متوقع:', err)
+      setError('صار خطأ غير متوقع. تأكد من اتصالك بالإنترنت وحاول مرة ثانية.')
     } finally {
-      await deleteApp(secondaryApp)
       setLoading(false)
     }
   }
@@ -195,6 +192,8 @@ export default function AdminPage() {
                   {u.parentUids?.length > 0
                     ? `ولي الأمر: ${u.parentUids.map((pid) => users.find((x) => x.id === pid)?.name || '؟').join('، ')}`
                     : 'ما في ولي أمر مرتبط — ما رح توصله إشعارات'}
+                  {' · '}
+                  <Link to={`/app/admin/students/${u.id}`}>عرض الملف</Link>
                 </div>
               )}
             </div>
@@ -222,11 +221,16 @@ function roleColor(role) {
   return 'var(--berry)'
 }
 
-function translateFirebaseError(code) {
-  const map = {
-    'auth/email-already-in-use': 'هاد البريد مسجّل من قبل.',
-    'auth/invalid-email': 'صيغة البريد الإلكتروني مو صحيحة.',
-    'auth/weak-password': 'كلمة السر لازم تكون 6 أحرف على الأقل.',
+function translateWorkerError(data) {
+  if (data?.error === 'auth_error') {
+    const msg = data.message || ''
+    if (msg.startsWith('EMAIL_EXISTS')) return 'هاد البريد مسجّل من قبل.'
+    if (msg.startsWith('INVALID_EMAIL')) return 'صيغة البريد الإلكتروني مو صحيحة.'
+    if (msg.startsWith('WEAK_PASSWORD')) return 'كلمة السر لازم تكون 6 أحرف على الأقل.'
+    return 'صار خطأ بإنشاء الحساب. جرب مرة ثانية.'
   }
-  return map[code] || 'صار خطأ غير متوقع. جرب مرة ثانية.'
+  if (data?.error === 'invalid_input') return data.message || 'بيانات غير صالحة.'
+  if (data?.error === 'permission_denied') return 'ما عندك صلاحية تنشئ حسابات لهاي المدرسة.'
+  if (data?.error === 'unauthenticated') return 'انتهت الجلسة، سجّل دخول من جديد.'
+  return 'صار خطأ غير متوقع. جرب مرة ثانية.'
 }

@@ -1,4 +1,5 @@
 import { useState } from 'react'
+import { Link } from 'react-router-dom'
 import { doc, setDoc } from 'firebase/firestore'
 import { db } from '../firebase'
 import { useSession } from '../context/SessionContext'
@@ -80,7 +81,7 @@ export default function AdminInsightsPage() {
       })
       await Promise.all(
         sectionBoards.map(({ section, top }) =>
-          setDoc(doc(db, 'honorBoards', `section_${section.id}`), { schoolId: session.schoolId, sectionId: section.id, top, updatedAt: Date.now() })
+          setDoc(doc(db, 'honorBoards', `${session.schoolId}_section_${section.id}`), { schoolId: session.schoolId, sectionId: section.id, top, updatedAt: Date.now() })
         )
       )
 
@@ -94,7 +95,7 @@ export default function AdminInsightsPage() {
         })),
         10
       )
-      await setDoc(doc(db, 'honorBoards', 'school_top_students'), { schoolId: session.schoolId, top: schoolStudentsBoard, updatedAt: Date.now() })
+      await setDoc(doc(db, 'honorBoards', `${session.schoolId}_top_students`), { schoolId: session.schoolId, top: schoolStudentsBoard, updatedAt: Date.now() })
 
       // لوحة شرف الشعب على مستوى المدرسة — أعلى 5 (معدل الشعبة = متوسط معدلات طلابها يلي عندهم علامات)
       const schoolSectionsBoard = rankTop(
@@ -114,7 +115,7 @@ export default function AdminInsightsPage() {
         }),
         5
       )
-      await setDoc(doc(db, 'honorBoards', 'school_top_sections'), { schoolId: session.schoolId, top: schoolSectionsBoard, updatedAt: Date.now() })
+      await setDoc(doc(db, 'honorBoards', `${session.schoolId}_top_sections`), { schoolId: session.schoolId, top: schoolSectionsBoard, updatedAt: Date.now() })
 
       // مؤشر لصاحب المنصة — بيانات مجمّعة بس (بدون أي بيانات طالب فردية)
       await setDoc(doc(db, 'platformStats', session.schoolId), {
@@ -168,7 +169,12 @@ export default function AdminInsightsPage() {
           ) : (
             result.flagged.map(({ student, attendanceAlert, averageAlert, subjectAlerts, average, unexcused, excused }) => (
               <div key={student.id} className="analytics-row" style={{ marginBottom: '10px' }}>
-                <div className="analytics-title">{student.name}</div>
+                <div className="analytics-title">
+                  {student.name}{' '}
+                  <Link to={`/app/admin/students/${student.id}`} style={{ fontSize: '11.5px', fontWeight: 400 }}>
+                    <i className="ti ti-external-link" /> عرض الملف الكامل
+                  </Link>
+                </div>
                 <div style={{ fontSize: '12.5px', color: 'var(--ink-soft)', marginTop: '4px', display: 'flex', flexDirection: 'column', gap: '3px' }}>
                   {attendanceAlert && <span><i className="ti ti-calendar-x" /> غياب: {unexcused} بدون عذر، {excused} بعذر</span>}
                   {averageAlert && <span><i className="ti ti-trending-down" /> المعدل العام: {Math.round(average)}%</span>}

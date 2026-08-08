@@ -1,11 +1,11 @@
-import { describe, it, beforeAll, afterAll, beforeEach } from 'vitest'
+import { describe, it, expect, beforeAll, afterAll, beforeEach } from 'vitest'
 import { readFileSync } from 'fs'
 import {
   initializeTestEnvironment,
   assertFails,
   assertSucceeds,
 } from '@firebase/rules-unit-testing'
-import { doc, getDoc, setDoc, collection, addDoc } from 'firebase/firestore'
+import { doc, getDoc, getDocs, setDoc, updateDoc, collection, addDoc, query, where } from 'firebase/firestore'
 
 // اختبارات قواعد Firestore: الهدف الوحيد هنا هو إثبات عزل المدارس (tenants) عن بعضها فعليًا،
 // مو بس إخفاءها بالواجهة. يحتاج Firestore emulator (Java) شغال محليًا:
@@ -296,26 +296,26 @@ describe('earlyWarnings / honorBoards', () => {
     await seedSchoolWithAdmin('schoolA', 'adminA')
     await seedUser('schoolA', 'studentA', { name: 'St', role: 'student', email: 's@x.com', sectionId: 'sec1' })
     await testEnv.withSecurityRulesDisabled(async (ctx) => {
-      await setDoc(doc(ctx.firestore(), 'honorBoards', 'section_sec1'), {
+      await setDoc(doc(ctx.firestore(), 'honorBoards', 'schoolA_section_sec1'), {
         schoolId: 'schoolA', top: [{ studentUid: 'studentA', studentName: 'St', average: 95 }], updatedAt: Date.now(),
       })
     })
 
     const studentCtx = testEnv.authenticatedContext('studentA')
-    await assertSucceeds(getDoc(doc(studentCtx.firestore(), 'honorBoards', 'section_sec1')))
+    await assertSucceeds(getDoc(doc(studentCtx.firestore(), 'honorBoards', 'schoolA_section_sec1')))
   })
 
   it('a user from another school cannot read a honor board', async () => {
     await seedSchoolWithAdmin('schoolA', 'adminA')
     await seedSchoolWithAdmin('schoolB', 'adminB')
     await testEnv.withSecurityRulesDisabled(async (ctx) => {
-      await setDoc(doc(ctx.firestore(), 'honorBoards', 'section_sec1'), {
+      await setDoc(doc(ctx.firestore(), 'honorBoards', 'schoolA_section_sec1'), {
         schoolId: 'schoolA', top: [], updatedAt: Date.now(),
       })
     })
 
     const adminBCtx = testEnv.authenticatedContext('adminB')
-    await assertFails(getDoc(doc(adminBCtx.firestore(), 'honorBoards', 'section_sec1')))
+    await assertFails(getDoc(doc(adminBCtx.firestore(), 'honorBoards', 'schoolA_section_sec1')))
   })
 
   it('an instructor cannot write a honor board (admin-only)', async () => {
@@ -324,10 +324,64 @@ describe('earlyWarnings / honorBoards', () => {
 
     const teacherCtx = testEnv.authenticatedContext('teacherA')
     await assertFails(
-      setDoc(doc(teacherCtx.firestore(), 'honorBoards', 'section_sec1'), {
+      setDoc(doc(teacherCtx.firestore(), 'honorBoards', 'schoolA_section_sec1'), {
         schoolId: 'schoolA', top: [], updatedAt: Date.now(),
       })
     )
+  })
+
+  // Bug 1 (تصادم لوحات الشرف بين المدارس): قبل الإصلاح كانت كل المدارس تكتب على
+  // نفس المعرّف العالمي school_top_students، فآخر مدرسة تعيد الحساب تمحي نتائج البقية.
+  it('school B cannot overwrite school A\'s top-students board, even with school B\'s own schoolId in the data', async () => {
+    await seedSchoolWithAdmin('schoolA', 'adminA')
+    await seedSchoolWithAdmin('schoolB', 'adminB')
+    await testEnv.withSecurityRulesDisabled(async (ctx) => {
+      await setDoc(doc(ctx.firestore(), 'honorBoards', 'schoolA_top_students'), {
+        schoolId: 'schoolA', top: [{ studentUid: 'studentA', studentName: 'St A', average: 96 }], updatedAt: Date.now(),
+      })
+    })
+
+    const adminBCtx = testEnv.authenticatedContext('adminB')
+    await assertFails(
+      setDoc(doc(adminBCtx.firestore(), 'honorBoards', 'schoolA_top_students'), {
+        schoolId: 'schoolB', top: [{ studentUid: 'studentB', studentName: 'St B', average: 94 }], updatedAt: Date.now(),
+      })
+    )
+  })
+
+  it('an admin cannot create a honor board whose id is not prefixed with their own schoolId', async () => {
+    await seedSchoolWithAdmin('schoolA', 'adminA')
+
+    const adminACtx = testEnv.authenticatedContext('adminA')
+    await assertFails(
+      setDoc(doc(adminACtx.firestore(), 'honorBoards', 'schoolB_top_students'), {
+        schoolId: 'schoolA', top: [], updatedAt: Date.now(),
+      })
+    )
+  })
+
+  it('school A and school B keep independent top-students boards after both recompute', async () => {
+    await seedSchoolWithAdmin('schoolA', 'adminA')
+    await seedSchoolWithAdmin('schoolB', 'adminB')
+
+    const adminACtx = testEnv.authenticatedContext('adminA')
+    await assertSucceeds(
+      setDoc(doc(adminACtx.firestore(), 'honorBoards', 'schoolA_top_students'), {
+        schoolId: 'schoolA', top: [{ studentUid: 'studentA', studentName: 'St A', average: 96 }], updatedAt: Date.now(),
+      })
+    )
+    const adminBCtx = testEnv.authenticatedContext('adminB')
+    await assertSucceeds(
+      setDoc(doc(adminBCtx.firestore(), 'honorBoards', 'schoolB_top_students'), {
+        schoolId: 'schoolB', top: [{ studentUid: 'studentB', studentName: 'St B', average: 94 }], updatedAt: Date.now(),
+      })
+    )
+
+    let aDoc
+    await testEnv.withSecurityRulesDisabled(async (ctx) => {
+      aDoc = await getDoc(doc(ctx.firestore(), 'honorBoards', 'schoolA_top_students'))
+    })
+    expect(aDoc.data().top[0].studentUid).toBe('studentA')
   })
 })
 
@@ -534,5 +588,395 @@ describe('platformAdmins / platformStats (super-admin)', () => {
 
     const adminBCtx = testEnv.authenticatedContext('adminB')
     await assertFails(getDoc(doc(adminBCtx.firestore(), 'platformStats', 'schoolA')))
+  })
+})
+
+describe('feedback (الملاحظات والمتابعة)', () => {
+  async function seedFeedbackFixture(schoolId, suffix) {
+    await seedSchoolWithAdmin(schoolId, `admin${suffix}`)
+    await seedUser(schoolId, `teacher${suffix}`, { name: 'T', role: 'instructor', email: `t${suffix}@x.com`, taughtSectionIds: [`sec${suffix}`] })
+    await seedUser(schoolId, `student${suffix}`, { name: 'St', role: 'student', email: `s${suffix}@x.com`, sectionId: `sec${suffix}`, parentUids: [`parent${suffix}`] })
+    await seedUser(schoolId, `parent${suffix}`, { name: 'P', role: 'parent', email: `p${suffix}@x.com`, childUids: [`student${suffix}`] })
+    await testEnv.withSecurityRulesDisabled(async (ctx) => {
+      await setDoc(doc(ctx.firestore(), 'subjects', `subj${suffix}`), {
+        name: 'رياضيات', schoolId, sectionId: `sec${suffix}`, teacherUid: `teacher${suffix}`, teacherName: 'T', lessons: [],
+      })
+    })
+  }
+
+  function baseCase(overrides) {
+    return {
+      schoolId: 'schoolA', academicYear: '2025-2026', kind: 'observation', category: 'academic',
+      title: 'عنوان', body: 'تفاصيل الملاحظة', requiresResponse: true, importance: 'normal',
+      status: 'open', escalatedToAdmin: false, ...overrides,
+    }
+  }
+
+  it('a parent can send feedback to their child\'s subject teacher', async () => {
+    await seedFeedbackFixture('schoolA', 'A')
+
+    const parentCtx = testEnv.authenticatedContext('parentA')
+    await assertSucceeds(
+      addDoc(collection(parentCtx.firestore(), 'feedbackCases'), baseCase({
+        route: 'parent_to_teacher', recipientRole: 'instructor', recipientUid: 'teacherA',
+        studentUid: 'studentA', subjectId: 'subjA',
+        createdByUid: 'parentA', createdByRole: 'parent', participantUids: ['parentA', 'teacherA'], readBy: ['parentA'],
+      }))
+    )
+  })
+
+  it('a parent cannot send feedback naming a child that is not theirs', async () => {
+    await seedFeedbackFixture('schoolA', 'A')
+    await seedUser('schoolA', 'otherStudent', { name: 'St2', role: 'student', email: 'o@x.com', sectionId: 'secA' })
+
+    const parentCtx = testEnv.authenticatedContext('parentA')
+    await assertFails(
+      addDoc(collection(parentCtx.firestore(), 'feedbackCases'), baseCase({
+        route: 'parent_to_teacher', recipientRole: 'instructor', recipientUid: 'teacherA',
+        studentUid: 'otherStudent', subjectId: 'subjA',
+        createdByUid: 'parentA', createdByRole: 'parent', participantUids: ['parentA', 'teacherA'], readBy: ['parentA'],
+      }))
+    )
+  })
+
+  it('a "complaint" about a teacher cannot be routed directly to the teacher (must go to admin)', async () => {
+    await seedFeedbackFixture('schoolA', 'A')
+
+    const parentCtx = testEnv.authenticatedContext('parentA')
+    await assertFails(
+      addDoc(collection(parentCtx.firestore(), 'feedbackCases'), baseCase({
+        kind: 'complaint', route: 'parent_to_teacher', recipientRole: 'instructor', recipientUid: 'teacherA',
+        studentUid: 'studentA', subjectId: 'subjA',
+        createdByUid: 'parentA', createdByRole: 'parent', participantUids: ['parentA', 'teacherA'], readBy: ['parentA'],
+      }))
+    )
+  })
+
+  it('a parent can send a general feedback case to the admin (no specific recipient)', async () => {
+    await seedFeedbackFixture('schoolA', 'A')
+
+    const parentCtx = testEnv.authenticatedContext('parentA')
+    await assertSucceeds(
+      addDoc(collection(parentCtx.firestore(), 'feedbackCases'), baseCase({
+        route: 'parent_to_admin', recipientRole: 'admin', recipientUid: null, studentUid: null, subjectId: null,
+        createdByUid: 'parentA', createdByRole: 'parent', participantUids: ['parentA'], readBy: ['parentA'],
+      }))
+    )
+  })
+
+  it('an instructor can send feedback to the parent of a student they teach', async () => {
+    await seedFeedbackFixture('schoolA', 'A')
+
+    const teacherCtx = testEnv.authenticatedContext('teacherA')
+    await assertSucceeds(
+      addDoc(collection(teacherCtx.firestore(), 'feedbackCases'), baseCase({
+        route: 'teacher_to_parent', recipientRole: 'parent', recipientUid: 'parentA',
+        studentUid: 'studentA', subjectId: 'subjA',
+        createdByUid: 'teacherA', createdByRole: 'instructor', participantUids: ['teacherA', 'parentA'], readBy: ['teacherA'],
+      }))
+    )
+  })
+
+  it('an instructor cannot send feedback about a student they do not teach', async () => {
+    await seedFeedbackFixture('schoolA', 'A')
+    await seedUser('schoolA', 'otherTeacher', { name: 'T2', role: 'instructor', email: 'ot@x.com' })
+
+    const teacherCtx = testEnv.authenticatedContext('otherTeacher')
+    await assertFails(
+      addDoc(collection(teacherCtx.firestore(), 'feedbackCases'), baseCase({
+        route: 'teacher_to_parent', recipientRole: 'parent', recipientUid: 'parentA',
+        studentUid: 'studentA', subjectId: 'subjA',
+        createdByUid: 'otherTeacher', createdByRole: 'instructor', participantUids: ['otherTeacher', 'parentA'], readBy: ['otherTeacher'],
+      }))
+    )
+  })
+
+  it('an instructor cannot send feedback to a parent in another school', async () => {
+    await seedFeedbackFixture('schoolA', 'A')
+    await seedFeedbackFixture('schoolB', 'B')
+
+    const teacherCtx = testEnv.authenticatedContext('teacherA')
+    await assertFails(
+      addDoc(collection(teacherCtx.firestore(), 'feedbackCases'), baseCase({
+        route: 'teacher_to_parent', recipientRole: 'parent', recipientUid: 'parentB',
+        studentUid: 'studentA', subjectId: 'subjA',
+        createdByUid: 'teacherA', createdByRole: 'instructor', participantUids: ['teacherA', 'parentB'], readBy: ['teacherA'],
+      }))
+    )
+  })
+
+  it('the admin can send feedback to a parent in their own school', async () => {
+    await seedFeedbackFixture('schoolA', 'A')
+
+    const adminCtx = testEnv.authenticatedContext('adminA')
+    await assertSucceeds(
+      addDoc(collection(adminCtx.firestore(), 'feedbackCases'), baseCase({
+        route: 'admin_to_parent', recipientRole: 'parent', recipientUid: 'parentA', studentUid: 'studentA', subjectId: null,
+        createdByUid: 'adminA', createdByRole: 'admin', participantUids: ['adminA', 'parentA'], readBy: ['adminA'],
+      }))
+    )
+  })
+
+  it('a third party who is not a participant cannot read a private teacher<->parent case', async () => {
+    await seedFeedbackFixture('schoolA', 'A')
+    await seedUser('schoolA', 'strangerA', { name: 'S', role: 'parent', email: 'str@x.com', childUids: [] })
+    let feedbackId
+    await testEnv.withSecurityRulesDisabled(async (ctx) => {
+      const ref = await addDoc(collection(ctx.firestore(), 'feedbackCases'), baseCase({
+        route: 'teacher_to_parent', recipientRole: 'parent', recipientUid: 'parentA',
+        studentUid: 'studentA', subjectId: 'subjA',
+        createdByUid: 'teacherA', createdByRole: 'instructor', participantUids: ['teacherA', 'parentA'], readBy: ['teacherA'],
+      }))
+      feedbackId = ref.id
+    })
+
+    const strangerCtx = testEnv.authenticatedContext('strangerA')
+    await assertFails(getDoc(doc(strangerCtx.firestore(), 'feedbackCases', feedbackId)))
+  })
+
+  it('the admin cannot read a private teacher<->parent case unless it is escalated', async () => {
+    await seedFeedbackFixture('schoolA', 'A')
+    let feedbackId
+    await testEnv.withSecurityRulesDisabled(async (ctx) => {
+      const ref = await addDoc(collection(ctx.firestore(), 'feedbackCases'), baseCase({
+        route: 'teacher_to_parent', recipientRole: 'parent', recipientUid: 'parentA',
+        studentUid: 'studentA', subjectId: 'subjA',
+        createdByUid: 'teacherA', createdByRole: 'instructor', participantUids: ['teacherA', 'parentA'], readBy: ['teacherA'],
+      }))
+      feedbackId = ref.id
+    })
+
+    const adminCtx = testEnv.authenticatedContext('adminA')
+    await assertFails(getDoc(doc(adminCtx.firestore(), 'feedbackCases', feedbackId)))
+  })
+
+  it('a participant cannot tamper with participantUids or content while updating status', async () => {
+    await seedFeedbackFixture('schoolA', 'A')
+    let feedbackId
+    await testEnv.withSecurityRulesDisabled(async (ctx) => {
+      const ref = await addDoc(collection(ctx.firestore(), 'feedbackCases'), baseCase({
+        route: 'teacher_to_parent', recipientRole: 'parent', recipientUid: 'parentA',
+        studentUid: 'studentA', subjectId: 'subjA',
+        createdByUid: 'teacherA', createdByRole: 'instructor', participantUids: ['teacherA', 'parentA'], readBy: ['teacherA'],
+      }))
+      feedbackId = ref.id
+    })
+
+    const parentCtx = testEnv.authenticatedContext('parentA')
+    await assertFails(
+      setDoc(doc(parentCtx.firestore(), 'feedbackCases', feedbackId), { title: 'استولى على العنوان' }, { merge: true })
+    )
+    await assertSucceeds(
+      setDoc(doc(parentCtx.firestore(), 'feedbackCases', feedbackId), { status: 'resolved', resolvedAt: Date.now() }, { merge: true })
+    )
+  })
+
+  it('an internal admin note is not readable by the case participants', async () => {
+    await seedFeedbackFixture('schoolA', 'A')
+    let feedbackId, internalReplyId
+    await testEnv.withSecurityRulesDisabled(async (ctx) => {
+      const caseRef = await addDoc(collection(ctx.firestore(), 'feedbackCases'), baseCase({
+        route: 'parent_to_admin', recipientRole: 'admin', recipientUid: null, studentUid: 'studentA', subjectId: null,
+        createdByUid: 'parentA', createdByRole: 'parent', participantUids: ['parentA'], readBy: ['parentA'],
+      }))
+      feedbackId = caseRef.id
+      const replyRef = await addDoc(collection(ctx.firestore(), 'feedbackReplies'), {
+        feedbackId, schoolId: 'schoolA', authorUid: 'adminA', authorRole: 'admin', body: 'ملاحظة داخلية', visibility: 'admin_internal', createdAt: Date.now(),
+      })
+      internalReplyId = replyRef.id
+    })
+
+    const parentCtx = testEnv.authenticatedContext('parentA')
+    await assertFails(getDoc(doc(parentCtx.firestore(), 'feedbackReplies', internalReplyId)))
+
+    const adminCtx = testEnv.authenticatedContext('adminA')
+    await assertSucceeds(getDoc(doc(adminCtx.firestore(), 'feedbackReplies', internalReplyId)))
+  })
+
+  it('listing replies by feedbackId works for a participant but not for a stranger', async () => {
+    await seedFeedbackFixture('schoolA', 'A')
+    await seedUser('schoolA', 'strangerA', { name: 'S', role: 'parent', email: 'str@x.com', childUids: [] })
+    let feedbackId
+    await testEnv.withSecurityRulesDisabled(async (ctx) => {
+      const caseRef = await addDoc(collection(ctx.firestore(), 'feedbackCases'), baseCase({
+        route: 'teacher_to_parent', recipientRole: 'parent', recipientUid: 'parentA',
+        studentUid: 'studentA', subjectId: 'subjA',
+        createdByUid: 'teacherA', createdByRole: 'instructor', participantUids: ['teacherA', 'parentA'], readBy: ['teacherA'],
+      }))
+      feedbackId = caseRef.id
+      await addDoc(collection(ctx.firestore(), 'feedbackReplies'), {
+        feedbackId, schoolId: 'schoolA', authorUid: 'teacherA', authorRole: 'instructor', body: 'رد', visibility: 'participants', createdAt: Date.now(),
+      })
+    })
+
+    const parentCtx = testEnv.authenticatedContext('parentA')
+    const parentQuery = query(
+      collection(parentCtx.firestore(), 'feedbackReplies'),
+      where('feedbackId', '==', feedbackId), where('schoolId', '==', 'schoolA'), where('visibility', '==', 'participants')
+    )
+    await assertSucceeds(getDocs(parentQuery))
+
+    const strangerCtx = testEnv.authenticatedContext('strangerA')
+    const strangerQuery = query(
+      collection(strangerCtx.firestore(), 'feedbackReplies'),
+      where('feedbackId', '==', feedbackId), where('schoolId', '==', 'schoolA'), where('visibility', '==', 'participants')
+    )
+    await assertFails(getDocs(strangerQuery))
+  })
+
+  it('a participant can reply on their own case', async () => {
+    await seedFeedbackFixture('schoolA', 'A')
+    let feedbackId
+    await testEnv.withSecurityRulesDisabled(async (ctx) => {
+      const ref = await addDoc(collection(ctx.firestore(), 'feedbackCases'), baseCase({
+        route: 'teacher_to_parent', recipientRole: 'parent', recipientUid: 'parentA',
+        studentUid: 'studentA', subjectId: 'subjA',
+        createdByUid: 'teacherA', createdByRole: 'instructor', participantUids: ['teacherA', 'parentA'], readBy: ['teacherA'],
+      }))
+      feedbackId = ref.id
+    })
+
+    const parentCtx = testEnv.authenticatedContext('parentA')
+    await assertSucceeds(
+      addDoc(collection(parentCtx.firestore(), 'feedbackReplies'), {
+        feedbackId, schoolId: 'schoolA', authorUid: 'parentA', authorRole: 'parent', body: 'شكراً', visibility: 'participants', createdAt: Date.now(),
+      })
+    )
+  })
+})
+
+describe('schedule ops (توفر المعلمين / غياب / تغطية)', () => {
+  async function seedScheduleFixture(schoolId, suffix) {
+    await seedSchoolWithAdmin(schoolId, `admin${suffix}`)
+    await seedUser(schoolId, `teacher${suffix}`, { name: 'T', role: 'instructor', email: `t${suffix}@x.com`, taughtSectionIds: [`sec${suffix}`] })
+  }
+
+  it('an admin can set their own school\'s teacher availability', async () => {
+    await seedScheduleFixture('schoolA', 'A')
+
+    const adminCtx = testEnv.authenticatedContext('adminA')
+    await assertSucceeds(
+      setDoc(doc(adminCtx.firestore(), 'teacherAvailability', 'teacherA'), {
+        teacherUid: 'teacherA', schoolId: 'schoolA', unavailable: [{ day: 1, period: 3 }], updatedAt: Date.now(),
+      })
+    )
+  })
+
+  it('an instructor cannot set teacher availability', async () => {
+    await seedScheduleFixture('schoolA', 'A')
+
+    const teacherCtx = testEnv.authenticatedContext('teacherA')
+    await assertFails(
+      setDoc(doc(teacherCtx.firestore(), 'teacherAvailability', 'teacherA'), {
+        teacherUid: 'teacherA', schoolId: 'schoolA', unavailable: [], updatedAt: Date.now(),
+      })
+    )
+  })
+
+  it('an admin cannot read another school\'s teacher availability', async () => {
+    await seedScheduleFixture('schoolA', 'A')
+    await seedScheduleFixture('schoolB', 'B')
+    await testEnv.withSecurityRulesDisabled(async (ctx) => {
+      await setDoc(doc(ctx.firestore(), 'teacherAvailability', 'teacherB'), {
+        teacherUid: 'teacherB', schoolId: 'schoolB', unavailable: [], updatedAt: Date.now(),
+      })
+    })
+
+    const adminACtx = testEnv.authenticatedContext('adminA')
+    await assertFails(getDoc(doc(adminACtx.firestore(), 'teacherAvailability', 'teacherB')))
+  })
+
+  it('an admin can report a teacher absence in their own school', async () => {
+    await seedScheduleFixture('schoolA', 'A')
+
+    const adminCtx = testEnv.authenticatedContext('adminA')
+    await assertSucceeds(
+      addDoc(collection(adminCtx.firestore(), 'teacherAbsences'), {
+        schoolId: 'schoolA', teacherUid: 'teacherA', teacherName: 'T', date: '2026-08-10',
+        periods: [1, 2], reason: 'مرض', status: 'open', createdByUid: 'adminA', createdByName: 'Admin', createdAt: Date.now(),
+      })
+    )
+  })
+
+  it('an instructor cannot report a teacher absence', async () => {
+    await seedScheduleFixture('schoolA', 'A')
+
+    const teacherCtx = testEnv.authenticatedContext('teacherA')
+    await assertFails(
+      addDoc(collection(teacherCtx.firestore(), 'teacherAbsences'), {
+        schoolId: 'schoolA', teacherUid: 'teacherA', teacherName: 'T', date: '2026-08-10',
+        periods: [1], reason: '', status: 'open', createdByUid: 'teacherA', createdByName: 'T', createdAt: Date.now(),
+      })
+    )
+  })
+
+  it('an admin can assign a substitute, and the log is immutable afterwards', async () => {
+    await seedScheduleFixture('schoolA', 'A')
+    await seedUser('schoolA', 'subA', { name: 'Sub', role: 'instructor', email: 'sub@x.com' })
+
+    const adminCtx = testEnv.authenticatedContext('adminA')
+    const ref = await assertSucceeds(
+      addDoc(collection(adminCtx.firestore(), 'substituteCoverage'), {
+        schoolId: 'schoolA', absenceId: 'absA', date: '2026-08-10', day: 1, period: 2,
+        sectionId: 'secA', sectionName: 'Sec', subjectId: 'subjA', subjectName: 'Math',
+        originalTeacherUid: 'teacherA', originalTeacherName: 'T', substituteTeacherUid: 'subA', substituteTeacherName: 'Sub',
+        createdByUid: 'adminA', createdAt: Date.now(),
+      })
+    )
+    await assertFails(updateDoc(doc(adminCtx.firestore(), 'substituteCoverage', ref.id), { substituteTeacherUid: 'teacherA' }))
+  })
+})
+
+describe('studentInterventions (خطط تدخل الطلاب)', () => {
+  async function seedInterventionFixture(schoolId, suffix) {
+    await seedSchoolWithAdmin(schoolId, `admin${suffix}`)
+    await seedUser(schoolId, `teacher${suffix}`, { name: 'T', role: 'instructor', email: `t${suffix}@x.com` })
+    await seedUser(schoolId, `student${suffix}`, { name: 'St', role: 'student', email: `s${suffix}@x.com`, sectionId: `sec${suffix}` })
+  }
+
+  it('an admin can create an intervention plan for a student in their own school', async () => {
+    await seedInterventionFixture('schoolA', 'A')
+
+    const adminCtx = testEnv.authenticatedContext('adminA')
+    await assertSucceeds(
+      addDoc(collection(adminCtx.firestore(), 'studentInterventions'), {
+        schoolId: 'schoolA', studentUid: 'studentA', studentName: 'St', riskLevel: 'high', reason: 'غياب متكرر',
+        assignedToUid: 'teacherA', assignedToName: 'T', action: '', followUpDate: null, status: 'open',
+        timeline: [], createdByUid: 'adminA', createdByName: 'Admin', createdAt: Date.now(), updatedAt: Date.now(),
+      })
+    )
+  })
+
+  it('an instructor cannot read a student\'s intervention plans', async () => {
+    await seedInterventionFixture('schoolA', 'A')
+    let interventionId
+    await testEnv.withSecurityRulesDisabled(async (ctx) => {
+      const ref = await addDoc(collection(ctx.firestore(), 'studentInterventions'), {
+        schoolId: 'schoolA', studentUid: 'studentA', studentName: 'St', riskLevel: 'high', reason: 'غياب متكرر',
+        assignedToUid: 'teacherA', assignedToName: 'T', action: '', followUpDate: null, status: 'open',
+        timeline: [], createdByUid: 'adminA', createdByName: 'Admin', createdAt: Date.now(), updatedAt: Date.now(),
+      })
+      interventionId = ref.id
+    })
+
+    const teacherCtx = testEnv.authenticatedContext('teacherA')
+    await assertFails(getDoc(doc(teacherCtx.firestore(), 'studentInterventions', interventionId)))
+  })
+
+  it('an admin cannot read another school\'s intervention plans', async () => {
+    await seedInterventionFixture('schoolA', 'A')
+    await seedInterventionFixture('schoolB', 'B')
+    let interventionId
+    await testEnv.withSecurityRulesDisabled(async (ctx) => {
+      const ref = await addDoc(collection(ctx.firestore(), 'studentInterventions'), {
+        schoolId: 'schoolB', studentUid: 'studentB', studentName: 'St', riskLevel: 'high', reason: 'غياب متكرر',
+        assignedToUid: null, assignedToName: null, action: '', followUpDate: null, status: 'open',
+        timeline: [], createdByUid: 'adminB', createdByName: 'Admin', createdAt: Date.now(), updatedAt: Date.now(),
+      })
+      interventionId = ref.id
+    })
+
+    const adminACtx = testEnv.authenticatedContext('adminA')
+    await assertFails(getDoc(doc(adminACtx.firestore(), 'studentInterventions', interventionId)))
   })
 })

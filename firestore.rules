@@ -254,7 +254,7 @@ service cloud.firestore {
         || (
           (isInstructor() || isAdmin())
           && request.resource.data.keys().hasAll(['recipientUid', 'message', 'type', 'schoolId'])
-          && request.resource.data.type in ['info', 'grade', 'homework', 'attendance', 'warning']
+          && request.resource.data.type in ['info', 'grade', 'homework', 'attendance', 'warning', 'feedback']
           && request.resource.data.schoolId == mySchoolId()
           && get(/databases/$(database)/documents/users/$(request.resource.data.recipientUid)).data.schoolId == mySchoolId()
         )
@@ -363,6 +363,126 @@ service cloud.firestore {
       allow delete: if false;
     }
 
+    // ===================== feedbackCases (الملاحظات والمتابعة) =====================
+    // أربع مسارات بس: parent_to_teacher, parent_to_admin, teacher_to_parent, admin_to_parent.
+    // القراءة إما للمشارك (participantUids) أو للإدارة لما تكون الحالة موجهة لها أو مصعّدة إليها.
+    match /feedbackCases/{feedbackId} {
+      allow read: if isSignedIn() && sameSchool(resource.data.schoolId) && (
+        resource.data.participantUids.hasAny([request.auth.uid])
+        || (isAdmin() && (resource.data.recipientRole == 'admin' || resource.data.escalatedToAdmin == true))
+      );
+
+      allow create: if isSignedIn()
+        && request.resource.data.schoolId == mySchoolId()
+        && request.resource.data.createdByUid == request.auth.uid
+        && request.resource.data.createdByRole == myRole()
+        && request.resource.data.status == 'open'
+        && request.resource.data.escalatedToAdmin == false
+        && request.resource.data.readBy == [request.auth.uid]
+        && request.resource.data.title is string && request.resource.data.title.size() > 0 && request.resource.data.title.size() <= 200
+        && request.resource.data.body is string && request.resource.data.body.size() > 0 && request.resource.data.body.size() <= 4000
+        && request.resource.data.keys().hasAll([
+          'schoolId', 'route', 'createdByUid', 'createdByRole', 'recipientRole', 'kind', 'category',
+          'title', 'body', 'requiresResponse', 'status', 'escalatedToAdmin', 'participantUids', 'readBy',
+        ])
+        && (
+          // ولي أمر → معلّم مادة ابنه (ممنوع نوع complaint هون — لازم يروح للإدارة بدل المعلّم مباشرة)
+          (myRole() == 'parent' && request.resource.data.route == 'parent_to_teacher'
+            && request.resource.data.recipientRole == 'instructor'
+            && request.resource.data.kind != 'complaint'
+            && isParentOf(request.resource.data.studentUid)
+            && subjectData(request.resource.data.subjectId).schoolId == mySchoolId()
+            && studentInSection(request.resource.data.studentUid, subjectData(request.resource.data.subjectId).sectionId)
+            && request.resource.data.recipientUid == subjectData(request.resource.data.subjectId).teacherUid
+            && request.resource.data.participantUids.hasAll([request.auth.uid, request.resource.data.recipientUid])
+            && request.resource.data.participantUids.size() == 2)
+
+          // ولي أمر → الإدارة (بدون معلّم مستلم محدد؛ عام أو مرتبط بابنه)
+          || (myRole() == 'parent' && request.resource.data.route == 'parent_to_admin'
+            && request.resource.data.recipientRole == 'admin'
+            && request.resource.data.recipientUid == null
+            && (request.resource.data.studentUid == null || isParentOf(request.resource.data.studentUid))
+            && request.resource.data.participantUids == [request.auth.uid])
+
+          // معلّم → ولي أمر طالب بيدرّسه فعلاً
+          || (myRole() == 'instructor' && request.resource.data.route == 'teacher_to_parent'
+            && request.resource.data.recipientRole == 'parent'
+            && teachesSubject(request.resource.data.subjectId)
+            && studentInSection(request.resource.data.studentUid, subjectData(request.resource.data.subjectId).sectionId)
+            && get(/databases/$(database)/documents/users/$(request.resource.data.recipientUid)).data.role == 'parent'
+            && get(/databases/$(database)/documents/users/$(request.resource.data.recipientUid)).data.schoolId == mySchoolId()
+            && get(/databases/$(database)/documents/users/$(request.resource.data.recipientUid)).data.childUids.hasAny([request.resource.data.studentUid])
+            && request.resource.data.participantUids.hasAll([request.auth.uid, request.resource.data.recipientUid])
+            && request.resource.data.participantUids.size() == 2)
+
+          // الإدارة → ولي أمر بنفس المدرسة
+          || (isAdmin() && request.resource.data.route == 'admin_to_parent'
+            && request.resource.data.recipientRole == 'parent'
+            && get(/databases/$(database)/documents/users/$(request.resource.data.recipientUid)).data.role == 'parent'
+            && get(/databases/$(database)/documents/users/$(request.resource.data.recipientUid)).data.schoolId == mySchoolId()
+            && (request.resource.data.studentUid == null
+              || get(/databases/$(database)/documents/users/$(request.resource.data.studentUid)).data.schoolId == mySchoolId())
+            && request.resource.data.participantUids.hasAll([request.auth.uid, request.resource.data.recipientUid])
+            && request.resource.data.participantUids.size() == 2)
+        );
+
+      // المشارك: يعلّم كمقروء، يغيّر الحالة، يصعّد (بدون رجوع عن التصعيد)، بدون لمس هوية الأطراف أو المحتوى
+      allow update: if isSignedIn() && resource.data.participantUids.hasAny([request.auth.uid])
+        && request.resource.data.diff(resource.data).affectedKeys().hasOnly([
+          'readBy', 'status', 'lastReplyAt', 'lastReplyByUid', 'escalatedToAdmin', 'escalatedAt', 'resolvedAt', 'closedAt', 'updatedAt',
+        ])
+        && request.resource.data.schoolId == resource.data.schoolId
+        && request.resource.data.participantUids == resource.data.participantUids
+        && request.resource.data.status in ['open', 'in_progress', 'resolved', 'closed']
+        && (request.resource.data.escalatedToAdmin == resource.data.escalatedToAdmin
+          || (resource.data.escalatedToAdmin == false && request.resource.data.escalatedToAdmin == true))
+
+      // الإدارة المخوّلة على الحالة: تعيين مسؤول متابعة وتغيير الحالة، بدون لمس محتوى الملاحظة
+      allow update: if isAdmin() && sameSchool(resource.data.schoolId)
+        && (resource.data.recipientRole == 'admin' || resource.data.escalatedToAdmin == true)
+        && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['assignedAdminUid', 'status', 'resolvedAt', 'closedAt', 'readBy', 'updatedAt'])
+        && request.resource.data.schoolId == resource.data.schoolId
+        && request.resource.data.status in ['open', 'in_progress', 'resolved', 'closed']
+
+      allow delete: if false;
+    }
+
+    // ===================== feedbackReplies (ردود الملاحظات) =====================
+    // ردود عادية (participants) تظهر للمشاركين + الإدارة المخوّلة، وملاحظات داخلية (admin_internal) للإدارة بس.
+    match /feedbackReplies/{replyId} {
+      allow read: if isSignedIn() && sameSchool(resource.data.schoolId) && (
+        (isAdmin() && (
+          get(/databases/$(database)/documents/feedbackCases/$(resource.data.feedbackId)).data.recipientRole == 'admin'
+          || get(/databases/$(database)/documents/feedbackCases/$(resource.data.feedbackId)).data.escalatedToAdmin == true
+        ))
+        || (resource.data.visibility == 'participants'
+          && get(/databases/$(database)/documents/feedbackCases/$(resource.data.feedbackId)).data.participantUids.hasAny([request.auth.uid]))
+      );
+
+      allow create: if isSignedIn()
+        && request.resource.data.authorUid == request.auth.uid
+        && request.resource.data.authorRole == myRole()
+        && request.resource.data.schoolId == mySchoolId()
+        && request.resource.data.body is string && request.resource.data.body.size() > 0 && request.resource.data.body.size() <= 4000
+        && request.resource.data.keys().hasAll(['feedbackId', 'schoolId', 'authorUid', 'authorRole', 'body', 'visibility'])
+        && get(/databases/$(database)/documents/feedbackCases/$(request.resource.data.feedbackId)).data.schoolId == mySchoolId()
+        && (
+          (request.resource.data.visibility == 'participants' && (
+            get(/databases/$(database)/documents/feedbackCases/$(request.resource.data.feedbackId)).data.participantUids.hasAny([request.auth.uid])
+            || (isAdmin() && (
+              get(/databases/$(database)/documents/feedbackCases/$(request.resource.data.feedbackId)).data.recipientRole == 'admin'
+              || get(/databases/$(database)/documents/feedbackCases/$(request.resource.data.feedbackId)).data.escalatedToAdmin == true
+            ))
+          ))
+          || (request.resource.data.visibility == 'admin_internal' && isAdmin() && (
+            get(/databases/$(database)/documents/feedbackCases/$(request.resource.data.feedbackId)).data.recipientRole == 'admin'
+            || get(/databases/$(database)/documents/feedbackCases/$(request.resource.data.feedbackId)).data.escalatedToAdmin == true
+          ))
+        );
+
+      allow update, delete: if false;
+    }
+
     // ===================== attendance =====================
     match /attendance/{attId} {
       allow read: if isSignedIn() && (
@@ -447,7 +567,54 @@ service cloud.firestore {
     match /honorBoards/{boardId} {
       // نفس ملاحظة timetables: resource == null لو اللوحة ما انحسبت بعد (قبل أول "تحديث الآن")
       allow read: if isSignedIn() && (resource == null || sameSchool(resource.data.schoolId));
-      allow create, update: if isAdmin() && request.resource.data.schoolId == mySchoolId();
+      // boardId لازم يكون مسبوق بـ schoolId الكاتب — هيك ما في مجال مدرسة توصل تكتب على معرّف
+      // ثابت/مشترك بتحتلّه مدرسة تانية (كان قبل هيك: school_top_students موحّدة لكل المدارس)
+      allow create: if isAdmin() && request.resource.data.schoolId == mySchoolId()
+        && boardId.split('_')[0] == mySchoolId();
+      allow update: if isAdmin() && resource.data.schoolId == mySchoolId()
+        && request.resource.data.schoolId == resource.data.schoolId
+        && boardId.split('_')[0] == mySchoolId();
+      allow delete: if false;
+    }
+
+    // ===================== teacherAvailability (توفر المعلمين) =====================
+    // وثيقة وحدة لكل معلم (docId = teacherUid)، فيها unavailable[] {day, period} — الإدارة بس بتعدّلها
+    match /teacherAvailability/{teacherUid} {
+      allow read: if isSignedIn() && (resource == null || sameSchool(resource.data.schoolId) || isPlatformAdmin());
+      allow create: if isAdmin() && request.resource.data.schoolId == mySchoolId() && request.resource.data.teacherUid == teacherUid;
+      allow update: if isAdmin() && sameSchool(resource.data.schoolId) && request.resource.data.schoolId == resource.data.schoolId
+        && request.resource.data.teacherUid == resource.data.teacherUid;
+      allow delete: if false;
+    }
+
+    // ===================== teacherAbsences (غياب معلم) =====================
+    // القراءة لكل مدرسة (المعلم البديل والشعبة لازم يشوفوا الغياب)، الكتابة/التعديل إدارة بس
+    match /teacherAbsences/{absenceId} {
+      allow read: if isSignedIn() && sameSchool(resource.data.schoolId);
+      allow create: if isAdmin() && request.resource.data.schoolId == mySchoolId()
+        && request.resource.data.createdByUid == request.auth.uid && request.resource.data.status == 'open';
+      // تعديل وحيد مسموح بعد الإنشاء: تحديث status (open -> covered) لما تتغطى كل الحصص
+      allow update: if isAdmin() && sameSchool(resource.data.schoolId) && request.resource.data.schoolId == resource.data.schoolId
+        && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['status']);
+      allow delete: if false;
+    }
+
+    // ===================== substituteCoverage (تغطية الحصص) =====================
+    // جدول يومي استثنائي — سجل تعيين معلم بديل لحصة معيّنة، بدون أي تعديل على timetables الأصلي
+    match /substituteCoverage/{coverageId} {
+      allow read: if isSignedIn() && sameSchool(resource.data.schoolId);
+      allow create: if isAdmin() && request.resource.data.schoolId == mySchoolId()
+        && request.resource.data.createdByUid == request.auth.uid;
+      allow update, delete: if false;
+    }
+
+    // ===================== studentInterventions (خطط تدخل الطلاب) =====================
+    // إدارة بس تقرأ/تكتب — بيانات حساسة (سبب إنذار، ملاحظات متابعة)، ما إلها داعي تنكشف لغير الإدارة
+    match /studentInterventions/{interventionId} {
+      allow read: if isAdmin() && sameSchool(resource.data.schoolId);
+      allow create: if isAdmin() && request.resource.data.schoolId == mySchoolId()
+        && request.resource.data.createdByUid == request.auth.uid && request.resource.data.status == 'open';
+      allow update: if isAdmin() && sameSchool(resource.data.schoolId) && request.resource.data.schoolId == resource.data.schoolId;
       allow delete: if false;
     }
 

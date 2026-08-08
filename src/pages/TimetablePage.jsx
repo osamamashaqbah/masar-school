@@ -6,7 +6,7 @@ import { useSchoolStructure } from '../context/SchoolStructureContext'
 import { useTimetable, DAYS, PERIODS } from '../context/TimetableContext'
 import { parseTimetableExcel } from '../utils/parseTimetableExcel'
 
-function TimetableGrid({ sectionId, editable }) {
+function TimetableGrid({ sectionId, editable, todayDayIdx, coverageToday }) {
   const { subjects } = useSchoolStructure()
   const { getSlots, setSlot } = useTimetable()
   const slots = getSlots(sectionId)
@@ -15,6 +15,13 @@ function TimetableGrid({ sectionId, editable }) {
   function slotAt(day, period) {
     const slot = slots.find((s) => s.day === day && s.period === period)
     return slot ? sectionSubjects.find((s) => s.id === slot.subjectId) : null
+  }
+
+  // بديل معلم اليوم على هاي الحصة بالذات — تغطية استثنائية محفوظة بـ substituteCoverage
+  // بدون أي لمس لجدول timetables الأصلي
+  function coverageAt(day, period) {
+    if (day !== todayDayIdx) return null
+    return coverageToday?.find((c) => c.sectionId === sectionId && c.period === period) || null
   }
 
   return (
@@ -32,6 +39,7 @@ function TimetableGrid({ sectionId, editable }) {
               <td style={{ padding: '6px 10px', fontWeight: 700 }}>{period}</td>
               {DAYS.map((_, dayIdx) => {
                 const subject = slotAt(dayIdx, period)
+                const coverage = coverageAt(dayIdx, period)
                 return (
                   <td key={dayIdx} style={{ padding: '4px 6px', minWidth: '110px' }}>
                     {editable ? (
@@ -47,6 +55,11 @@ function TimetableGrid({ sectionId, editable }) {
                       <div style={{ fontSize: '12.5px', textAlign: 'center' }}>
                         <div style={{ fontWeight: 700 }}>{subject.name}</div>
                         <div style={{ color: 'var(--ink-faint)', fontSize: '11px' }}>{subject.teacherName}</div>
+                        {coverage && (
+                          <div style={{ color: 'var(--berry)', fontSize: '10.5px', marginTop: '2px' }}>
+                            <i className="ti ti-replace" /> بديل: {coverage.substituteTeacherName}
+                          </div>
+                        )}
                       </div>
                     ) : (
                       <div style={{ textAlign: 'center', color: 'var(--ink-faint)' }}>—</div>
@@ -150,11 +163,11 @@ function AdminTimetableEditor() {
   )
 }
 
-function ChildTimetable({ child }) {
+function ChildTimetable({ child, todayDayIdx, coverageToday }) {
   return (
     <div style={{ marginBottom: '24px' }}>
       <div style={{ fontWeight: 700, fontSize: '13.5px', marginBottom: '8px' }}>{child.name}</div>
-      <TimetableGrid sectionId={child.sectionId} editable={false} />
+      <TimetableGrid sectionId={child.sectionId} editable={false} todayDayIdx={todayDayIdx} coverageToday={coverageToday} />
     </div>
   )
 }
@@ -162,6 +175,8 @@ function ChildTimetable({ child }) {
 export default function TimetablePage() {
   const { session } = useSession()
   const [children, setChildren] = useState([])
+  const [coverageToday, setCoverageToday] = useState([])
+  const todayDayIdx = new Date().getDay() // الأحد=0 ... الخميس=4، مطابق تمامًا لترتيب DAYS
 
   useEffect(() => {
     if (session.role !== 'parent' || !session.childUids?.length) return
@@ -169,6 +184,15 @@ export default function TimetablePage() {
     const unsub = onSnapshot(q, (snap) => setChildren(snap.docs.map((d) => ({ id: d.id, ...d.data() }))))
     return () => unsub()
   }, [session])
+
+  // بدلاء اليوم فقط — بيانات محدودة جدًا (تغطية يوم واحد لمدرسة وحدة)، عرض لحظي مقبول ضمن حصة Spark
+  useEffect(() => {
+    if (todayDayIdx > 4) { setCoverageToday([]); return } // جمعة/سبت
+    const todayStr = new Date().toISOString().slice(0, 10)
+    const q = query(collection(db, 'substituteCoverage'), where('schoolId', '==', session.schoolId), where('date', '==', todayStr))
+    const unsub = onSnapshot(q, (snap) => setCoverageToday(snap.docs.map((d) => d.data())), () => setCoverageToday([]))
+    return () => unsub()
+  }, [session, todayDayIdx])
 
   return (
     <div>
@@ -178,11 +202,11 @@ export default function TimetablePage() {
       </h2>
 
       {session.role === 'admin' && <AdminTimetableEditor />}
-      {session.role === 'student' && <TimetableGrid sectionId={session.sectionId} editable={false} />}
+      {session.role === 'student' && <TimetableGrid sectionId={session.sectionId} editable={false} todayDayIdx={todayDayIdx} coverageToday={coverageToday} />}
       {session.role === 'parent' && (
         children.length === 0
           ? <p style={{ color: 'var(--ink-soft)' }}>ما في أبناء مرتبطين بحسابك بعد.</p>
-          : children.map((c) => <ChildTimetable key={c.id} child={c} />)
+          : children.map((c) => <ChildTimetable key={c.id} child={c} todayDayIdx={todayDayIdx} coverageToday={coverageToday} />)
       )}
     </div>
   )

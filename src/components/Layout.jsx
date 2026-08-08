@@ -17,6 +17,7 @@ function notifIcon(type) {
   const map = {
     success: 'ti-circle-check', error: 'ti-circle-x', request: 'ti-user-circle', info: 'ti-info-circle',
     grade: 'ti-certificate', attendance: 'ti-calendar-event', warning: 'ti-alert-triangle', homework: 'ti-clipboard-list',
+    feedback: 'ti-message-report', schedule: 'ti-calendar-event',
   }
   return map[type] || 'ti-bell'
 }
@@ -47,6 +48,8 @@ const instructorLinks = [
 function buildAdminToolLinks(features) {
   const links = []
   if (features.honorBoards !== false) links.push({ to: '/app/admin/insights', icon: 'ti-award', label: 'لوحات الشرف' })
+  if (features.feedback === true) links.push({ to: '/app/admin/feedback', icon: 'ti-message-report', label: 'الملاحظات والمتابعة' })
+  if (features.scheduleOps !== false) links.push({ to: '/app/admin/schedule', icon: 'ti-calendar-stats', label: 'التعارضات والتغطية' })
   links.push({ to: '/app/admin/rollover', icon: 'ti-calendar-event', label: 'سنة دراسية جديدة' })
   links.push({ to: '/app/admin/audit-log', icon: 'ti-history', label: 'سجل التدقيق' })
   links.push({ to: '/app/admin/export', icon: 'ti-download', label: 'تصدير البيانات' })
@@ -120,8 +123,12 @@ export default function Layout() {
   if (session.role === 'parent') {
     roleLinks.push({ to: '/app/parent-dashboard', icon: 'ti-user-heart', label: 'متابعة أبنائي' })
     if (features.messaging !== false) roleLinks.push({ to: '/app/messages', icon: 'ti-message-circle', label: 'الرسائل' })
+    if (features.feedback === true) roleLinks.push({ to: '/app/feedback', icon: 'ti-message-report', label: 'الملاحظات والمتابعة' })
   }
-  if (session.role === 'instructor' && features.messaging !== false) roleLinks.push({ to: '/app/messages', icon: 'ti-message-circle', label: 'الرسائل' })
+  if (session.role === 'instructor') {
+    if (features.messaging !== false) roleLinks.push({ to: '/app/messages', icon: 'ti-message-circle', label: 'الرسائل' })
+    if (features.feedback === true) roleLinks.push({ to: '/app/feedback', icon: 'ti-message-report', label: 'الملاحظات والمتابعة' })
+  }
   if (session.role === 'student') {
     roleLinks.push({ to: '/app/dashboard', icon: 'ti-route', label: 'لوحتي' })
     roleLinks.push({ to: '/app/grades', icon: 'ti-certificate', label: 'درجاتي' })
@@ -190,7 +197,7 @@ export default function Layout() {
         <nav className="topnav-links">
           <div className="topnav-links-scroll">
             {roleLinks.map((l) => (
-              <NavLink key={l.to} to={l.to} className={navClass}>
+              <NavLink key={l.to} to={l.to} className={navClass} title={l.label}>
                 <i className={`ti ${l.icon}`} /> <span>{l.label}</span>
               </NavLink>
             ))}
@@ -201,6 +208,7 @@ export default function Layout() {
               <button
                 className={`nav-pill dropdown-toggle${isInstructorPath ? ' active' : ''}${instructorOpen ? ' open' : ''}`}
                 onClick={() => { setInstructorOpen((o) => !o); setNotifOpen(false) }}
+                title="لوحة المعلّم"
               >
                 <i className="ti ti-chalkboard" /> <span>لوحة المعلّم</span>
                 <i className="ti ti-chevron-down dropdown-chevron" />
@@ -226,6 +234,7 @@ export default function Layout() {
               <button
                 className={`nav-pill dropdown-toggle${isAdminToolsPath ? ' active' : ''}${adminToolsOpen ? ' open' : ''}`}
                 onClick={() => { setAdminToolsOpen((o) => !o); setNotifOpen(false) }}
+                title="أدوات الإدارة"
               >
                 <i className="ti ti-adjustments" /> <span>أدوات الإدارة</span>
                 <i className="ti ti-chevron-down dropdown-chevron" />
@@ -246,7 +255,7 @@ export default function Layout() {
             </div>
           )}
 
-          <NavLink to="/app/settings" className={navClass}>
+          <NavLink to="/app/settings" className={navClass} title="الإعدادات">
             <i className="ti ti-settings" /> <span>الإعدادات</span>
           </NavLink>
         </nav>

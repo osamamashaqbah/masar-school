@@ -47,6 +47,13 @@ import AdminAuditLogPage from './pages/AdminAuditLogPage'
 import AdminExportPage from './pages/AdminExportPage'
 import { TimetableProvider } from './context/TimetableContext'
 import TimetablePage from './pages/TimetablePage'
+import { FeedbackProvider } from './context/FeedbackContext'
+import FeedbackPage from './pages/FeedbackPage'
+import AdminFeedbackPage from './pages/AdminFeedbackPage'
+import { ScheduleOpsProvider } from './context/ScheduleOpsContext'
+import ScheduleOpsPage from './pages/ScheduleOpsPage'
+import { InterventionProvider } from './context/InterventionContext'
+import StudentProfilePage from './pages/StudentProfilePage'
 
 export default function App() {
   return (
@@ -67,6 +74,9 @@ export default function App() {
                         <AttendanceProvider>
                         <MessagesProvider>
                         <ExcuseRequestProvider>
+                        <FeedbackProvider>
+                        <ScheduleOpsProvider>
+                        <InterventionProvider>
                         <Routes>
                           <Route path="/" element={<Login />} />
                           <Route path="/superadmin" element={<SuperAdminPage />} />
@@ -100,8 +110,15 @@ export default function App() {
                             <Route path="admin/audit-log" element={<AdminAuditLogPage />} />
                             <Route path="admin/export" element={<AdminExportPage />} />
                             <Route path="timetable" element={<TimetablePage />} />
+                            <Route path="feedback" element={<FeedbackPage />} />
+                            <Route path="admin/feedback" element={<AdminFeedbackPage />} />
+                            <Route path="admin/schedule" element={<ScheduleOpsPage />} />
+                            <Route path="admin/students/:studentUid" element={<StudentProfilePage />} />
                           </Route>
                         </Routes>
+                        </InterventionProvider>
+                        </ScheduleOpsProvider>
+                        </FeedbackProvider>
                         </ExcuseRequestProvider>
                         </MessagesProvider>
                         </AttendanceProvider>

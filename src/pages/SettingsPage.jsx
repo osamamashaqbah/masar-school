@@ -11,6 +11,8 @@ const FEATURE_KEYS = [
   { key: 'messaging', label: 'الرسائل (معلّم ↔ ولي أمر)' },
   { key: 'announcements', label: 'إعلانات المدرسة' },
   { key: 'honorBoards', label: 'لوحات الشرف والإنذار المبكر' },
+  // مغلقة افتراضيًا (عكس بقية الميزات) — تُفعّل يدويًا لمدرسة تجريبية أولًا قبل التعميم
+  { key: 'feedback', label: 'الملاحظات والمتابعة', defaultOn: false },
 ]
 
 function FeatureFlagsSection() {
@@ -24,7 +26,7 @@ function FeatureFlagsSection() {
       </div>
       <div className="panel card-hover-lift" style={{ maxWidth: '480px' }}>
         {FEATURE_KEYS.map((f) => {
-          const enabled = features[f.key] !== false
+          const enabled = f.defaultOn === false ? features[f.key] === true : features[f.key] !== false
           return (
             <div key={f.key} className="account-panel-row" style={{ justifyContent: 'space-between', padding: '8px 0' }}>
               <span style={{ fontSize: '13.5px' }}>{f.label}</span>

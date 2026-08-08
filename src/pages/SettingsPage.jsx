@@ -1,6 +1,7 @@
 import { useState } from 'react'
 import { EmailAuthProvider, reauthenticateWithCredential, updatePassword } from 'firebase/auth'
-import { auth } from '../firebase'
+import { ref, uploadBytes, getDownloadURL } from 'firebase/storage'
+import { auth, storage } from '../firebase'
 import { useSession } from '../context/SessionContext'
 import { useTheme } from '../context/ThemeContext'
 import { useSchoolStructure } from '../context/SchoolStructureContext'
@@ -50,10 +51,36 @@ const CURRENCIES = [
 ]
 
 function GulfReadinessSection() {
+  const { session } = useSession()
   const { ramadanSchedule, currency, paymentInfo, branding, updateRamadanSchedule, updateCurrency, updatePaymentInfo, updateBranding } = useSchoolStructure()
   const [hours, setHours] = useState(ramadanSchedule.shortDayHours || '')
   const [payment, setPayment] = useState({ bankName: '', iban: '', cliqAlias: '', notes: '', ...paymentInfo })
   const [brand, setBrand] = useState({ logoUrl: '', primaryColor: '#2f5d50', ...branding })
+  const [uploading, setUploading] = useState(false)
+  const [uploadError, setUploadError] = useState('')
+
+  async function handleLogoFile(e) {
+    const file = e.target.files?.[0]
+    if (!file) return
+    setUploadError('')
+    if (!file.type.startsWith('image/')) { setUploadError('لازم تختار صورة.'); return }
+    if (file.size > 3 * 1024 * 1024) { setUploadError('حجم الصورة أكبر من 3 ميغا.'); return }
+    setUploading(true)
+    try {
+      const ext = file.name.split('.').pop()
+      const path = `schools/${session.schoolId}/branding/logo.${ext}`
+      const fileRef = ref(storage, path)
+      await uploadBytes(fileRef, file)
+      const url = await getDownloadURL(fileRef)
+      const next = { ...brand, logoUrl: url }
+      setBrand(next)
+      await updateBranding(next)
+    } catch {
+      setUploadError('صار خطأ برفع الصورة، حاول مرة ثانية.')
+    } finally {
+      setUploading(false)
+    }
+  }
 
   return (
     <div className="settings-section">
@@ -115,12 +142,22 @@ function GulfReadinessSection() {
       </div>
 
       <div className="settings-section-head" style={{ marginTop: '20px' }}>
-        <h3><i className="ti ti-photo" /> هوية كشف العلامات المطبوع</h3>
-        <p>شعار ولون المدرسة يظهروا على كشف العلامات المطبوع لكل طالب.</p>
+        <h3><i className="ti ti-photo" /> تخصيص المنصة</h3>
+        <p>اسم المنصة والشعار واللون يظهروا بالشريط العلوي وكشف العلامات المطبوع بعد تسجيل الدخول.</p>
       </div>
       <div className="panel card-hover-lift" style={{ maxWidth: '480px' }}>
         <div className="field">
-          <label htmlFor="brand-logo">رابط شعار المدرسة (URL لصورة)</label>
+          <label htmlFor="brand-platform-name">اسم المنصة</label>
+          <input id="brand-platform-name" value={brand.platformName || ''} onChange={(e) => setBrand({ ...brand, platformName: e.target.value })} onBlur={() => updateBranding(brand)} placeholder="مسار" />
+        </div>
+        <div className="field" style={{ marginTop: '10px' }}>
+          <label htmlFor="brand-logo-file">ارفع شعار المدرسة (من الجهاز)</label>
+          <input id="brand-logo-file" type="file" accept="image/*" onChange={handleLogoFile} disabled={uploading} />
+          {uploading && <p style={{ fontSize: '12px', color: 'var(--ink-faint)' }}>جاري الرفع...</p>}
+          {uploadError && <p className="auth-error">{uploadError}</p>}
+        </div>
+        <div className="field" style={{ marginTop: '10px' }}>
+          <label htmlFor="brand-logo">أو رابط شعار المدرسة (URL لصورة)</label>
           <input id="brand-logo" value={brand.logoUrl} onChange={(e) => setBrand({ ...brand, logoUrl: e.target.value })} onBlur={() => updateBranding(brand)} placeholder="https://..." />
         </div>
         <div className="field" style={{ marginTop: '10px' }}>

@@ -1,7 +1,8 @@
 import { useState, useEffect } from 'react'
 import { signInWithEmailAndPassword, signOut, onAuthStateChanged } from 'firebase/auth'
-import { collection, doc, getDoc, getDocs, query, where, onSnapshot } from 'firebase/firestore'
-import { auth, db } from '../firebase'
+import { collection, doc, getDoc, getDocs, query, where, onSnapshot, updateDoc } from 'firebase/firestore'
+import { ref, uploadBytes, getDownloadURL } from 'firebase/storage'
+import { auth, db, storage } from '../firebase'
 import { logAudit } from '../utils/audit'
 
 // صفحة مستقلة تمامًا عن /app — ما بتعتمد على SessionContext لأنه حساب صاحب المنصة
@@ -19,6 +20,9 @@ export default function SuperAdminPage() {
   const [reason, setReason] = useState('')
   const [drillLoading, setDrillLoading] = useState(false)
   const [drillError, setDrillError] = useState('')
+  const [brandEdits, setBrandEdits] = useState({}) // { [schoolId]: { platformName, logoUrl, primaryColor } }
+  const [uploadingFor, setUploadingFor] = useState(null)
+  const [uploadError, setUploadError] = useState('')
 
   useEffect(() => {
     const unsub = onAuthStateChanged(auth, async (user) => {
@@ -51,6 +55,40 @@ export default function SuperAdminPage() {
       setLoginError('بيانات الدخول غلط.')
     } finally {
       setLoading(false)
+    }
+  }
+
+  function brandFor(school) {
+    return { platformName: '', logoUrl: '', primaryColor: '', ...school.branding, ...brandEdits[school.id] }
+  }
+
+  async function saveBranding(school) {
+    const info = brandFor(school)
+    await updateDoc(doc(db, 'schools', school.id), { branding: info })
+    await logAudit(school.id, authUser.uid, authUser.email, 'set_branding', 'school', school.id, JSON.stringify(info))
+  }
+
+  async function handleLogoFile(school, e) {
+    const file = e.target.files?.[0]
+    if (!file) return
+    setUploadError('')
+    if (!file.type.startsWith('image/')) { setUploadError('لازم تختار صورة.'); return }
+    if (file.size > 3 * 1024 * 1024) { setUploadError('حجم الصورة أكبر من 3 ميغا.'); return }
+    setUploadingFor(school.id)
+    try {
+      const ext = file.name.split('.').pop()
+      const path = `schools/${school.id}/branding/logo.${ext}`
+      const fileRef = ref(storage, path)
+      await uploadBytes(fileRef, file)
+      const url = await getDownloadURL(fileRef)
+      const next = { ...brandFor(school), logoUrl: url }
+      setBrandEdits({ ...brandEdits, [school.id]: next })
+      await updateDoc(doc(db, 'schools', school.id), { branding: next })
+      await logAudit(school.id, authUser.uid, authUser.email, 'set_branding', 'school', school.id, JSON.stringify(next))
+    } catch {
+      setUploadError('صار خطأ برفع الصورة، حاول مرة ثانية.')
+    } finally {
+      setUploadingFor(null)
     }
   }
 
@@ -158,6 +196,30 @@ export default function SuperAdminPage() {
             <button type="button" className="btn" style={{ width: 'auto' }} onClick={() => openDrilldown(s)} disabled={drillLoading}>
               <i className="ti ti-eye" /> عرض بيانات كاملة (مسجّل بسجل التدقيق)
             </button>
+
+            <div style={{ marginTop: '10px', paddingTop: '10px', borderTop: '1px solid var(--border-soft)' }}>
+              <div style={{ fontSize: '12px', fontWeight: 700, marginBottom: '6px' }}>تخصيص المنصة</div>
+              <div className="field">
+                <input type="text" placeholder="اسم المنصة (مسار)" value={brandFor(s).platformName}
+                  onChange={(e) => setBrandEdits({ ...brandEdits, [s.id]: { ...brandFor(s), platformName: e.target.value } })} />
+              </div>
+              <div className="field" style={{ marginTop: '6px' }}>
+                <input type="file" accept="image/*" onChange={(e) => handleLogoFile(s, e)} disabled={uploadingFor === s.id} />
+                {uploadingFor === s.id && <p style={{ fontSize: '11px', color: 'var(--ink-faint)' }}>جاري الرفع...</p>}
+              </div>
+              <div className="field" style={{ marginTop: '6px' }}>
+                <input type="text" placeholder="أو رابط الشعار (URL)" value={brandFor(s).logoUrl}
+                  onChange={(e) => setBrandEdits({ ...brandEdits, [s.id]: { ...brandFor(s), logoUrl: e.target.value } })} />
+              </div>
+              {uploadError && <p className="auth-error" style={{ fontSize: '11px' }}>{uploadError}</p>}
+              <div style={{ display: 'flex', gap: '8px', alignItems: 'center', marginTop: '6px' }}>
+                <input type="color" style={{ width: '48px', height: '28px', padding: '2px' }} value={brandFor(s).primaryColor || '#2f5d50'}
+                  onChange={(e) => setBrandEdits({ ...brandEdits, [s.id]: { ...brandFor(s), primaryColor: e.target.value } })} />
+                <button type="button" className="btn" style={{ width: 'auto' }} onClick={() => saveBranding(s)}>
+                  <i className="ti ti-check" /> حفظ
+                </button>
+              </div>
+            </div>
           </div>
         ))}
         {schools.length === 0 && <p style={{ color: 'var(--ink-soft)' }}>ما في أي مدرسة حسبت مؤشراتها بعد.</p>}

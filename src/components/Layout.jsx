@@ -56,7 +56,7 @@ function buildAdminToolLinks(features) {
 export default function Layout() {
   const { session, logout, authLoading } = useSession()
   const { notifications, unreadCount, markAsRead, markAllAsRead } = useNotifications()
-  const { features, ramadanSchedule } = useSchoolStructure()
+  const { features, ramadanSchedule, branding, schoolName } = useSchoolStructure()
   const showRamadanBanner = ramadanSchedule.enabled && isRamadan()
   const location = useLocation()
 
@@ -65,6 +65,15 @@ export default function Layout() {
   const [adminToolsOpen, setAdminToolsOpen] = useState(false)
   const [sheetOpen, setSheetOpen] = useState(false)
   const navRef = useRef(null)
+
+  useEffect(() => {
+    document.title = branding?.platformName || schoolName || 'مسار'
+    if (branding?.logoUrl) {
+      let link = document.querySelector("link[rel~='icon']")
+      if (!link) { link = document.createElement('link'); link.rel = 'icon'; document.head.appendChild(link) }
+      link.href = branding.logoUrl
+    }
+  }, [branding, schoolName])
 
   // إغلاق أي قائمة منسدلة عند تغيير الصفحة
   useEffect(() => {
@@ -169,9 +178,11 @@ export default function Layout() {
 
       <header className="topnav" ref={navRef}>
         <div className="brand">
-          <div className="brand-mark"><i className="ti ti-school" /></div>
+          <div className="brand-mark">
+            {branding?.logoUrl ? <img src={branding.logoUrl} alt="" style={{ width: '100%', height: '100%', objectFit: 'cover', borderRadius: 'inherit' }} /> : <i className="ti ti-school" />}
+          </div>
           <div className="brand-text">
-            <div className="brand-name">مسار</div>
+            <div className="brand-name">{branding?.platformName || 'مسار'}</div>
             <div className="brand-tagline">منصة مدرسية</div>
           </div>
         </div>

@@ -87,6 +87,10 @@ service cloud.firestore {
         && (!('currency' in request.resource.data.diff(resource.data).affectedKeys()) || request.resource.data.currency is string)
         && (!('paymentInfo' in request.resource.data.diff(resource.data).affectedKeys()) || request.resource.data.paymentInfo is map)
         && (!('branding' in request.resource.data.diff(resource.data).affectedKeys()) || request.resource.data.branding is map);
+      // صاحب المنصة يقدر يعدّل حقل branding بس لأي مدرسة (مش بقية الحقول)
+      allow update: if isPlatformAdmin()
+        && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['branding'])
+        && request.resource.data.branding is map;
       allow create, delete: if false;
     }
 

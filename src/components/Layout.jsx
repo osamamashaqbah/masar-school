@@ -3,6 +3,7 @@ import { NavLink, Outlet, Navigate, useLocation } from 'react-router-dom'
 import { useSession } from '../context/SessionContext'
 import { useNotifications } from '../context/NotificationContext'
 import { useSchoolStructure } from '../context/SchoolStructureContext'
+import { useConnectionStatus } from '../utils/useConnectionStatus'
 import { getAvatar } from '../utils/avatars'
 import { isRamadan } from '../utils/hijriDate'
 import ConsentGate from './ConsentGate'
@@ -60,6 +61,7 @@ export default function Layout() {
   const { session, logout, authLoading } = useSession()
   const { notifications, unreadCount, markAsRead, markAllAsRead } = useNotifications()
   const { features, ramadanSchedule, branding, schoolName } = useSchoolStructure()
+  const { online, syncing } = useConnectionStatus()
   const showRamadanBanner = ramadanSchedule.enabled && isRamadan()
   const location = useLocation()
 
@@ -261,6 +263,16 @@ export default function Layout() {
         </nav>
 
         <div className="topnav-actions">
+          {!online && (
+            <span className="icon-btn" style={{ color: 'var(--berry)' }} title="غير متصل بالإنترنت — بتشتغل بالبيانات المحفوظة محليًا">
+              <i className="ti ti-wifi-off" />
+            </span>
+          )}
+          {online && syncing && (
+            <span className="icon-btn" title="رجع النت — عم تنطبّر أي عملية كانت معلّقة">
+              <i className="ti ti-refresh spin" />
+            </span>
+          )}
           <div className="nav-dropdown-wrap">
             <button
               className={`icon-btn notif-bell${unreadCount > 0 ? ' has-unread' : ''}`}

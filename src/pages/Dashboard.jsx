@@ -37,19 +37,31 @@ export default function Dashboard() {
 
   useEffect(() => {
     if (!session.sectionId) { setSectionBoard(null); return }
-    const unsub = onSnapshot(doc(db, 'honorBoards', `section_${session.sectionId}`), (snap) => setSectionBoard(snap.data() || null))
+    const unsub = onSnapshot(
+      doc(db, 'honorBoards', `${session.schoolId}_section_${session.sectionId}`),
+      (snap) => setSectionBoard(snap.data() || null),
+      (err) => { console.error('[لوحة الشرف] فشل تحميل لوحة الشعبة:', err); setSectionBoard(null) }
+    )
     return () => unsub()
-  }, [session.sectionId])
+  }, [session.schoolId, session.sectionId])
 
   useEffect(() => {
-    const unsub = onSnapshot(doc(db, 'honorBoards', 'school_top_students'), (snap) => setTopStudents(snap.data() || null))
+    const unsub = onSnapshot(
+      doc(db, 'honorBoards', `${session.schoolId}_top_students`),
+      (snap) => setTopStudents(snap.data() || null),
+      (err) => { console.error('[لوحة الشرف] فشل تحميل لوحة أفضل الطلاب:', err); setTopStudents(null) }
+    )
     return () => unsub()
-  }, [])
+  }, [session.schoolId])
 
   useEffect(() => {
-    const unsub = onSnapshot(doc(db, 'honorBoards', 'school_top_sections'), (snap) => setTopSections(snap.data() || null))
+    const unsub = onSnapshot(
+      doc(db, 'honorBoards', `${session.schoolId}_top_sections`),
+      (snap) => setTopSections(snap.data() || null),
+      (err) => { console.error('[لوحة الشرف] فشل تحميل لوحة أفضل الشعب:', err); setTopSections(null) }
+    )
     return () => unsub()
-  }, [])
+  }, [session.schoolId])
 
   return (
     <div>

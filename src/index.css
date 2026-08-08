@@ -240,7 +240,13 @@ a{ color:inherit; text-decoration:none; }
 @media (max-width:900px){ .brand-tagline{ display:none; } }
 
 .topnav-links{ display:flex; align-items:center; gap:4px; flex:1; min-width:0; }
-.topnav-links-scroll{ display:flex; align-items:center; gap:4px; overflow-x:auto; min-width:0; scrollbar-width:none; }
+.topnav-links-scroll{
+  display:flex; align-items:center; gap:4px; overflow-x:auto; min-width:0; scrollbar-width:none;
+  /* بدون هاد الـ mask، أي رابط بيفيض عن العرض المتاح بينخبّى تمامًا بدون أي إشارة إنه في
+     محتوى إضافي تحتاج تسحبه — الشريط الجانبي (scrollbar) مخفي أصلًا، فهاد بديله البصري. */
+  -webkit-mask-image:linear-gradient(to right, transparent 0, black 20px, black calc(100% - 20px), transparent 100%);
+  mask-image:linear-gradient(to right, transparent 0, black 20px, black calc(100% - 20px), transparent 100%);
+}
 .topnav-links-scroll::-webkit-scrollbar{ display:none; }
 .topnav-links-scroll .nav-pill{ flex-shrink:0; }
 .topnav-links .nav-dropdown-wrap{ flex-shrink:0; }
@@ -1363,6 +1369,16 @@ a:focus-visible, button:focus-visible, input:focus-visible,
 select:focus-visible, textarea:focus-visible{
   outline:2px solid var(--accent);
   outline-offset:2px;
+}
+
+/* ============================================================
+   التجاوب — تحت 1300px: نصوص أزرار التنقّل تختفي (تبقى الأيقونة + tooltip)
+   عشان ما تختفي أزرار كاملة بالسحب الأفقي المخفي قبل ما توصل لعرض الموبايل
+   ============================================================ */
+@media (max-width: 1300px){
+  .topnav-links .nav-pill span{ display:none; }
+  .topnav-links .nav-pill{ padding:9px 12px; }
+  .brand-tagline{ display:none; }
 }
 
 /* ============================================================

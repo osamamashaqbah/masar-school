@@ -44,6 +44,7 @@ const instructorLinks = [
   { to: '/app/instructor/manual-grades', icon: 'ti-certificate', label: 'الدرجات اليدوية' },
   { to: '/app/instructor/attendance', icon: 'ti-calendar-check', label: 'الحضور والغياب' },
   { to: '/app/exams', icon: 'ti-clipboard-list', label: 'مركز الاختبارات' },
+  { to: '/app/instructor/question-bank', icon: 'ti-database', label: 'بنك الأسئلة' },
 ]
 
 // روابط إدارية ثانوية — مجمّعة بقائمة منسدلة وحدة بدل ما تاخذ مكان لحالها بشريط التنقّل
@@ -52,6 +53,7 @@ function buildAdminToolLinks(features) {
   if (features.honorBoards !== false) links.push({ to: '/app/admin/insights', icon: 'ti-award', label: 'لوحات الشرف' })
   if (features.feedback === true) links.push({ to: '/app/admin/feedback', icon: 'ti-message-report', label: 'الملاحظات والمتابعة' })
   if (features.scheduleOps !== false) links.push({ to: '/app/admin/schedule', icon: 'ti-calendar-stats', label: 'التعارضات والتغطية' })
+  links.push({ to: '/app/instructor/question-bank', icon: 'ti-database', label: 'بنك الأسئلة' })
   links.push({ to: '/app/admin/rollover', icon: 'ti-calendar-event', label: 'سنة دراسية جديدة' })
   links.push({ to: '/app/admin/audit-log', icon: 'ti-history', label: 'سجل التدقيق' })
   links.push({ to: '/app/admin/export', icon: 'ti-download', label: 'تصدير البيانات' })

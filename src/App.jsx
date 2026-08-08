@@ -56,6 +56,8 @@ import { InterventionProvider } from './context/InterventionContext'
 import StudentProfilePage from './pages/StudentProfilePage'
 import { ExamCenterProvider } from './context/ExamCenterContext'
 import ExamCenterPage from './pages/ExamCenterPage'
+import { QuestionBankProvider } from './context/QuestionBankContext'
+import InstructorQuestionBankPage from './pages/instructor/InstructorQuestionBankPage'
 
 export default function App() {
   return (
@@ -80,6 +82,7 @@ export default function App() {
                         <ScheduleOpsProvider>
                         <InterventionProvider>
                         <ExamCenterProvider>
+                        <QuestionBankProvider>
                         <Routes>
                           <Route path="/" element={<Login />} />
                           <Route path="/superadmin" element={<SuperAdminPage />} />
@@ -118,8 +121,10 @@ export default function App() {
                             <Route path="admin/schedule" element={<ScheduleOpsPage />} />
                             <Route path="admin/students/:studentUid" element={<StudentProfilePage />} />
                             <Route path="exams" element={<ExamCenterPage />} />
+                            <Route path="instructor/question-bank" element={<InstructorQuestionBankPage />} />
                           </Route>
                         </Routes>
+                        </QuestionBankProvider>
                         </ExamCenterProvider>
                         </InterventionProvider>
                         </ScheduleOpsProvider>

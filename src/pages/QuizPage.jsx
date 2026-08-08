@@ -3,6 +3,7 @@ import { useParams, useNavigate } from 'react-router-dom'
 import { useSchoolStructure } from '../context/SchoolStructureContext'
 import { useProgress } from '../context/ProgressContext'
 import { useQuizStats } from '../context/QuizStatsContext'
+import { useQuestionBank } from '../context/QuestionBankContext'
 
 
 
@@ -15,6 +16,7 @@ export default function QuizPage() {
   const { subjects } = useSchoolStructure()
   const { completeLesson } = useProgress()
   const { recordAttempt } = useQuizStats()
+  const { recordUsage } = useQuestionBank()
 
 
 
@@ -37,6 +39,8 @@ export default function QuizPage() {
     setAnswered(true)
     const correct = selected === question.correct
     recordAttempt(subject.id, correct)
+    // نسبة الإجابة الصحيحة لتحليل جودة السؤال — بس للأسئلة يلي أصلها من بنك الأسئلة
+    if (question.bankQuestionId) recordUsage(question.bankQuestionId, correct)
     if (correct) setScore((s) => s + 1)
   }
 

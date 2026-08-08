@@ -1148,3 +1148,91 @@ describe('exam center (فترات وحصص الاختبارات)', () => {
     await assertFails(getDoc(doc(adminACtx.firestore(), 'examPeriods', periodId)))
   })
 })
+
+describe('questionBank (بنك الأسئلة)', () => {
+  async function seedBankFixture(schoolId, suffix) {
+    await seedSchoolWithAdmin(schoolId, `admin${suffix}`)
+    await seedUser(schoolId, `teacher${suffix}`, { name: 'T', role: 'instructor', email: `t${suffix}@x.com` })
+    await seedUser(schoolId, `student${suffix}`, { name: 'St', role: 'student', email: `s${suffix}@x.com`, sectionId: `sec${suffix}` })
+    await testEnv.withSecurityRulesDisabled(async (ctx) => {
+      await setDoc(doc(ctx.firestore(), 'subjects', `subj${suffix}`), {
+        name: 'رياضيات', schoolId, sectionId: `sec${suffix}`, teacherUid: `teacher${suffix}`, teacherName: 'T', lessons: [],
+      })
+    })
+  }
+
+  it('the subject teacher can add a question to the bank', async () => {
+    await seedBankFixture('schoolA', 'A')
+
+    const teacherCtx = testEnv.authenticatedContext('teacherA')
+    await assertSucceeds(
+      addDoc(collection(teacherCtx.firestore(), 'questionBank'), {
+        schoolId: 'schoolA', subjectId: 'subjA', subjectName: 'رياضيات', questionText: '2+2=؟',
+        options: ['3', '4'], correctIndex: 1, difficulty: 'easy', tags: [],
+        timesUsed: 0, timesCorrect: 0, createdByUid: 'teacherA', createdByName: 'T', createdAt: Date.now(),
+      })
+    )
+  })
+
+  it('a teacher who does not teach the subject cannot add a question for it', async () => {
+    await seedBankFixture('schoolA', 'A')
+    await seedUser('schoolA', 'teacherB', { name: 'T2', role: 'instructor', email: 't2@x.com' })
+
+    const otherTeacherCtx = testEnv.authenticatedContext('teacherB')
+    await assertFails(
+      addDoc(collection(otherTeacherCtx.firestore(), 'questionBank'), {
+        schoolId: 'schoolA', subjectId: 'subjA', subjectName: 'رياضيات', questionText: '2+2=؟',
+        options: ['3', '4'], correctIndex: 1, difficulty: 'easy', tags: [],
+        timesUsed: 0, timesCorrect: 0, createdByUid: 'teacherB', createdByName: 'T2', createdAt: Date.now(),
+      })
+    )
+  })
+
+  it('a student cannot read the question bank (would leak correct answers)', async () => {
+    await seedBankFixture('schoolA', 'A')
+    let qId
+    await testEnv.withSecurityRulesDisabled(async (ctx) => {
+      const ref = await addDoc(collection(ctx.firestore(), 'questionBank'), {
+        schoolId: 'schoolA', subjectId: 'subjA', subjectName: 'رياضيات', questionText: '2+2=؟',
+        options: ['3', '4'], correctIndex: 1, difficulty: 'easy', tags: [],
+        timesUsed: 0, timesCorrect: 0, createdByUid: 'teacherA', createdByName: 'T', createdAt: Date.now(),
+      })
+      qId = ref.id
+    })
+
+    const studentCtx = testEnv.authenticatedContext('studentA')
+    await assertFails(getDoc(doc(studentCtx.firestore(), 'questionBank', qId)))
+  })
+
+  it('a student can still bump usage stats without reading the question', async () => {
+    await seedBankFixture('schoolA', 'A')
+    let qId
+    await testEnv.withSecurityRulesDisabled(async (ctx) => {
+      const ref = await addDoc(collection(ctx.firestore(), 'questionBank'), {
+        schoolId: 'schoolA', subjectId: 'subjA', subjectName: 'رياضيات', questionText: '2+2=؟',
+        options: ['3', '4'], correctIndex: 1, difficulty: 'easy', tags: [],
+        timesUsed: 0, timesCorrect: 0, createdByUid: 'teacherA', createdByName: 'T', createdAt: Date.now(),
+      })
+      qId = ref.id
+    })
+
+    const studentCtx = testEnv.authenticatedContext('studentA')
+    await assertSucceeds(updateDoc(doc(studentCtx.firestore(), 'questionBank', qId), { timesUsed: 1, timesCorrect: 1 }))
+  })
+
+  it('a student cannot tamper with the question content via the stats-update loophole', async () => {
+    await seedBankFixture('schoolA', 'A')
+    let qId
+    await testEnv.withSecurityRulesDisabled(async (ctx) => {
+      const ref = await addDoc(collection(ctx.firestore(), 'questionBank'), {
+        schoolId: 'schoolA', subjectId: 'subjA', subjectName: 'رياضيات', questionText: '2+2=؟',
+        options: ['3', '4'], correctIndex: 1, difficulty: 'easy', tags: [],
+        timesUsed: 0, timesCorrect: 0, createdByUid: 'teacherA', createdByName: 'T', createdAt: Date.now(),
+      })
+      qId = ref.id
+    })
+
+    const studentCtx = testEnv.authenticatedContext('studentA')
+    await assertFails(updateDoc(doc(studentCtx.firestore(), 'questionBank', qId), { timesUsed: 1, correctIndex: 0 }))
+  })
+})

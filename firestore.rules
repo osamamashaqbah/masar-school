@@ -645,6 +645,22 @@ service cloud.firestore {
       allow delete: if isAdmin() && sameSchool(resource.data.schoolId);
     }
 
+    // ===================== questionBank (بنك الأسئلة) =====================
+    // القراءة للإدارة/المعلمين بس (مو للطلاب — بيسرّب إجابات صحيحة). الكتابة على محتوى السؤال
+    // مقيّدة بمعلم المادة، بس تحديث timesUsed/timesCorrect مسموح لأي حدا بنفس المدرسة لأنه
+    // بينكتب من جلسة الطالب وقت حل اختبار مبني من سؤال بالبنك (إحصائية مجهّلة، مو حساسة)
+    match /questionBank/{qId} {
+      allow read: if isSignedIn() && sameSchool(resource.data.schoolId) && (isAdmin() || isInstructor());
+      allow create: if isSignedIn() && request.resource.data.schoolId == mySchoolId()
+        && request.resource.data.createdByUid == request.auth.uid
+        && (isAdmin() || teachesSubject(request.resource.data.subjectId));
+      allow update: if isSignedIn() && sameSchool(resource.data.schoolId) && request.resource.data.schoolId == resource.data.schoolId && (
+        (isAdmin() || teachesSubject(resource.data.subjectId))
+        || request.resource.data.diff(resource.data).affectedKeys().hasOnly(['timesUsed', 'timesCorrect'])
+      );
+      allow delete: if isSignedIn() && sameSchool(resource.data.schoolId) && (isAdmin() || teachesSubject(resource.data.subjectId));
+    }
+
     // ===================== platformAdmins (صاحب المنصة) =====================
     // ما بينشأ ولا يتعدّل ولا يُحذف من المتصفح إطلاقًا — بس عبر سكربت Admin SDK
     match /platformAdmins/{uid} {

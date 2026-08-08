@@ -286,6 +286,10 @@ function exportResultsToExcel() {
                   <span style={{ fontSize: '11px', color: 'var(--pine)' }}>
                     <i className="ti ti-link" /> {r.note}
                   </span>
+                ) : r.status === 'duplicate' ? (
+                  <span style={{ fontSize: '11px', color: 'var(--gold, #b8860b)' }}>
+                    <i className="ti ti-copy" /> {r.note}
+                  </span>
                 ) : (
                   <span style={{ fontSize: '11px', color: 'var(--berry)' }}>فشل: {r.error}</span>
                 )}

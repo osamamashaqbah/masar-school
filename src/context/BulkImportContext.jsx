@@ -1,6 +1,6 @@
 import { createContext, useContext } from 'react'
 import { initializeApp, deleteApp } from 'firebase/app'
-import { getAuth, createUserWithEmailAndPassword, signOut } from 'firebase/auth'
+import { getAuth, createUserWithEmailAndPassword, deleteUser, signOut } from 'firebase/auth'
 import { doc, setDoc, updateDoc, arrayUnion } from 'firebase/firestore'
 import { db, firebaseConfig } from '../firebase'
 import { useSession } from './SessionContext'
@@ -45,7 +45,10 @@ export function BulkImportProvider({ children }) {
     for (let i = 0; i < students.length; i++) {
       const { name, sectionId, parentPhone, parentName: customParentName } = students[i]
       const slug = slugify(name).toLowerCase()
-      const studentEmail = `${slug}${Date.now()}${i}@masar-school.local`
+      // مفتاح ثابت (مدرسة+شعبة+اسم) بدل Date.now() — لو الاستيراد انقطع بالمنتصف، إعادة رفع
+      // نفس الملف بترجع تصادف auth/email-already-in-use على الصفوف يلي خلصت فعلاً بدل ما
+      // تنشئلها حسابات مكررة بأسماء بريد عشوائية (Bug 2.2، MASAR_CRITICAL_BUGS_DETAILED_AR.md)
+      const studentEmail = `${session.schoolId}-${sectionId}-${slug}@masar-school.local`
       const studentPassword = `Student${Math.floor(1000 + Math.random() * 9000)}`
       const existingParent = parentPhone ? parentByPhone.get(parentPhone) : null
 
@@ -55,13 +58,20 @@ export function BulkImportProvider({ children }) {
       try {
         const studentCredential = await createUserWithEmailAndPassword(secondaryAuth, studentEmail, studentPassword)
         const studentUid = studentCredential.user.uid
-        await setDoc(doc(db, 'users', studentUid), {
-          name,
-          role: 'student',
-          email: studentEmail,
-          sectionId,
-          schoolId: session.schoolId,
-        })
+        try {
+          await setDoc(doc(db, 'users', studentUid), {
+            name,
+            role: 'student',
+            email: studentEmail,
+            sectionId,
+            schoolId: session.schoolId,
+          })
+        } catch (profileErr) {
+          // فشل كتابة الملف الشخصي بعد نجاح إنشاء حساب Auth — نتراجع فورًا بدل ترك حساب
+          // يتيم بلا ملف تعريف وبريد محجوز للأبد (Bug 2.1، MASAR_CRITICAL_BUGS_DETAILED_AR.md)
+          await deleteUser(studentCredential.user).catch(() => {})
+          throw profileErr
+        }
         results.push({ name, email: studentEmail, password: studentPassword, status: 'ok', role: 'student' })
         await signOut(secondaryAuth)
 
@@ -78,33 +88,52 @@ export function BulkImportProvider({ children }) {
             results.push({ name: existingParent.name, email: existingParent.email, password: null, status: 'error', error: linkErr.message, role: 'parent' })
           }
         } else {
-          const parentEmail = `wali-${slug}${Date.now()}${i}@masar-school.local`
+          const parentSlug = parentPhone ? parentPhone.replace(/\D/g, '') : `${sectionId}-${slug}`
+          const parentEmail = `wali-${session.schoolId}-${parentSlug}@masar-school.local`
           const parentPassword = `Parent${Math.floor(1000 + Math.random() * 9000)}`
           const parentName = customParentName || `ولي أمر ${name}`
 
           try {
             const parentCredential = await createUserWithEmailAndPassword(secondaryAuth, parentEmail, parentPassword)
-            await setDoc(doc(db, 'users', parentCredential.user.uid), {
-              name: parentName,
-              role: 'parent',
-              email: parentEmail,
-              childUids: [studentUid],
-              schoolId: session.schoolId,
-            })
-            // منعكسة على وثيقة الطالب نفسه (parentUids) حتى يقدر المعلّم يعرف مين أهل الطالب
-            // ويبعتلهم إشعار (حضور/علامة) بدون ما يحتاج صلاحية جديدة يقرا فيها كل حسابات أولياء الأمور.
-            await updateDoc(doc(db, 'users', studentUid), { parentUids: arrayUnion(parentCredential.user.uid) })
+            try {
+              await setDoc(doc(db, 'users', parentCredential.user.uid), {
+                name: parentName,
+                role: 'parent',
+                email: parentEmail,
+                childUids: [studentUid],
+                schoolId: session.schoolId,
+              })
+              // منعكسة على وثيقة الطالب نفسه (parentUids) حتى يقدر المعلّم يعرف مين أهل الطالب
+              // ويبعتلهم إشعار (حضور/علامة) بدون ما يحتاج صلاحية جديدة يقرا فيها كل حسابات أولياء الأمور.
+              await updateDoc(doc(db, 'users', studentUid), { parentUids: arrayUnion(parentCredential.user.uid) })
+            } catch (profileErr) {
+              await deleteUser(parentCredential.user).catch(() => {})
+              throw profileErr
+            }
             results.push({ name: parentName, email: parentEmail, password: parentPassword, status: 'ok', role: 'parent' })
             if (parentPhone) {
               parentByPhone.set(parentPhone, { uid: parentCredential.user.uid, email: parentEmail, password: parentPassword, name: parentName })
             }
             await signOut(secondaryAuth)
           } catch (parentErr) {
-            results.push({ name: parentName, email: parentEmail, password: null, status: 'error', error: parentErr.message, role: 'parent' })
+            if (parentErr.code === 'auth/email-already-in-use') {
+              results.push({
+                name: parentName, email: parentEmail, password: null, status: 'duplicate', role: 'parent',
+                note: 'حساب ولي الأمر موجود مسبقًا من محاولة استيراد سابقة — راجع الربط يدويًا لو لزم',
+              })
+            } else {
+              results.push({ name: parentName, email: parentEmail, password: null, status: 'error', error: parentErr.message, role: 'parent' })
+            }
           }
         }
       } catch (err) {
-        results.push({ name, email: studentEmail, password: null, status: 'error', error: err.message, role: 'student' })
+        // ملاحظة: طالب مكرر بيتخطى بالكامل (بدون محاولة ربط ولي أمر) — تبسيط مقصود، لو
+        // الصف قبله انحفظ الطالب بس فشل ولي الأمر، لازم مراجعة يدوية من صفحة إدارة المستخدمين.
+        if (err.code === 'auth/email-already-in-use') {
+          results.push({ name, email: studentEmail, password: null, status: 'duplicate', role: 'student', note: 'هذا الطالب مستورد مسبقًا (نفس الاسم والشعبة) — تم تخطيه' })
+        } else {
+          results.push({ name, email: studentEmail, password: null, status: 'error', error: err.message, role: 'student' })
+        }
       } finally {
         await deleteApp(secondaryApp)
       }

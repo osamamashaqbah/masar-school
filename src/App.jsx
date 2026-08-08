@@ -54,6 +54,8 @@ import { ScheduleOpsProvider } from './context/ScheduleOpsContext'
 import ScheduleOpsPage from './pages/ScheduleOpsPage'
 import { InterventionProvider } from './context/InterventionContext'
 import StudentProfilePage from './pages/StudentProfilePage'
+import { ExamCenterProvider } from './context/ExamCenterContext'
+import ExamCenterPage from './pages/ExamCenterPage'
 
 export default function App() {
   return (
@@ -77,6 +79,7 @@ export default function App() {
                         <FeedbackProvider>
                         <ScheduleOpsProvider>
                         <InterventionProvider>
+                        <ExamCenterProvider>
                         <Routes>
                           <Route path="/" element={<Login />} />
                           <Route path="/superadmin" element={<SuperAdminPage />} />
@@ -114,8 +117,10 @@ export default function App() {
                             <Route path="admin/feedback" element={<AdminFeedbackPage />} />
                             <Route path="admin/schedule" element={<ScheduleOpsPage />} />
                             <Route path="admin/students/:studentUid" element={<StudentProfilePage />} />
+                            <Route path="exams" element={<ExamCenterPage />} />
                           </Route>
                         </Routes>
+                        </ExamCenterProvider>
                         </InterventionProvider>
                         </ScheduleOpsProvider>
                         </FeedbackProvider>

@@ -624,6 +624,27 @@ service cloud.firestore {
       allow delete: if false;
     }
 
+    // ===================== examPeriods (فترات الاختبارات) =====================
+    // draft: الإدارة بس بتشوفها وقت البناء. published/locked: يصير يشوفها كل المدرسة
+    // (نفس منطق timetables — جدول مو حساس، بدون تقييد بالشعبة/الدور).
+    match /examPeriods/{periodId} {
+      allow read: if isSignedIn() && sameSchool(resource.data.schoolId) && (isAdmin() || resource.data.status in ['published', 'locked']);
+      allow create: if isAdmin() && request.resource.data.schoolId == mySchoolId();
+      allow update: if isAdmin() && sameSchool(resource.data.schoolId) && request.resource.data.schoolId == resource.data.schoolId;
+      allow delete: if false;
+    }
+
+    // ===================== examSlots (حصص الاختبار الفردية) =====================
+    // مادة + شعبة + تاريخ/وقت + قاعة + مراقب — القراءة مربوطة بحالة الفترة الأم (examPeriods)
+    match /examSlots/{slotId} {
+      allow read: if isSignedIn() && sameSchool(resource.data.schoolId) && (
+        isAdmin() || get(/databases/$(database)/documents/examPeriods/$(resource.data.periodId)).data.status in ['published', 'locked']
+      );
+      allow create: if isAdmin() && request.resource.data.schoolId == mySchoolId();
+      allow update: if isAdmin() && sameSchool(resource.data.schoolId) && request.resource.data.schoolId == resource.data.schoolId;
+      allow delete: if isAdmin() && sameSchool(resource.data.schoolId);
+    }
+
     // ===================== platformAdmins (صاحب المنصة) =====================
     // ما بينشأ ولا يتعدّل ولا يُحذف من المتصفح إطلاقًا — بس عبر سكربت Admin SDK
     match /platformAdmins/{uid} {

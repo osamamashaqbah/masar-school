@@ -43,6 +43,7 @@ const instructorLinks = [
   { to: '/app/instructor/grade-homework', icon: 'ti-checkbox', label: 'تقييم الواجبات' },
   { to: '/app/instructor/manual-grades', icon: 'ti-certificate', label: 'الدرجات اليدوية' },
   { to: '/app/instructor/attendance', icon: 'ti-calendar-check', label: 'الحضور والغياب' },
+  { to: '/app/exams', icon: 'ti-clipboard-list', label: 'مركز الاختبارات' },
 ]
 
 // روابط إدارية ثانوية — مجمّعة بقائمة منسدلة وحدة بدل ما تاخذ مكان لحالها بشريط التنقّل
@@ -135,14 +136,17 @@ export default function Layout() {
     roleLinks.push({ to: '/app/dashboard', icon: 'ti-route', label: 'لوحتي' })
     roleLinks.push({ to: '/app/grades', icon: 'ti-certificate', label: 'درجاتي' })
     roleLinks.push({ to: '/app/timetable', icon: 'ti-calendar-week', label: 'جدولي' })
+    if (features.examCenter !== false) roleLinks.push({ to: '/app/exams', icon: 'ti-clipboard-list', label: 'الاختبارات' })
   }
   if (session.role === 'parent') {
     roleLinks.push({ to: '/app/timetable', icon: 'ti-calendar-week', label: 'جدول أبنائي' })
+    if (features.examCenter !== false) roleLinks.push({ to: '/app/exams', icon: 'ti-clipboard-list', label: 'الاختبارات' })
   }
   if (session.role === 'admin') {
     roleLinks.push({ to: '/app/admin', icon: 'ti-user-cog', label: 'إدارة المستخدمين' })
     roleLinks.push({ to: '/app/school-structure', icon: 'ti-building-community', label: 'هيكل المدرسة' })
     roleLinks.push({ to: '/app/timetable', icon: 'ti-calendar-week', label: 'جدول الحصص' })
+    if (features.examCenter !== false) roleLinks.push({ to: '/app/exams', icon: 'ti-clipboard-list', label: 'مركز الاختبارات' })
   }
 
   const notifPopover = notifOpen && (

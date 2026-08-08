@@ -11,6 +11,8 @@ const FEATURE_KEYS = [
   { key: 'messaging', label: 'الرسائل (معلّم ↔ ولي أمر)' },
   { key: 'announcements', label: 'إعلانات المدرسة' },
   { key: 'honorBoards', label: 'لوحات الشرف والإنذار المبكر' },
+  { key: 'scheduleOps', label: 'تعارضات الجدول وتغطية الغياب' },
+  { key: 'examCenter', label: 'مركز الاختبارات' },
   // مغلقة افتراضيًا (عكس بقية الميزات) — تُفعّل يدويًا لمدرسة تجريبية أولًا قبل التعميم
   { key: 'feedback', label: 'الملاحظات والمتابعة', defaultOn: false },
 ]

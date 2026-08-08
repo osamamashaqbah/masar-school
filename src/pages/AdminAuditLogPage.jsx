@@ -26,6 +26,10 @@ const ACTION_LABELS = {
   resolve_intervention: 'حل خطة تدخل',
   close_intervention: 'إغلاق خطة تدخل',
   reassign_intervention: 'تغيير مسؤول متابعة خطة تدخل',
+  create_exam_period: 'إنشاء فترة اختبارات',
+  set_exam_period_status: 'تغيير حالة فترة اختبارات',
+  add_exam_slot: 'إضافة حصة اختبار',
+  delete_exam_slot: 'حذف حصة اختبار',
 }
 
 export default function AdminAuditLogPage() {

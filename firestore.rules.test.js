@@ -1065,3 +1065,86 @@ describe('homework submission status machine (submitted -> returned -> resubmitt
     )
   })
 })
+
+describe('exam center (فترات وحصص الاختبارات)', () => {
+  it('an admin can create a draft exam period for their own school', async () => {
+    await seedSchoolWithAdmin('schoolA', 'adminA')
+
+    const adminCtx = testEnv.authenticatedContext('adminA')
+    await assertSucceeds(
+      addDoc(collection(adminCtx.firestore(), 'examPeriods'), {
+        schoolId: 'schoolA', name: 'امتحانات الفصل الأول', startDate: '2026-06-01', endDate: '2026-06-10',
+        status: 'draft', createdByUid: 'adminA', createdByName: 'Admin', createdAt: Date.now(), updatedAt: Date.now(),
+      })
+    )
+  })
+
+  it('an instructor cannot create an exam period', async () => {
+    await seedSchoolWithAdmin('schoolA', 'adminA')
+    await seedUser('schoolA', 'teacherA', { name: 'T', role: 'instructor', email: 't@x.com' })
+
+    const teacherCtx = testEnv.authenticatedContext('teacherA')
+    await assertFails(
+      addDoc(collection(teacherCtx.firestore(), 'examPeriods'), {
+        schoolId: 'schoolA', name: 'x', startDate: '2026-06-01', endDate: '2026-06-10',
+        status: 'draft', createdByUid: 'teacherA', createdByName: 'T', createdAt: Date.now(), updatedAt: Date.now(),
+      })
+    )
+  })
+
+  it('a student cannot read a draft exam period', async () => {
+    await seedSchoolWithAdmin('schoolA', 'adminA')
+    await seedUser('schoolA', 'studentA', { name: 'St', role: 'student', email: 's@x.com', sectionId: 'secA' })
+    let periodId
+    await testEnv.withSecurityRulesDisabled(async (ctx) => {
+      const ref = await addDoc(collection(ctx.firestore(), 'examPeriods'), {
+        schoolId: 'schoolA', name: 'x', startDate: '2026-06-01', endDate: '2026-06-10',
+        status: 'draft', createdByUid: 'adminA', createdByName: 'Admin', createdAt: Date.now(), updatedAt: Date.now(),
+      })
+      periodId = ref.id
+    })
+
+    const studentCtx = testEnv.authenticatedContext('studentA')
+    await assertFails(getDoc(doc(studentCtx.firestore(), 'examPeriods', periodId)))
+  })
+
+  it('a student can read a published exam period and its slots', async () => {
+    await seedSchoolWithAdmin('schoolA', 'adminA')
+    await seedUser('schoolA', 'studentA', { name: 'St', role: 'student', email: 's@x.com', sectionId: 'secA' })
+    let periodId, slotId
+    await testEnv.withSecurityRulesDisabled(async (ctx) => {
+      const db = ctx.firestore()
+      const periodRef = await addDoc(collection(db, 'examPeriods'), {
+        schoolId: 'schoolA', name: 'x', startDate: '2026-06-01', endDate: '2026-06-10',
+        status: 'published', createdByUid: 'adminA', createdByName: 'Admin', createdAt: Date.now(), updatedAt: Date.now(),
+      })
+      periodId = periodRef.id
+      const slotRef = await addDoc(collection(db, 'examSlots'), {
+        schoolId: 'schoolA', periodId, subjectId: 'subjA', subjectName: 'رياضيات', sectionId: 'secA', sectionName: 'Sec',
+        date: '2026-06-02', startTime: '09:00', endTime: '10:00', roomName: 'A1', proctorUid: null, proctorName: null,
+        createdByUid: 'adminA', createdAt: Date.now(),
+      })
+      slotId = slotRef.id
+    })
+
+    const studentCtx = testEnv.authenticatedContext('studentA')
+    await assertSucceeds(getDoc(doc(studentCtx.firestore(), 'examPeriods', periodId)))
+    await assertSucceeds(getDoc(doc(studentCtx.firestore(), 'examSlots', slotId)))
+  })
+
+  it('an admin cannot read another school\'s exam period even if published', async () => {
+    await seedSchoolWithAdmin('schoolA', 'adminA')
+    await seedSchoolWithAdmin('schoolB', 'adminB')
+    let periodId
+    await testEnv.withSecurityRulesDisabled(async (ctx) => {
+      const ref = await addDoc(collection(ctx.firestore(), 'examPeriods'), {
+        schoolId: 'schoolB', name: 'x', startDate: '2026-06-01', endDate: '2026-06-10',
+        status: 'published', createdByUid: 'adminB', createdByName: 'Admin', createdAt: Date.now(), updatedAt: Date.now(),
+      })
+      periodId = ref.id
+    })
+
+    const adminACtx = testEnv.authenticatedContext('adminA')
+    await assertFails(getDoc(doc(adminACtx.firestore(), 'examPeriods', periodId)))
+  })
+})

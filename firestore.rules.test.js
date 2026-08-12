@@ -5,7 +5,7 @@ import {
   assertFails,
   assertSucceeds,
 } from '@firebase/rules-unit-testing'
-import { doc, getDoc, getDocs, setDoc, updateDoc, collection, addDoc, query, where } from 'firebase/firestore'
+import { doc, getDoc, getDocs, setDoc, updateDoc, deleteDoc, collection, addDoc, query, where } from 'firebase/firestore'
 
 // اختبارات قواعد Firestore: الهدف الوحيد هنا هو إثبات عزل المدارس (tenants) عن بعضها فعليًا،
 // مو بس إخفاءها بالواجهة. يحتاج Firestore emulator (Java) شغال محليًا:
@@ -1269,5 +1269,84 @@ describe('questionBank (بنك الأسئلة)', () => {
 
     const studentCtx = testEnv.authenticatedContext('studentA')
     await assertFails(updateDoc(doc(studentCtx.firestore(), 'questionBank', qId), { timesUsed: 1, correctIndex: 0 }))
+  })
+
+  it('the subject teacher can edit their own question\'s content (subjectId unchanged)', async () => {
+    await seedBankFixture('schoolA', 'A')
+    let qId
+    await testEnv.withSecurityRulesDisabled(async (ctx) => {
+      const ref = await addDoc(collection(ctx.firestore(), 'questionBank'), {
+        schoolId: 'schoolA', subjectId: 'subjA', subjectName: 'رياضيات', questionText: '2+2=؟',
+        options: ['3', '4'], correctIndex: 1, difficulty: 'easy', tags: [],
+        timesUsed: 0, timesCorrect: 0, createdByUid: 'teacherA', createdByName: 'T', createdAt: Date.now(),
+      })
+      qId = ref.id
+    })
+
+    const teacherCtx = testEnv.authenticatedContext('teacherA')
+    await assertSucceeds(updateDoc(doc(teacherCtx.firestore(), 'questionBank', qId), { questionText: '3+3=؟', options: ['5', '6'] }))
+  })
+
+  // الثغرة الأصلية: قاعدة update كانت بتتحقق من teachesSubject على القيمة القديمة لـ subjectId بس،
+  // فمعلّم مادته subjA يقدر يغيّر subjectId للسؤال لمادة subjB (يعلّمها معلّم تاني) بدون أي تفويض
+  // عليها — إثبات مباشر عبر المحاكي إنه هالتحديث كان ينجح قبل الإصلاح، ولازم يفشل بعده
+  it('a teacher cannot reassign their own question into a subject they do not teach', async () => {
+    await seedBankFixture('schoolA', 'A')
+    await seedUser('schoolA', 'teacherB', { name: 'T2', role: 'instructor', email: 't2@x.com' })
+    await testEnv.withSecurityRulesDisabled(async (ctx) => {
+      await setDoc(doc(ctx.firestore(), 'subjects', 'subjB'), {
+        name: 'علوم', schoolId: 'schoolA', sectionId: 'secB', teacherUid: 'teacherB', teacherName: 'T2', lessons: [],
+      })
+    })
+    let qId
+    await testEnv.withSecurityRulesDisabled(async (ctx) => {
+      const ref = await addDoc(collection(ctx.firestore(), 'questionBank'), {
+        schoolId: 'schoolA', subjectId: 'subjA', subjectName: 'رياضيات', questionText: '2+2=؟',
+        options: ['3', '4'], correctIndex: 1, difficulty: 'easy', tags: [],
+        timesUsed: 0, timesCorrect: 0, createdByUid: 'teacherA', createdByName: 'T', createdAt: Date.now(),
+      })
+      qId = ref.id
+    })
+
+    const teacherACtx = testEnv.authenticatedContext('teacherA')
+    await assertFails(
+      updateDoc(doc(teacherACtx.firestore(), 'questionBank', qId), { subjectId: 'subjB', subjectName: 'علوم' })
+    )
+  })
+
+  it('an admin can edit any question in their own school without changing subjectId', async () => {
+    await seedBankFixture('schoolA', 'A')
+    let qId
+    await testEnv.withSecurityRulesDisabled(async (ctx) => {
+      const ref = await addDoc(collection(ctx.firestore(), 'questionBank'), {
+        schoolId: 'schoolA', subjectId: 'subjA', subjectName: 'رياضيات', questionText: '2+2=؟',
+        options: ['3', '4'], correctIndex: 1, difficulty: 'easy', tags: [],
+        timesUsed: 0, timesCorrect: 0, createdByUid: 'teacherA', createdByName: 'T', createdAt: Date.now(),
+      })
+      qId = ref.id
+    })
+
+    const adminCtx = testEnv.authenticatedContext('adminA')
+    await assertSucceeds(updateDoc(doc(adminCtx.firestore(), 'questionBank', qId), { difficulty: 'hard' }))
+  })
+
+  it('the subject teacher can delete their own question; another school\'s teacher cannot', async () => {
+    await seedBankFixture('schoolA', 'A')
+    await seedBankFixture('schoolB', 'B')
+    let qIdA
+    await testEnv.withSecurityRulesDisabled(async (ctx) => {
+      const ref = await addDoc(collection(ctx.firestore(), 'questionBank'), {
+        schoolId: 'schoolA', subjectId: 'subjA', subjectName: 'رياضيات', questionText: '2+2=؟',
+        options: ['3', '4'], correctIndex: 1, difficulty: 'easy', tags: [],
+        timesUsed: 0, timesCorrect: 0, createdByUid: 'teacherA', createdByName: 'T', createdAt: Date.now(),
+      })
+      qIdA = ref.id
+    })
+
+    const teacherBCtx = testEnv.authenticatedContext('teacherB')
+    await assertFails(deleteDoc(doc(teacherBCtx.firestore(), 'questionBank', qIdA)))
+
+    const teacherACtx = testEnv.authenticatedContext('teacherA')
+    await assertSucceeds(deleteDoc(doc(teacherACtx.firestore(), 'questionBank', qIdA)))
   })
 })

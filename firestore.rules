@@ -654,7 +654,11 @@ service cloud.firestore {
       allow create: if isSignedIn() && request.resource.data.schoolId == mySchoolId()
         && request.resource.data.createdByUid == request.auth.uid
         && (isAdmin() || teachesSubject(request.resource.data.subjectId));
-      allow update: if isSignedIn() && sameSchool(resource.data.schoolId) && request.resource.data.schoolId == resource.data.schoolId && (
+      // subjectId ثابت عبر التحديث — وإلا معلّم مادة معيّنة يقدر "ينقل" سؤال لمادة تانية مو إلها،
+      // فيتحايل على teachesSubject(resource.data.subjectId) يلي بيتحقق من القيمة القديمة بس
+      allow update: if isSignedIn() && sameSchool(resource.data.schoolId)
+        && request.resource.data.schoolId == resource.data.schoolId
+        && request.resource.data.subjectId == resource.data.subjectId && (
         (isAdmin() || teachesSubject(resource.data.subjectId))
         || request.resource.data.diff(resource.data).affectedKeys().hasOnly(['timesUsed', 'timesCorrect'])
       );

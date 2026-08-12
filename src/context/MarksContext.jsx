@@ -5,7 +5,7 @@ import { useSession } from './SessionContext'
 import { useSchoolStructure } from './SchoolStructureContext'
 import { sendNotification } from '../utils/notify'
 import { logAudit } from '../utils/audit'
-import { categoriesFor } from '../utils/gradeCategories'
+import { categoriesFor, markDocId, aggregateMark } from '../utils/gradeCategories'
 
 const MarksContext = createContext(null)
 
@@ -62,9 +62,8 @@ export function MarksProvider({ children }) {
   }, [session])
 
   // score و maxScore أرقام. homeworkId اختياري (بينحط تلقائي لما العلامة جايه من تقييم واجب)
-  // docId ثابت (studentUid_subjectId_categoryId) عشان ما تنعمل نسخ مكررة لما يعدّل المعلّم نفس الدرجة
   async function setMarkValue(subjectId, studentUid, categoryId, score, maxScore, homeworkId = null) {
-    const docId = `${studentUid}_${subjectId}_${categoryId}`
+    const docId = markDocId(studentUid, subjectId, categoryId, homeworkId)
     await setDoc(doc(db, 'marks', docId), {
       subjectId,
       studentUid,
@@ -114,12 +113,11 @@ export function MarksProvider({ children }) {
       && (!m.academicYear || m.academicYear === currentAcademicYear))
   }
 
-  // بيرجع {score, maxScore} أو null إذا ما انحطت علامة بعد (أو إذا كانت بيانات قديمة ناقصة)
+  // بيرجع {score, maxScore} أو null إذا ما انحطت علامة بعد (أو إذا كانت بيانات قديمة ناقصة).
+  // فئة زي "الواجبات" ممكن يكون إلها أكتر من سجل (وحدة لكل واجب) — aggregateMark بيجمعهم كلهم
+  // عشان مجموع الفئة يعكس كل الواجبات المقيَّمة، مو بس آخر وحدة.
   function getMark(uid, subjectId, categoryId) {
-    const marks = getMarksForStudentSubject(uid, subjectId)
-    const found = marks.find((m) => m.categoryId === categoryId)
-    if (!found || typeof found.score !== 'number' || typeof found.maxScore !== 'number') return null
-    return { score: found.score, maxScore: found.maxScore }
+    return aggregateMark(getMarksForStudentSubject(uid, subjectId), categoryId)
   }
 
   // نص جاهز للعرض متل "37/50"

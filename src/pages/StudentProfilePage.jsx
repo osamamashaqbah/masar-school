@@ -246,7 +246,7 @@ export default function StudentProfilePage() {
                 <strong>{subj.name}</strong>{' '}
                 {marks.length === 0 ? <span style={{ color: 'var(--ink-faint)' }}>— بدون علامات مسجّلة يدويًا بعد</span> : (
                   marks.map((m) => (
-                    <span key={m.categoryId} style={{ marginInlineStart: '10px' }}>
+                    <span key={m.id} style={{ marginInlineStart: '10px' }}>
                       {cats.find((c) => c.id === m.categoryId)?.label || m.categoryId}: {m.score}/{m.maxScore}
                     </span>
                   ))

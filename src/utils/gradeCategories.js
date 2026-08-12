@@ -11,6 +11,22 @@ export function categoriesFor(subject) {
   return subject?.gradeCategories?.length ? subject.gradeCategories : DEFAULT_GRADE_CATEGORIES
 }
 
+// docId ثابت لكل طالب+مادة+فئة، إلا إذا الفئة جايه من واجب محدد (homeworkId) — عندها لازم يكون
+// جزء من الـ docId حتى ما توصل درجات واجبات مختلفة لنفس الوثيقة وتكتب فوق بعض
+export function markDocId(studentUid, subjectId, categoryId, homeworkId = null) {
+  return homeworkId
+    ? `${studentUid}_${subjectId}_${categoryId}_${homeworkId}`
+    : `${studentUid}_${subjectId}_${categoryId}`
+}
+
+// بيجمع كل العلامات إلي إلها نفس categoryId (زي كل واجبات "الواجبات") لدرجة/من-كم إجمالية واحدة.
+// فئة فيها سجل وحيد (متل exam1) بترجع نفس القيمة متل ما لو ما في تجميع أصلاً.
+export function aggregateMark(marks, categoryId) {
+  const valid = marks.filter((m) => m.categoryId === categoryId && typeof m.score === 'number' && typeof m.maxScore === 'number')
+  if (valid.length === 0) return null
+  return valid.reduce((acc, m) => ({ score: acc.score + m.score, maxScore: acc.maxScore + m.maxScore }), { score: 0, maxScore: 0 })
+}
+
 // {totalScore, totalMax} لمادة معينة لطالب معين — نفس حساب بطاقات الدرجات (مجرد جمع، بدون أوزان)
 export function computeSubjectTotal(subject, studentUid, getMark, getStudentStats) {
   const categories = categoriesFor(subject)

@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { categoriesFor, DEFAULT_GRADE_CATEGORIES } from './gradeCategories'
+import { categoriesFor, DEFAULT_GRADE_CATEGORIES, markDocId, aggregateMark } from './gradeCategories'
 
 describe('categoriesFor', () => {
   it('returns the subject\'s own categories when present', () => {
@@ -16,5 +16,83 @@ describe('categoriesFor', () => {
   it('default categories sum to 100 weight', () => {
     const total = DEFAULT_GRADE_CATEGORIES.reduce((sum, c) => sum + c.weight, 0)
     expect(total).toBe(100)
+  })
+})
+
+// regression: homework grades must not overwrite each other for the same student+subject
+describe('markDocId', () => {
+  it('gives each homework assignment its own doc id (same student+subject+category)', () => {
+    const hw1 = markDocId('student-A', 'math', 'homework', 'hw-1')
+    const hw2 = markDocId('student-A', 'math', 'homework', 'hw-2')
+    expect(hw1).not.toBe(hw2)
+  })
+
+  it('re-grading the same homework reuses its own doc id (no duplicates)', () => {
+    const first = markDocId('student-A', 'math', 'homework', 'hw-1')
+    const again = markDocId('student-A', 'math', 'homework', 'hw-1')
+    expect(first).toBe(again)
+  })
+
+  it('different students never collide on the same homework', () => {
+    const a = markDocId('student-A', 'math', 'homework', 'hw-1')
+    const b = markDocId('student-B', 'math', 'homework', 'hw-1')
+    expect(a).not.toBe(b)
+  })
+
+  it('different subjects never collide for the same student+homework id', () => {
+    const math = markDocId('student-A', 'math', 'homework', 'hw-1')
+    const science = markDocId('student-A', 'science', 'homework', 'hw-1')
+    expect(math).not.toBe(science)
+  })
+
+  it('manual (non-homework) categories keep the legacy stable doc id', () => {
+    expect(markDocId('student-A', 'math', 'exam1')).toBe('student-A_math_exam1')
+    expect(markDocId('student-A', 'math', 'exam1', null)).toBe('student-A_math_exam1')
+  })
+})
+
+describe('aggregateMark', () => {
+  it('sums independent homework grades instead of only keeping the latest one', () => {
+    const marks = [
+      { categoryId: 'homework', homeworkId: 'hw-1', score: 80, maxScore: 100 },
+      { categoryId: 'homework', homeworkId: 'hw-2', score: 90, maxScore: 100 },
+    ]
+    expect(aggregateMark(marks, 'homework')).toEqual({ score: 170, maxScore: 200 })
+  })
+
+  it('updating one homework grade does not affect a sibling homework grade', () => {
+    const marks = [
+      { categoryId: 'homework', homeworkId: 'hw-1', score: 85, maxScore: 100 }, // hw-1 updated 80 -> 85
+      { categoryId: 'homework', homeworkId: 'hw-2', score: 90, maxScore: 100 }, // hw-2 untouched
+    ]
+    expect(aggregateMark(marks, 'homework')).toEqual({ score: 175, maxScore: 200 })
+  })
+
+  it('handles a grade of 0', () => {
+    const marks = [{ categoryId: 'homework', homeworkId: 'hw-1', score: 0, maxScore: 100 }]
+    expect(aggregateMark(marks, 'homework')).toEqual({ score: 0, maxScore: 100 })
+  })
+
+  it('single-record categories (exam1/exam2/final) behave exactly as before', () => {
+    const marks = [{ categoryId: 'exam1', score: 45, maxScore: 50 }]
+    expect(aggregateMark(marks, 'exam1')).toEqual({ score: 45, maxScore: 50 })
+  })
+
+  it('returns null when no mark exists for the category yet', () => {
+    expect(aggregateMark([], 'homework')).toBeNull()
+  })
+
+  it('ignores legacy/incomplete records missing score or maxScore', () => {
+    const marks = [{ categoryId: 'homework', homeworkId: 'hw-1' }]
+    expect(aggregateMark(marks, 'homework')).toBeNull()
+  })
+
+  it('only aggregates marks matching the requested category, ignoring other subjects/categories mixed in', () => {
+    const marks = [
+      { categoryId: 'homework', homeworkId: 'hw-1', score: 80, maxScore: 100 },
+      { categoryId: 'exam1', score: 40, maxScore: 50 },
+    ]
+    expect(aggregateMark(marks, 'homework')).toEqual({ score: 80, maxScore: 100 })
+    expect(aggregateMark(marks, 'exam1')).toEqual({ score: 40, maxScore: 50 })
   })
 })

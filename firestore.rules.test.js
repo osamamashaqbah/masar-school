@@ -1064,6 +1064,41 @@ describe('homework submission status machine (submitted -> returned -> resubmitt
       updateDoc(doc(otherTeacherCtx.firestore(), 'submissions', subId), { status: 'returned', teacherComment: 'x' })
     )
   })
+
+  // بيانات الاختبار: instructor grading page كانت تعمل collection(db,'submissions') بدون أي where() —
+  // القاعدة أعلاه بتعتمد على studentUid/homeworkId لكل وثيقة، فمستحيل تتأكد من أمان استعلام مفتوح
+  // زي هيك، فـ Firestore برفض الاستعلام كامل (permission-denied) بدل ما يرجّع نتيجة مفلترة جزئياً.
+  // الإصلاح: استعلام محدد بـ where('homeworkId', 'in', myHomeworkIds) — نفس الحقل يلي القاعدة أصلاً
+  // بتتحقق منه، فبيصير الاستعلام "قابل للإثبات" للمعلّم صاحب هالواجبات فقط.
+  describe('instructor submissions list query must be scoped, not fetched unfiltered', () => {
+    it('an unscoped list query (no where at all) is rejected outright, not silently filtered', async () => {
+      await seedSubmissionFixture('schoolA', 'A')
+
+      const teacherCtx = testEnv.authenticatedContext('teacherA')
+      await assertFails(getDocs(collection(teacherCtx.firestore(), 'submissions')))
+    })
+
+    it('a teacher scoped by their own homeworkId sees only their own students\' submissions', async () => {
+      await seedSubmissionFixture('schoolA', 'A')
+      await seedSubmissionFixture('schoolB', 'B')
+
+      const teacherACtx = testEnv.authenticatedContext('teacherA')
+      const snap = await assertSucceeds(
+        getDocs(query(collection(teacherACtx.firestore(), 'submissions'), where('homeworkId', 'in', ['hwA'])))
+      )
+      expect(snap.docs.map((d) => d.id)).toEqual(['studentA_hwA'])
+    })
+
+    it('a teacher cannot read another school\'s submission even via a scoped homeworkId query', async () => {
+      await seedSubmissionFixture('schoolA', 'A')
+      await seedSubmissionFixture('schoolB', 'B')
+
+      const teacherACtx = testEnv.authenticatedContext('teacherA')
+      await assertFails(
+        getDocs(query(collection(teacherACtx.firestore(), 'submissions'), where('homeworkId', 'in', ['hwB'])))
+      )
+    })
+  })
 })
 
 describe('exam center (فترات وحصص الاختبارات)', () => {

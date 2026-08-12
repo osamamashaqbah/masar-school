@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react'
-import { collection, onSnapshot } from 'firebase/firestore'
+import { collection, onSnapshot, query, where } from 'firebase/firestore'
 import { db } from '../../firebase'
 import { useSession } from '../../context/SessionContext'
 import { useSchoolStructure } from '../../context/SchoolStructureContext'
@@ -29,13 +29,26 @@ export default function InstructorGradeHomeworkPage() {
   const myHomework = homework.filter((h) => mySubjectIds.includes(h.courseId))
   const myHomeworkIds = myHomework.map((h) => h.id)
 
+  // بدون where() هون Firestore بيرفض الاستعلام كامل (permission-denied) لأي معلّم عادي — القاعدة
+  // بتعتمد على homeworkId/studentUid لكل وثيقة، فمستحيل تتأكد القاعدة إنه الاستعلام المفتوح آمن.
+  // فبنحدد الاستعلام بـ homeworkId ضمن واجبات هالمعلّم فقط — نفس الحقل إلي القاعدة أصلاً بتتحقق منه.
+  // 'in' فيها حد أقصى 30 قيمة بـ Firestore، فبنقسّم القائمة لدفعات ومنستمع لكل دفعة لحالها.
   useEffect(() => {
-    const unsub = onSnapshot(collection(db, 'submissions'), (snap) => {
-      setSubmissions(snap.docs.map((d) => ({ id: d.id, ...d.data() })).filter((s) => myHomeworkIds.includes(s.homeworkId)))
-    })
-    return () => unsub()
+    if (myHomeworkIds.length === 0) { setSubmissions([]); return }
+
+    const chunks = []
+    for (let i = 0; i < myHomeworkIds.length; i += 30) chunks.push(myHomeworkIds.slice(i, i + 30))
+
+    const resultsByChunk = chunks.map(() => [])
+    const unsubs = chunks.map((chunk, i) =>
+      onSnapshot(query(collection(db, 'submissions'), where('homeworkId', 'in', chunk)), (snap) => {
+        resultsByChunk[i] = snap.docs.map((d) => ({ id: d.id, ...d.data() }))
+        setSubmissions(resultsByChunk.flat())
+      })
+    )
+    return () => unsubs.forEach((unsub) => unsub())
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [homework.length])
+  }, [myHomeworkIds.join(',')])
 
   async function handleGrade(sub, hw) {
     const score = scores[sub.id]

@@ -5,6 +5,7 @@ import { useSession } from '../../context/SessionContext'
 import { useSchoolStructure } from '../../context/SchoolStructureContext'
 import { useHomework } from '../../context/HomeworkContext'
 import { useMarks } from '../../context/MarksContext'
+import { firestoreErrorMessage } from '../../utils/firestoreErrors'
 
 const STATUS_LABELS = {
   submitted: 'بانتظار المراجعة',
@@ -24,6 +25,7 @@ export default function InstructorGradeHomeworkPage() {
   const [maxScores, setMaxScores] = useState({}) // sub.id -> من كم
   const [comments, setComments] = useState({})   // sub.id -> ملاحظة الإرجاع
   const [busyIds, setBusyIds] = useState({})
+  const [actionErrors, setActionErrors] = useState({}) // sub.id -> رسالة خطأ آخر عملية فشلت عليه
 
   const mySubjectIds = subjects.filter((s) => s.teacherUid === session.uid).map((s) => s.id)
   const myHomework = homework.filter((h) => mySubjectIds.includes(h.courseId))
@@ -55,9 +57,14 @@ export default function InstructorGradeHomeworkPage() {
     const max = maxScores[sub.id]
     if (!score || !max) return
     setBusyIds((p) => ({ ...p, [sub.id]: true }))
+    setActionErrors((p) => ({ ...p, [sub.id]: null }))
     try {
       await setMarkValue(hw.courseId, sub.studentUid, 'homework', score, max, hw.id)
       await markSubmissionGraded(sub.id)
+    } catch (err) {
+      // بدون catch هون: لو فشلت setMarkValue أو markSubmissionGraded (صلاحية/شبكة)، السبينر كان
+      // بس بيوقف من finally بدون أي رسالة — المعلّم بيفتكر الدرجة انحفظت وهي ممكن ما تكون انحفظت أصلاً
+      setActionErrors((p) => ({ ...p, [sub.id]: firestoreErrorMessage(err, 'صار خطأ وقت حفظ الدرجة. تأكد وحاول مرة ثانية.') }))
     } finally {
       setBusyIds((p) => ({ ...p, [sub.id]: false }))
     }
@@ -67,9 +74,12 @@ export default function InstructorGradeHomeworkPage() {
     const comment = (comments[sub.id] || '').trim()
     if (!comment) return
     setBusyIds((p) => ({ ...p, [sub.id]: true }))
+    setActionErrors((p) => ({ ...p, [sub.id]: null }))
     try {
       await returnHomework(sub.id, comment)
       setComments((p) => ({ ...p, [sub.id]: '' }))
+    } catch (err) {
+      setActionErrors((p) => ({ ...p, [sub.id]: firestoreErrorMessage(err, 'صار خطأ وقت إرجاع الواجب. حاول مرة ثانية.') }))
     } finally {
       setBusyIds((p) => ({ ...p, [sub.id]: false }))
     }
@@ -134,6 +144,7 @@ export default function InstructorGradeHomeworkPage() {
                         <i className="ti ti-arrow-back-up" /> إرجاع لإعادة التسليم
                       </button>
                     </div>
+                    {actionErrors[sub.id] && <p className="auth-error" style={{ fontSize: '12px', margin: 0 }}>{actionErrors[sub.id]}</p>}
                   </div>
                 )}
               </div>

@@ -13,6 +13,7 @@ export function AttendanceProvider({ children }) {
   const [myAbsences, setMyAbsences] = useState([])
   const [childrenAbsences, setChildrenAbsences] = useState([])
   const [schoolAbsences, setSchoolAbsences] = useState([])
+  const [schoolAbsencesError, setSchoolAbsencesError] = useState(null)
 
   useEffect(() => {
     if (!session || session.role !== 'student') { setMyAbsences([]); return }
@@ -34,15 +35,22 @@ export function AttendanceProvider({ children }) {
   async function refreshSchoolAbsences() {
     if (!session || session.role !== 'admin') return []
     const q = query(collection(db, 'attendance'), where('schoolId', '==', session.schoolId))
-    const snap = await getDocs(q)
-    const rows = snap.docs.map((d) => ({ id: d.id, ...d.data() }))
-    setSchoolAbsences(rows)
-    return rows
+    try {
+      const snap = await getDocs(q)
+      const rows = snap.docs.map((d) => ({ id: d.id, ...d.data() }))
+      setSchoolAbsences(rows)
+      setSchoolAbsencesError(null)
+      return rows
+    } catch (err) {
+      // فشل القراءة لازم يبقى مميّز عن "صفر غيابات" — وإلا صار خطأ صلاحية/شبكة يبين متل ما في غياب أصلاً
+      setSchoolAbsencesError(err)
+      throw err
+    }
   }
 
   useEffect(() => {
-    if (!session || session.role !== 'admin') { setSchoolAbsences([]); return }
-    refreshSchoolAbsences()
+    if (!session || session.role !== 'admin') { setSchoolAbsences([]); setSchoolAbsencesError(null); return }
+    refreshSchoolAbsences().catch(() => {}) // الخطأ محفوظ بـ schoolAbsencesError، هون بس منمنع unhandled rejection
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [session])
 
@@ -123,7 +131,7 @@ export function AttendanceProvider({ children }) {
   }
 
   return (
-    <AttendanceContext.Provider value={{ getAttendanceForDate, setAbsent, setPresent, updateExcused, getAbsenceDatesFor, getAbsenceCounts, schoolAbsences, refreshSchoolAbsences }}>
+    <AttendanceContext.Provider value={{ getAttendanceForDate, setAbsent, setPresent, updateExcused, getAbsenceDatesFor, getAbsenceCounts, schoolAbsences, schoolAbsencesError, refreshSchoolAbsences }}>
       {children}
     </AttendanceContext.Provider>
   )

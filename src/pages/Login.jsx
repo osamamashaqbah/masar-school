@@ -112,6 +112,7 @@ function translateFirebaseError(code) {
     'auth/wrong-password': 'كلمة السر غلط.',
     'auth/invalid-email': 'صيغة البريد الإلكتروني مو صحيحة.',
     'auth/too-many-requests': 'محاولات كتير. جرب بعد شوي.',
+    'app/no-profile': 'في مشكلة بحسابك. تواصل مع إدارة المدرسة.',
   }
   return map[code] || 'صار خطأ غير متوقع. جرب مرة ثانية.'
 }

@@ -14,6 +14,7 @@ export function MarksProvider({ children }) {
   const { currentAcademicYear } = useSchoolStructure()
   const [myMarks, setMyMarks] = useState([])
   const [allMarks, setAllMarks] = useState([])
+  const [allMarksError, setAllMarksError] = useState(null)
 
   useEffect(() => {
     if (!session) { setMyMarks([]); return }
@@ -31,17 +32,24 @@ export function MarksProvider({ children }) {
   async function refreshAdminMarks() {
     if (!session || session.role !== 'admin') return []
     const q = query(collection(db, 'marks'), where('schoolId', '==', session.schoolId))
-    const snap = await getDocs(q)
-    const rows = snap.docs.map((d) => ({ id: d.id, ...d.data() }))
-    setAllMarks(rows)
-    return rows // بترجع الصفوف الطازة مباشرة — الاعتماد على allMarks state بعد await غير موثوق بنفس التشغيلة
+    try {
+      const snap = await getDocs(q)
+      const rows = snap.docs.map((d) => ({ id: d.id, ...d.data() }))
+      setAllMarks(rows)
+      setAllMarksError(null)
+      return rows // بترجع الصفوف الطازة مباشرة — الاعتماد على allMarks state بعد await غير موثوق بنفس التشغيلة
+    } catch (err) {
+      // فشل القراءة لازم يبقى مميّز عن "صفر علامات" — وإلا صار خطأ صلاحية/شبكة يبين متل ما في علامات أصلاً
+      setAllMarksError(err)
+      throw err
+    }
   }
 
   useEffect(() => {
-    if (!session) { setAllMarks([]); return }
+    if (!session) { setAllMarks([]); setAllMarksError(null); return }
 
     if (session.role === 'admin') {
-      refreshAdminMarks()
+      refreshAdminMarks().catch(() => {}) // الخطأ محفوظ بـ allMarksError، هون بس منمنع unhandled rejection
       return
     }
 
@@ -128,7 +136,7 @@ export function MarksProvider({ children }) {
 
   return (
     <MarksContext.Provider
-      value={{ setMarkValue, getMarksForStudentSubject, getMark, formatMark, allMarks, refreshAdminMarks }}
+      value={{ setMarkValue, getMarksForStudentSubject, getMark, formatMark, allMarks, allMarksError, refreshAdminMarks }}
     >
       {children}
     </MarksContext.Provider>

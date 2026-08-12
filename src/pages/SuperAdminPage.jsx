@@ -23,6 +23,7 @@ export default function SuperAdminPage() {
   const [brandEdits, setBrandEdits] = useState({}) // { [schoolId]: { platformName, logoUrl, primaryColor } }
   const [uploadingFor, setUploadingFor] = useState(null)
   const [uploadError, setUploadError] = useState('')
+  const [brandSaveState, setBrandSaveState] = useState({}) // { [schoolId]: 'saving' | 'saved' | 'error' }
 
   useEffect(() => {
     const unsub = onAuthStateChanged(auth, async (user) => {
@@ -64,8 +65,17 @@ export default function SuperAdminPage() {
 
   async function saveBranding(school) {
     const info = brandFor(school)
-    await updateDoc(doc(db, 'schools', school.id), { branding: info })
-    await logAudit(school.id, authUser.uid, authUser.email, 'set_branding', 'school', school.id, JSON.stringify(info))
+    setBrandSaveState((p) => ({ ...p, [school.id]: 'saving' }))
+    try {
+      await updateDoc(doc(db, 'schools', school.id), { branding: info })
+      await logAudit(school.id, authUser.uid, authUser.email, 'set_branding', 'school', school.id, JSON.stringify(info))
+      setBrandSaveState((p) => ({ ...p, [school.id]: 'saved' }))
+      setTimeout(() => setBrandSaveState((p) => ({ ...p, [school.id]: undefined })), 1800)
+    } catch {
+      // بدون هالـ catch: الحقول بالنموذج بتضل عارضة القيمة الجديدة (brandFor بتدمج brandEdits) بغض
+      // النظر عن نجاح الحفظ من عدمه — يعني حفظ فاشل بيبين بالضبط متل حفظ ناجح، بدون أي رسالة خطأ
+      setBrandSaveState((p) => ({ ...p, [school.id]: 'error' }))
+    }
   }
 
   async function handleLogoFile(school, e) {
@@ -215,9 +225,11 @@ export default function SuperAdminPage() {
               <div style={{ display: 'flex', gap: '8px', alignItems: 'center', marginTop: '6px' }}>
                 <input type="color" style={{ width: '48px', height: '28px', padding: '2px' }} value={brandFor(s).primaryColor || '#2f5d50'}
                   onChange={(e) => setBrandEdits({ ...brandEdits, [s.id]: { ...brandFor(s), primaryColor: e.target.value } })} />
-                <button type="button" className="btn" style={{ width: 'auto' }} onClick={() => saveBranding(s)}>
-                  <i className="ti ti-check" /> حفظ
+                <button type="button" className="btn" style={{ width: 'auto' }} onClick={() => saveBranding(s)} disabled={brandSaveState[s.id] === 'saving'}>
+                  {brandSaveState[s.id] === 'saving' ? <i className="ti ti-loader-2 spin" /> : <i className="ti ti-check" />} حفظ
                 </button>
+                {brandSaveState[s.id] === 'saved' && <span style={{ fontSize: '11px', color: 'var(--pine)' }}><i className="ti ti-check" /> تم الحفظ</span>}
+                {brandSaveState[s.id] === 'error' && <span className="auth-error" style={{ fontSize: '11px' }}>تعذّر الحفظ، حاول مرة ثانية.</span>}
               </div>
             </div>
           </div>

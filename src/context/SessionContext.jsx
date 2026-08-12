@@ -37,9 +37,16 @@ export function SessionProvider({ children }) {
   async function login(email, password) {
     const credential = await signInWithEmailAndPassword(auth, email, password)
     const profileSnap = await getDoc(doc(db, 'users', credential.user.uid))
-    if (profileSnap.exists()) {
-      setSession(buildSession(credential.user.uid, credential.user.email, profileSnap.data()))
+    if (!profileSnap.exists()) {
+      // حساب Firebase Auth صحيح بس ما إله وثيقة users مطابقة (محذوف/معطّل من الإدارة مثلاً) —
+      // لازم نطلع خطأ واضح، وإلا Login.jsx كان بينتقل لـ /app/dashboard واللي بترجّعه Layout فورًا
+      // لـ / بدون أي تفسير، فالمستخدم بيحس إنه تسجيل الدخول "ما ضل يشتغل" بدون سبب
+      await signOut(auth)
+      const err = new Error('signed in but no matching user profile')
+      err.code = 'app/no-profile'
+      throw err
     }
+    setSession(buildSession(credential.user.uid, credential.user.email, profileSnap.data()))
   }
 
   async function logout() {

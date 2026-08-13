@@ -4,10 +4,13 @@ import { collection, onSnapshot, query, where } from 'firebase/firestore'
 import { db, auth } from '../firebase'
 import { useSession } from '../context/SessionContext'
 import { useSchoolStructure } from '../context/SchoolStructureContext'
+import { useNotifications } from '../context/NotificationContext'
+import TaskCenter from '../components/TaskCenter'
 
 export default function AdminPage() {
   const { session } = useSession()
   const { subjects } = useSchoolStructure()
+  const { notifications, unreadCount } = useNotifications()
 
   const [users, setUsers] = useState([])
   const [name, setName] = useState('')
@@ -34,6 +37,23 @@ export default function AdminPage() {
   const studentCount = users.filter((u) => u.role === 'student').length
   const parentCount = users.filter((u) => u.role === 'parent').length
   const students = users.filter((u) => u.role === 'student')
+  const adminTasks = [
+    ...(students.length === 0 ? [{
+      id: 'first-student', icon: 'ti-user-plus', title: 'أضف أول طالب للمدرسة', meta: 'لا توجد حسابات طلاب بعد', badge: 'ابدأ هنا', tone: 'urgent', to: '/app/admin',
+    }] : []),
+    ...(subjects.length === 0 ? [{
+      id: 'first-subject', icon: 'ti-books', title: 'أضف مواد وشعب المدرسة', meta: 'أنشئ هيكلًا دراسيًا لتبدأ المتابعة', badge: 'إعداد', tone: 'soon', to: '/app/school-structure',
+    }] : []),
+    ...notifications.filter((notification) => !notification.read).slice(0, 3).map((notification) => ({
+      id: `notification-${notification.id}`,
+      icon: notification.type === 'warning' ? 'ti-alert-triangle' : 'ti-bell',
+      title: notification.message,
+      meta: 'إشعار جديد',
+      badge: 'جديد',
+      tone: notification.type === 'warning' ? 'urgent' : '',
+      to: '/app/announcements',
+    })),
+  ]
 
   function toggleChild(uid) {
     setSelectedChildren((prev) => (prev.includes(uid) ? prev.filter((id) => id !== uid) : [...prev, uid]))
@@ -86,6 +106,19 @@ export default function AdminPage() {
     <div>
       <div className="eyebrow">لوحة إدارة المدرسة</div>
       <h2 className="page-title" style={{ marginBottom: '20px' }}>نظرة عامة على المدرسة</h2>
+
+      <TaskCenter
+        title="مركز مهام الإدارة"
+        subtitle={unreadCount > 0 ? `لديك ${unreadCount} إشعار غير مقروء وعمليات تشغيلية تحتاج متابعة.` : 'ابدأ من الإجراء الذي يجهّز مدرستك للعمل اليومي.'}
+        tasks={adminTasks}
+        actions={[
+          { icon: 'ti-user-plus', label: 'إضافة مستخدم', to: '/app/admin' },
+          { icon: 'ti-building-community', label: 'هيكل المدرسة', to: '/app/school-structure' },
+          { icon: 'ti-calendar-week', label: 'الجدول', to: '/app/timetable' },
+          { icon: 'ti-calendar-stats', label: 'التغطية', to: '/app/admin/schedule' },
+        ]}
+        emptyText="لا توجد مهام عاجلة. راجع المؤشرات أو أنشئ حسابًا جديدًا عند الحاجة."
+      />
 
       <div className="owner-stats-grid">
         <div className="owner-stat-card">

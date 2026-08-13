@@ -12,6 +12,8 @@ import { useHomework } from '../context/HomeworkContext'
 import { categoriesFor, computeSubjectTotal } from '../utils/gradeCategories'
 import AttendanceReport from '../components/AttendanceReport'
 import ReportCardPrint from '../components/ReportCardPrint'
+import TaskCenter from '../components/TaskCenter'
+import { useNotifications } from '../context/NotificationContext'
 
 function excuseStatusLabel(status) {
   if (status === 'approved') return { text: 'تمت الموافقة', className: 'excused' }
@@ -73,6 +75,8 @@ export default function ParentDashboardPage() {
   const { getStudentStats } = useQuizStats()
   const { getAbsenceDatesFor } = useAttendance()
   const { getProcrastinationPattern } = useHomework()
+  const { myRequests } = useExcuseRequests()
+  const { notifications, unreadCount } = useNotifications()
 
   const [children, setChildren] = useState([])
   const [printChildId, setPrintChildId] = useState(null)
@@ -98,6 +102,35 @@ export default function ParentDashboardPage() {
     return () => unsubscribe()
   }, [session])
 
+  const parentTasks = [
+    ...myRequests.filter((request) => request.status === 'pending').slice(0, 2).map((request) => ({
+      id: `excuse-${request.id}`,
+      icon: 'ti-calendar-off',
+      title: `طلب عذر بانتظار المتابعة: ${request.studentName || 'أحد الأبناء'}`,
+      meta: request.date || 'طلب جديد',
+      badge: 'قيد المراجعة',
+      tone: 'soon',
+      to: '/app/parent-dashboard',
+    })),
+    ...children.filter((child) => getAbsenceDatesFor(child.id).length > 0).slice(0, 2).map((child) => ({
+      id: `attendance-${child.id}`,
+      icon: 'ti-calendar-x',
+      title: `${child.name} لديه سجل غياب يحتاج مراجعة`,
+      meta: `${getAbsenceDatesFor(child.id).length} يوم غياب مسجل`,
+      badge: 'متابعة',
+      tone: 'urgent',
+      to: '/app/parent-dashboard',
+    })),
+    ...notifications.filter((notification) => !notification.read).slice(0, 2).map((notification) => ({
+      id: `notification-${notification.id}`,
+      icon: 'ti-bell',
+      title: notification.message,
+      meta: 'إشعار جديد',
+      badge: 'جديد',
+      to: '/app/announcements',
+    })),
+  ]
+
   if (!session.childUids || session.childUids.length === 0) {
     return (
       <div>
@@ -112,6 +145,18 @@ export default function ParentDashboardPage() {
     <div>
       <div className="eyebrow">لوحة ولي الأمر</div>
       <h2 className="page-title" style={{ marginBottom: '20px' }}>متابعة أبنائك</h2>
+
+      <TaskCenter
+        title="مركز مهام ولي الأمر"
+        subtitle={unreadCount > 0 ? `لديك ${unreadCount} إشعار غير مقروء وتحديثات لأبنائك.` : 'تابع الغياب والطلبات والنتائج من مكان واحد.'}
+        tasks={parentTasks}
+        actions={[
+          { icon: 'ti-users', label: 'ملفات الأبناء', to: '/app/parent-dashboard' },
+          { icon: 'ti-message-circle', label: 'الرسائل', to: '/app/messages' },
+          { icon: 'ti-calendar-week', label: 'الجدول', to: '/app/timetable' },
+        ]}
+        emptyText="لا توجد طلبات أو تنبيهات عاجلة الآن."
+      />
 
       {paymentInfo && (paymentInfo.bankName || paymentInfo.iban || paymentInfo.cliqAlias || paymentInfo.notes) && (
         <div className="panel" style={{ marginBottom: '20px' }}>

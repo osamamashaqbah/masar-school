@@ -26,8 +26,14 @@ export default function Login() {
     setError('')
     setLoading(true)
     try {
-      await login(email.trim(), password)
-      navigate('/app/dashboard')
+      const profile = await login(email.trim(), password)
+      const homeByRole = {
+        student: '/app/dashboard',
+        parent: '/app/parent-dashboard',
+        instructor: '/app/instructor',
+        admin: '/app/admin',
+      }
+      navigate(homeByRole[profile.role] || '/app/dashboard')
     } catch (err) {
       setError(translateFirebaseError(err.code))
     } finally {

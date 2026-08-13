@@ -46,7 +46,9 @@ export function SessionProvider({ children }) {
       err.code = 'app/no-profile'
       throw err
     }
-    setSession(buildSession(credential.user.uid, credential.user.email, profileSnap.data()))
+    const nextSession = buildSession(credential.user.uid, credential.user.email, profileSnap.data())
+    setSession(nextSession)
+    return nextSession
   }
 
   async function logout() {

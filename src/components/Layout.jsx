@@ -32,20 +32,41 @@ function timeAgo(ts) {
   return ts.toDate().toLocaleDateString('ar-EG', { dateStyle: 'short' })
 }
 
-const instructorLinks = [
-  { to: '/app/instructor', icon: 'ti-layout-grid', label: 'نظرة عامة' },
-  { to: '/app/instructor/lessons', icon: 'ti-plus', label: 'إضافة دروس' },
-  { to: '/app/instructor/materials', icon: 'ti-paperclip', label: 'مرفقات إضافية' },
-  { to: '/app/instructor/homework', icon: 'ti-clipboard-list', label: 'الواجبات' },
-  { to: '/app/instructor/notes', icon: 'ti-notes', label: 'ملاحظات الدروس' },
-  { to: '/app/instructor/analytics', icon: 'ti-chart-bar', label: 'دفتر الدرجات' },
-  { to: '/app/instructor/questions', icon: 'ti-message-question', label: 'أسئلة الطلاب' },
-  { to: '/app/instructor/grade-homework', icon: 'ti-checkbox', label: 'تقييم الواجبات' },
-  { to: '/app/instructor/manual-grades', icon: 'ti-certificate', label: 'الدرجات اليدوية' },
-  { to: '/app/instructor/attendance', icon: 'ti-calendar-check', label: 'الحضور والغياب' },
-  { to: '/app/exams', icon: 'ti-clipboard-list', label: 'مركز الاختبارات' },
-  { to: '/app/instructor/question-bank', icon: 'ti-database', label: 'بنك الأسئلة' },
+const instructorLinkGroups = [
+  {
+    label: 'التدريس',
+    links: [
+      { to: '/app/instructor', icon: 'ti-layout-grid', label: 'نظرة عامة' },
+      { to: '/app/instructor/lessons', icon: 'ti-plus', label: 'إضافة دروس' },
+      { to: '/app/instructor/materials', icon: 'ti-paperclip', label: 'مرفقات إضافية' },
+      { to: '/app/instructor/notes', icon: 'ti-notes', label: 'ملاحظات الدروس' },
+    ],
+  },
+  {
+    label: 'التقييم',
+    links: [
+      { to: '/app/instructor/homework', icon: 'ti-clipboard-list', label: 'الواجبات' },
+      { to: '/app/instructor/grade-homework', icon: 'ti-checkbox', label: 'تقييم الواجبات' },
+      { to: '/app/instructor/manual-grades', icon: 'ti-certificate', label: 'الدرجات اليدوية' },
+      { to: '/app/instructor/analytics', icon: 'ti-chart-bar', label: 'دفتر الدرجات' },
+    ],
+  },
+  {
+    label: 'المتابعة',
+    links: [
+      { to: '/app/instructor/attendance', icon: 'ti-calendar-check', label: 'الحضور والغياب' },
+      { to: '/app/instructor/questions', icon: 'ti-message-question', label: 'أسئلة الطلاب' },
+    ],
+  },
+  {
+    label: 'أدوات متقدمة',
+    links: [
+      { to: '/app/exams', icon: 'ti-clipboard-list', label: 'مركز الاختبارات' },
+      { to: '/app/instructor/question-bank', icon: 'ti-database', label: 'بنك الأسئلة' },
+    ],
+  },
 ]
+
 
 // روابط إدارية ثانوية — مجمّعة بقائمة منسدلة وحدة بدل ما تاخذ مكان لحالها بشريط التنقّل
 function buildAdminToolLinks(features) {
@@ -118,6 +139,9 @@ export default function Layout() {
   const isInstructorPath = location.pathname.startsWith('/app/instructor')
   const adminToolLinks = session.role === 'admin' ? buildAdminToolLinks(features) : []
   const isAdminToolsPath = adminToolLinks.some((l) => location.pathname === l.to)
+  const mobileToolGroups = session.role === 'admin'
+    ? [{ label: 'أدوات الإدارة', links: adminToolLinks }]
+    : instructorLinkGroups
 
   function handleNotifClick(n) { if (!n.read) markAsRead(n.id) }
 
@@ -217,20 +241,27 @@ export default function Layout() {
                 className={`nav-pill dropdown-toggle${isInstructorPath ? ' active' : ''}${instructorOpen ? ' open' : ''}`}
                 onClick={() => { setInstructorOpen((o) => !o); setNotifOpen(false) }}
                 title="لوحة المعلّم"
+                aria-haspopup="true"
+                aria-expanded={instructorOpen}
               >
                 <i className="ti ti-chalkboard" /> <span>لوحة المعلّم</span>
                 <i className="ti ti-chevron-down dropdown-chevron" />
               </button>
               {instructorOpen && (
-                <div className="nav-dropdown">
-                  {instructorLinks.map((link, idx) => (
-                    <NavLink
-                      key={link.to} to={link.to} end={link.to === '/app/instructor'}
-                      style={{ animationDelay: `${idx * 28}ms` }}
-                      className={({ isActive }) => 'dropdown-item' + (isActive ? ' active' : '')}
-                    >
-                      <i className={`ti ${link.icon}`} /> {link.label}
-                    </NavLink>
+                <div className="nav-dropdown nav-dropdown-grouped">
+                  {instructorLinkGroups.map((group) => (
+                    <div className="nav-dropdown-group" key={group.label}>
+                      <div className="nav-dropdown-group-label">{group.label}</div>
+                      {group.links.map((link, idx) => (
+                        <NavLink
+                          key={link.to} to={link.to} end={link.to === '/app/instructor'}
+                          style={{ animationDelay: `${idx * 28}ms` }}
+                          className={({ isActive }) => 'dropdown-item' + (isActive ? ' active' : '')}
+                        >
+                          <i className={`ti ${link.icon}`} /> {link.label}
+                        </NavLink>
+                      ))}
+                    </div>
                   ))}
                 </div>
               )}
@@ -243,6 +274,8 @@ export default function Layout() {
                 className={`nav-pill dropdown-toggle${isAdminToolsPath ? ' active' : ''}${adminToolsOpen ? ' open' : ''}`}
                 onClick={() => { setAdminToolsOpen((o) => !o); setNotifOpen(false) }}
                 title="أدوات الإدارة"
+                aria-haspopup="true"
+                aria-expanded={adminToolsOpen}
               >
                 <i className="ti ti-adjustments" /> <span>أدوات الإدارة</span>
                 <i className="ti ti-chevron-down dropdown-chevron" />
@@ -356,16 +389,23 @@ export default function Layout() {
               <i className={`ti ${session.role === 'admin' ? 'ti-adjustments' : 'ti-chalkboard'}`} />
               {session.role === 'admin' ? 'أدوات الإدارة' : 'لوحة المعلّم'}
             </div>
-            <div className="sheet-grid">
-              {(session.role === 'admin' ? adminToolLinks : instructorLinks).map((link, idx) => (
-                <NavLink
-                  key={link.to} to={link.to} end={link.to === '/app/instructor'}
-                  style={{ animationDelay: `${idx * 30}ms` }}
-                  className={({ isActive }) => 'sheet-item' + (isActive ? ' active' : '')}
-                >
-                  <i className={`ti ${link.icon}`} />
-                  <span>{link.label}</span>
-                </NavLink>
+            <div className="sheet-groups">
+              {mobileToolGroups.map((group) => (
+                <div className="sheet-group" key={group.label}>
+                  {session.role === 'instructor' && <div className="sheet-group-label">{group.label}</div>}
+                  <div className="sheet-grid">
+                    {group.links.map((link, idx) => (
+                      <NavLink
+                        key={link.to} to={link.to} end={link.to === '/app/instructor'}
+                        style={{ animationDelay: `${idx * 30}ms` }}
+                        className={({ isActive }) => 'sheet-item' + (isActive ? ' active' : '')}
+                      >
+                        <i className={`ti ${link.icon}`} />
+                        <span>{link.label}</span>
+                      </NavLink>
+                    ))}
+                  </div>
+                </div>
               ))}
             </div>
           </div>

@@ -7,6 +7,8 @@ import { useSession } from '../context/SessionContext'
 import { useProgress } from '../context/ProgressContext'
 import { useHomework } from '../context/HomeworkContext'
 import HonorBoard from '../components/HonorBoard'
+import TaskCenter from '../components/TaskCenter'
+import { useNotifications } from '../context/NotificationContext'
 
 function urgencyLabel(h) {
   if (h.hoursLeft < 0) return { text: 'فات الموعد', color: 'var(--sunset)' }
@@ -28,8 +30,33 @@ export default function Dashboard() {
   const navigate = useNavigate()
 
   const { getUpcomingDeadlines } = useHomework()
+  const { notifications, unreadCount } = useNotifications()
   const mySubjects = subjects.filter((s) => s.sectionId === session.sectionId)
   const upcoming = getUpcomingDeadlines(mySubjects.map((s) => s.id))
+  const dashboardTasks = [
+    ...upcoming.map((h) => {
+      const subject = mySubjects.find((s) => s.id === h.courseId)
+      const label = urgencyLabel(h)
+      return {
+        id: `homework-${h.id}`,
+        icon: 'ti-clipboard-list',
+        title: h.title,
+        meta: subject?.name || 'واجب قريب',
+        badge: label.text,
+        tone: h.urgency === 'urgent' || h.hoursLeft < 0 ? 'urgent' : h.urgency === 'soon' ? 'soon' : '',
+        to: `/app/homework-detail/${h.id}`,
+      }
+    }),
+    ...notifications.filter((n) => !n.read).slice(0, 2).map((n) => ({
+      id: `notification-${n.id}`,
+      icon: n.type === 'warning' ? 'ti-alert-triangle' : 'ti-bell',
+      title: n.message,
+      meta: 'إشعار جديد',
+      badge: 'جديد',
+      tone: n.type === 'warning' ? 'urgent' : '',
+      to: '/app/announcements',
+    })),
+  ]
 
   const [sectionBoard, setSectionBoard] = useState(null)
   const [topStudents, setTopStudents] = useState(null)
@@ -73,21 +100,17 @@ export default function Dashboard() {
         <div className="role-badge"><i className="ti ti-user" /> طالب</div>
       </div>
 
-      {upcoming.length > 0 && (
-        <div className="panel" style={{ marginBottom: '20px' }}>
-          <div style={{ fontWeight: 700, fontSize: '13.5px', marginBottom: '8px' }}><i className="ti ti-calendar-due" /> واجبات قريبة</div>
-          {upcoming.map((h) => {
-            const subject = mySubjects.find((s) => s.id === h.courseId)
-            const label = urgencyLabel(h)
-            return (
-              <div key={h.id} className="account-panel-row" style={{ justifyContent: 'space-between', padding: '6px 0', cursor: 'pointer' }} onClick={() => navigate(`/app/homework-detail/${h.id}`)}>
-                <span style={{ fontSize: '13px' }}>{h.title} <span style={{ color: 'var(--ink-faint)' }}>· {subject?.name}</span></span>
-                <span style={{ fontSize: '12px', fontWeight: 700, color: label.color }}>{label.text}</span>
-              </div>
-            )
-          })}
-        </div>
-      )}
+      <TaskCenter
+        title="مركز مهام الطالب"
+        subtitle={unreadCount > 0 ? `لديك ${unreadCount} إشعار غير مقروء ومهام تحتاج متابعة.` : 'تابع واجباتك وموادك من مكان واحد.'}
+        tasks={dashboardTasks}
+        actions={[
+          { icon: 'ti-calendar-week', label: 'جدولي', to: '/app/timetable' },
+          { icon: 'ti-certificate', label: 'درجاتي', to: '/app/grades' },
+          { icon: 'ti-clipboard-list', label: 'اختباراتي', to: '/app/exams' },
+        ]}
+        emptyText="لا توجد واجبات قريبة أو تنبيهات جديدة. استمر بهذا الإيقاع."
+      />
 
       <div className="honor-board-grid">
         <HonorBoard

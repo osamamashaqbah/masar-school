@@ -9,13 +9,14 @@
     "lint": "oxlint",
     "preview": "vite preview",
     "test": "vitest run src",
-    "test:rules": "vitest run firestore.rules.test.js"
+    "test:rules": "firebase emulators:exec --only firestore \"npm run test:rules:unit\"",
+    "test:rules:unit": "vitest run firestore.rules.test.js"
   },
   "dependencies": {
     "firebase": "^12.16.0",
     "react": "^19.2.7",
     "react-dom": "^19.2.7",
-    "react-router-dom": "^7.18.1",
+    "react-router-dom": "^7.18.2",
     "xlsx": "https://cdn.sheetjs.com/xlsx-0.20.3/xlsx-0.20.3.tgz"
   },
   "devDependencies": {

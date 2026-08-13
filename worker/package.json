@@ -5,7 +5,9 @@
   "scripts": {
     "dev": "wrangler dev",
     "deploy": "wrangler deploy",
-    "types": "wrangler types"
+    "types": "wrangler types",
+    "typecheck": "wrangler types && tsc --noEmit",
+    "build": "wrangler deploy --dry-run"
   },
   "dependencies": {
     "jose": "^5"

@@ -1,6 +1,10 @@
 import { getAccessToken, verifyFirebaseIdToken, createIdentityUser, deleteIdentityUser, type ServiceAccount } from './google'
 import { firestoreGetDoc, firestoreCreateDoc, firestorePatchDoc } from './firestore'
 
+interface Env extends Cloudflare.Env {
+  FIREBASE_SERVICE_ACCOUNT_KEY: string
+}
+
 interface CreateUserBody {
   name?: unknown
   email?: unknown
@@ -32,7 +36,11 @@ function validateInput(body: CreateUserBody): string | null {
   if (typeof body.email !== 'string' || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(body.email)) return 'بريد إلكتروني غير صالح'
   if (typeof body.password !== 'string' || body.password.length < 6) return 'كلمة السر لازم 6 أحرف على الأقل'
   if (typeof body.role !== 'string' || !VALID_ROLES.includes(body.role as ValidRole)) return 'دور غير صالح'
-  if (body.childUids !== undefined && !Array.isArray(body.childUids)) return 'childUids لازم تكون مصفوفة'
+  if (body.childUids !== undefined) {
+    if (!Array.isArray(body.childUids)) return 'childUids لازم تكون مصفوفة'
+    if (body.role !== 'parent') return 'childUids مسموحة لولي الأمر فقط'
+    if (body.childUids.some((uid) => typeof uid !== 'string' || !uid.trim())) return 'كل childUids لازم تكون معرّفات صحيحة'
+  }
   return null
 }
 
@@ -53,7 +61,7 @@ export default {
       return await handleCreateSchoolUser(request, env, origin)
     } catch (err) {
       console.error('[create-school-user] خطأ غير متوقع:', err)
-      return json({ error: 'internal', message: err instanceof Error ? err.message : String(err) }, 500, origin)
+      return json({ error: 'internal', message: 'حدث خطأ داخلي. حاول مرة ثانية.' }, 500, origin)
     }
   },
 } satisfies ExportedHandler<Env>
@@ -118,11 +126,13 @@ async function handleCreateSchoolUser(request: Request, env: Env, origin: string
       ...(role === 'parent' ? { childUids } : {}),
     })
 
-    for (const childUid of childUids) {
-      const child = await firestoreGetDoc(accessToken, projectId, `users/${childUid}`)
-      const parentUids = Array.isArray(child?.parentUids) ? (child.parentUids as string[]) : []
-      if (!parentUids.includes(created.localId)) {
-        await firestorePatchDoc(accessToken, projectId, `users/${childUid}`, { parentUids: [...parentUids, created.localId] })
+    if (role === 'parent') {
+      for (const childUid of childUids) {
+        const child = await firestoreGetDoc(accessToken, projectId, `users/${childUid}`)
+        const parentUids = Array.isArray(child?.parentUids) ? (child.parentUids as string[]) : []
+        if (!parentUids.includes(created.localId)) {
+          await firestorePatchDoc(accessToken, projectId, `users/${childUid}`, { parentUids: [...parentUids, created.localId] })
+        }
       }
     }
   } catch (profileErr) {

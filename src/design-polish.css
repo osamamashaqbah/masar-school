@@ -1,0 +1,93 @@
+/* Masar design polish — تحسينات واجهة معزولة دون تغيير سلوك الصفحات */
+:root {
+  --content-max: 1480px;
+  --focus-ring: 0 0 0 4px color-mix(in srgb, var(--accent) 24%, transparent);
+}
+
+html { scroll-behavior: smooth; }
+body { min-width: 320px; background: var(--paper); }
+#root, .app { min-height: 100svh; }
+.app { isolation: isolate; }
+
+.topnav {
+  width: min(calc(100% - 24px), var(--content-max));
+  margin-inline: auto;
+  padding: 10px 14px;
+  gap: 12px;
+  box-sizing: border-box;
+  backdrop-filter: blur(18px) saturate(1.35);
+}
+
+.topnav-links-scroll {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  min-width: 0;
+  overflow-x: auto;
+  scrollbar-width: none;
+  padding: 2px;
+}
+.topnav-links-scroll::-webkit-scrollbar { display: none; }
+
+.nav-pill {
+  min-height: 40px;
+  white-space: nowrap;
+  border: 1px solid transparent;
+  transition: background .2s ease, border-color .2s ease, color .2s ease, transform .2s ease;
+}
+.nav-pill:hover { transform: translateY(-1px); }
+.nav-pill:focus-visible,
+.nav-dropdown-wrap > button:focus-visible,
+.topnav-actions button:focus-visible,
+.bottomnav-item:focus-visible,
+button:focus-visible,
+a:focus-visible {
+  outline: 3px solid var(--accent);
+  outline-offset: 3px;
+  box-shadow: var(--focus-ring);
+}
+
+.page-transition {
+  width: min(calc(100% - 24px), var(--content-max));
+  margin-inline: auto;
+  padding: 24px 0 56px;
+  box-sizing: border-box;
+}
+.page-transition > * { min-width: 0; }
+.bg-scene { opacity: .62; }
+
+@media (max-width: 900px) {
+  .topnav {
+    width: calc(100% - 16px);
+    margin-top: 8px;
+    padding: 8px 10px;
+    border-radius: 20px;
+  }
+  .brand-text { min-width: 0; }
+  .brand-tagline { display: none; }
+  .topnav-links { order: 3; flex-basis: 100%; }
+  .topnav-links-scroll { width: 100%; }
+  .nav-pill { min-height: 38px; padding-inline: 10px; font-size: 12px; }
+  .page-transition {
+    width: calc(100% - 20px);
+    padding-top: 18px;
+    padding-bottom: 96px;
+  }
+}
+
+@media (max-width: 520px) {
+  .topnav { gap: 8px; }
+  .brand-mark { width: 36px; height: 36px; }
+  .brand-name { font-size: 14px; }
+  .topnav-actions { gap: 4px; }
+  .page-transition { width: calc(100% - 16px); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  html { scroll-behavior: auto; }
+  *, *::before, *::after {
+    animation-duration: .01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: .01ms !important;
+  }
+}

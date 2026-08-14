@@ -184,13 +184,13 @@ export default function Layout() {
       <div className="notif-popover-list">
         {notifications.length === 0 ? <p className="notif-empty">ما في إشعارات بعد.</p> : (
           notifications.slice(0, 20).map((n) => (
-            <div key={n.id} className={`notif-item-clean${!n.read ? ' unread' : ''}`} onClick={() => handleNotifClick(n)}>
+            <button type="button" key={n.id} className={`notif-item-clean${!n.read ? ' unread' : ''}`} onClick={() => handleNotifClick(n)}>
               <i className={`ti ${notifIcon(n.type)} notif-item-icon ${n.type}`} />
               <div className="notif-item-body">
                 <div className="notif-item-text">{n.message}</div>
                 <div className="notif-time">{timeAgo(n.createdAt)}</div>
               </div>
-            </div>
+            </button>
           ))
         )}
       </div>

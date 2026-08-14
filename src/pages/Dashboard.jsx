@@ -156,11 +156,13 @@ export default function Dashboard() {
             const { circumference, offset } = ringSvg(pct)
 
             return (
-              <div
+              <button
+                type="button"
                 className="course-card-flat card-hover-lift animate-stagger"
                 key={s.id}
                 style={{ animationDelay: `${i * 45}ms` }}
                 onClick={() => navigate(`/app/subject/${s.id}`)}
+                aria-label={`فتح مادة ${s.name}`}
               >
                 <div className="course-card-top">
                   <span className="tag tag-pine">مادة</span>
@@ -178,7 +180,7 @@ export default function Dashboard() {
                 </div>
                 <div className="course-title">{s.name}</div>
                 <div className="course-meta">{s.lessons.length} دروس · معلّم: {s.teacherName}</div>
-              </div>
+              </button>
             )
           })}
         </div>

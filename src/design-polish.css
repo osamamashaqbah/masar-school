@@ -186,3 +186,40 @@ a:focus-visible {
 }
 
 .sheet-groups { display: grid; gap: 14px; }
+
+/* واجهة صفية هادئة: المحتوى أهم من الزخرفة المتحركة أثناء الاستخدام اليومي. */
+.bg-scene { opacity: .38; }
+.bg-aurora { opacity: .26; animation-duration: 90s; }
+.bg-orb { filter: blur(96px); animation-duration: 34s; }
+.orb-1 { opacity: .13; }
+.orb-2 { opacity: .1; }
+.orb-3 { opacity: .06; }
+.bg-grid { opacity: .035; animation: none; }
+.topnav { box-shadow: var(--shadow-card); }
+.topnav::before { height: 1px; opacity: .45; }
+.brand-mark { animation: none; }
+.card-hover-lift:hover,
+.course-card-flat:hover { transform: translateY(-3px); }
+
+.course-card-flat {
+  width: 100%;
+  color: var(--ink);
+  font-family: inherit;
+  text-align: right;
+}
+.course-card-flat:focus-visible {
+  outline: 3px solid var(--accent);
+  outline-offset: 3px;
+  border-color: var(--accent);
+  box-shadow: var(--focus-ring);
+}
+.notif-item-clean {
+  width: 100%;
+  border: 0;
+  font-family: inherit;
+  text-align: right;
+}
+.notif-item-clean:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: -2px;
+}

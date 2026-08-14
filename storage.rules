@@ -2,7 +2,11 @@ rules_version = '2';
 service firebase.storage {
   match /b/{bucket}/o {
     match /schools/{schoolId}/branding/{fileName} {
-      allow read: if request.auth != null;
+      allow read: if request.auth != null
+        && (
+          firestore.exists(/databases/(default)/documents/platformAdmins/$(request.auth.uid))
+          || firestore.get(/databases/(default)/documents/users/$(request.auth.uid)).data.schoolId == schoolId
+        );
       allow write: if request.auth != null
         && request.resource.size < 3 * 1024 * 1024
         && request.resource.contentType.matches('image/.*')

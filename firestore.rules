@@ -67,6 +67,11 @@ service cloud.firestore {
         && get(/databases/$(database)/documents/users/$(studentUid)).data.role == 'student';
     }
 
+    function studentInSubject(studentUid, subjectId) {
+      return subjectData(subjectId).schoolId == mySchoolId()
+        && studentInSection(studentUid, subjectData(subjectId).sectionId);
+    }
+
     // شعب المعلّم يلي فعلاً بيدرّسها (محفوظة على وثيقة المعلّم نفسه، ومحدثة فقط من addSubject
     // يلي هي عملية إدارة حصراً - admin). هاد بديل عن استعلام "where" غير المتاح جوا القواعد
     function myTaughtSectionIds() {
@@ -191,10 +196,16 @@ service cloud.firestore {
         && request.resource.data.uid == request.auth.uid
         && request.resource.data.schoolId == mySchoolId()
         && request.resource.data.academicYear == currentYear()
+        && studentInSubject(request.auth.uid, request.resource.data.subjectId)
         && request.resource.data.keys().hasAll(['uid', 'subjectId', 'completedLessons', 'schoolId'])
         && request.resource.data.completedLessons is int
         && request.resource.data.completedLessons >= 0
         && request.resource.data.completedLessons <= 10000
+        && (!exists(/databases/$(database)/documents/progress/$(docId)) || (
+          request.resource.data.uid == resource.data.uid
+          && request.resource.data.subjectId == resource.data.subjectId
+          && request.resource.data.academicYear == resource.data.academicYear
+        ))
         // بالتحديث: ما يقدر يرجّع الرقم للخلف (يمنع تصفير التقدم قصداً وإعادة تسجيله لاحقاً بشكل ملتبس)
         && (!exists(/databases/$(database)/documents/progress/$(docId)) || request.resource.data.completedLessons >= resource.data.completedLessons);
       allow delete: if false;
@@ -221,7 +232,15 @@ service cloud.firestore {
       );
       allow create: if isStudent() && request.resource.data.studentUid == request.auth.uid
         && request.resource.data.schoolId == mySchoolId()
-        && request.resource.data.academicYear == currentYear();
+        && request.resource.data.academicYear == currentYear()
+        && request.resource.data.keys().hasAll(['studentUid', 'homeworkId', 'url', 'schoolId', 'academicYear', 'status', 'attemptCount'])
+        && request.resource.data.status == 'submitted'
+        && request.resource.data.attemptCount == 1
+        && request.resource.data.url is string && request.resource.data.url.size() > 0 && request.resource.data.url.size() <= 2048
+        && exists(/databases/$(database)/documents/homework/$(request.resource.data.homeworkId))
+        && get(/databases/$(database)/documents/homework/$(request.resource.data.homeworkId)).data.schoolId == mySchoolId()
+        && get(/databases/$(database)/documents/homework/$(request.resource.data.homeworkId)).data.academicYear == currentYear()
+        && studentInSubject(request.auth.uid, get(/databases/$(database)/documents/homework/$(request.resource.data.homeworkId)).data.courseId);
       // دورة الحالة: submitted -> (returned <-> resubmitted)* -> graded. الطالب بس يقدر يعيد
       // التسليم بعد ما المعلّم يرجّعها له صراحة (status == 'returned')، مش أي وقت قبل التصحيح —
       // هيك ما بيقدر يبدّل جوابه بعد ما المعلّم بلّشه يصحح أو بعده مصحّح أصلًا.
@@ -251,12 +270,18 @@ service cloud.firestore {
         && request.resource.data.uid == request.auth.uid
         && request.resource.data.schoolId == mySchoolId()
         && request.resource.data.academicYear == currentYear()
+        && studentInSubject(request.auth.uid, request.resource.data.subjectId)
         && request.resource.data.keys().hasAll(['uid', 'subjectId', 'attempts', 'correct', 'schoolId'])
         && request.resource.data.attempts is int
         && request.resource.data.correct is int
         && request.resource.data.attempts >= 0
         && request.resource.data.correct >= 0
-        && request.resource.data.correct <= request.resource.data.attempts;
+        && request.resource.data.correct <= request.resource.data.attempts
+        && (!exists(/databases/$(database)/documents/quizStats/$(statId)) || (
+          request.resource.data.uid == resource.data.uid
+          && request.resource.data.subjectId == resource.data.subjectId
+          && request.resource.data.academicYear == resource.data.academicYear
+        ));
       allow delete: if false;
     }
 
@@ -280,7 +305,11 @@ service cloud.firestore {
 
     // ===================== notes =====================
     match /notes/{noteId} {
-      allow read: if isSignedIn() && sameSchool(resource.data.schoolId);
+      allow read: if isSignedIn() && (
+        teachesSubject(resource.data.courseId)
+        || inSectionOfSubject(resource.data.courseId)
+        || (isAdmin() && sameSchool(resource.data.schoolId))
+      );
       allow create, update: if teachesSubject(request.resource.data.courseId)
         && request.resource.data.instructorUid == request.auth.uid
         && request.resource.data.schoolId == mySchoolId()
@@ -297,7 +326,8 @@ service cloud.firestore {
       );
       allow create: if isStudent() && request.resource.data.studentUid == request.auth.uid
         && request.resource.data.schoolId == mySchoolId()
-        && request.resource.data.academicYear == currentYear();
+        && request.resource.data.academicYear == currentYear()
+        && studentInSubject(request.auth.uid, request.resource.data.subjectId);
       allow update: if teachesSubject(resource.data.subjectId)
         && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['answer', 'answeredAt']);
       allow delete: if false;
@@ -516,12 +546,25 @@ service cloud.firestore {
         || (isAdmin() && sameSchool(resource.data.schoolId))
         || isPlatformAdmin()
       );
-      allow create, update: if isInstructor()
+      allow create: if isInstructor()
         && request.resource.data.teacherUid == request.auth.uid
         && request.resource.data.schoolId == mySchoolId()
         && request.resource.data.academicYear == currentYear()
+        && request.resource.data.sectionId in myTaughtSectionIds()
         && studentInSection(request.resource.data.studentUid, request.resource.data.sectionId);
-      allow delete: if isInstructor() && resource.data.teacherUid == request.auth.uid;
+      allow update: if isInstructor()
+        && resource.data.teacherUid == request.auth.uid
+        && resource.data.schoolId == mySchoolId()
+        && resource.data.sectionId in myTaughtSectionIds()
+        && request.resource.data.teacherUid == request.auth.uid
+        && request.resource.data.schoolId == mySchoolId()
+        && request.resource.data.academicYear == currentYear()
+        && request.resource.data.sectionId in myTaughtSectionIds()
+        && studentInSection(request.resource.data.studentUid, request.resource.data.sectionId);
+      allow delete: if isInstructor()
+        && resource.data.teacherUid == request.auth.uid
+        && resource.data.schoolId == mySchoolId()
+        && resource.data.sectionId in myTaughtSectionIds();
     }
 
     // ===================== auditLog (سجل تدقيق) =====================

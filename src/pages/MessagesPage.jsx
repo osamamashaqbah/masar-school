@@ -154,7 +154,7 @@ export default function MessagesPage() {
                     onChange={(e) => setDraft(e.target.value)}
                     maxLength={2000}
                   />
-                  <button type="submit" className="btn btn-primary" disabled={!draft.trim()}>
+                  <button type="submit" className="btn btn-primary" aria-label="إرسال الرسالة" disabled={!draft.trim()}>
                     <i className="ti ti-send" />
                   </button>
                 </form>

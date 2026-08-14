@@ -92,11 +92,11 @@ function CaseDetails({ feedbackCase, admins }) {
 
       <form className="messages-input-row" onSubmit={handleReply}>
         <input type="text" placeholder="اكتب ردك لولي الأمر..." value={draft} onChange={(e) => setDraft(e.target.value)} maxLength={4000} />
-        <button type="submit" className="btn btn-primary" disabled={!draft.trim() || sending}><i className="ti ti-send" /></button>
+        <button type="submit" className="btn btn-primary" aria-label="إرسال الرد" disabled={!draft.trim() || sending}><i className="ti ti-send" /></button>
       </form>
       <form className="messages-input-row" onSubmit={handleInternalNote} style={{ marginTop: '6px' }}>
         <input type="text" placeholder="ملاحظة داخلية (للإدارة فقط)..." value={internalDraft} onChange={(e) => setInternalDraft(e.target.value)} maxLength={4000} />
-        <button type="submit" className="btn" disabled={!internalDraft.trim() || sending}><i className="ti ti-lock" /></button>
+        <button type="submit" className="btn" aria-label="إضافة ملاحظة داخلية" disabled={!internalDraft.trim() || sending}><i className="ti ti-lock" /></button>
       </form>
     </div>
   )

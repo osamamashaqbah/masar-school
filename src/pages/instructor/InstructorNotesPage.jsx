@@ -6,7 +6,7 @@ import { useNotes } from '../../context/NotesContext'
 export default function InstructorNotesPage() {
   const { session } = useSession()
   const { subjects } = useSchoolStructure()
-  const { getNote, saveNote } = useNotes()
+  const { getNote, saveNote, loadCourseNotes } = useNotes()
 
   const mySubjects = subjects.filter((s) => s.teacherUid === session.uid)
 
@@ -16,6 +16,7 @@ export default function InstructorNotesPage() {
   const notesSubject = mySubjects.find((s) => s.id === notesSubjectId)
 
   function selectSubjectForNotes(subjectId) {
+    loadCourseNotes(subjectId)
     setNotesSubjectId(subjectId)
     setDraftNotes({})
     setNoteSavedFlash(null)

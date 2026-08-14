@@ -9,18 +9,33 @@ const QuizStatsContext = createContext(null)
 
 export function QuizStatsProvider({ children }) {
   const { session } = useSession()
-  const { currentAcademicYear } = useSchoolStructure()
+  const { currentAcademicYear, subjects } = useSchoolStructure()
   const [allStats, setAllStats] = useState([])
 
   useEffect(() => {
     if (!session) { setAllStats([]); return }
 
-    if (session.role === 'instructor' || session.role === 'admin') {
+    if (session.role === 'admin') {
       const q = query(collection(db, 'quizStats'), where('schoolId', '==', session.schoolId))
       const unsub = onSnapshot(q, (snapshot) => {
         setAllStats(snapshot.docs.map((d) => d.data()))
       })
       return () => unsub()
+    }
+
+    if (session.role === 'instructor') {
+      const subjectIds = subjects.filter((subject) => subject.teacherUid === session.uid).map((subject) => subject.id)
+      if (subjectIds.length === 0) { setAllStats([]); return }
+      const subjectChunks = chunkArray(subjectIds)
+      const rowsByChunk = subjectChunks.map(() => [])
+      const unsubs = subjectChunks.map((chunk, index) => {
+        const q = query(collection(db, 'quizStats'), where('schoolId', '==', session.schoolId), where('subjectId', 'in', chunk))
+        return onSnapshot(q, (snapshot) => {
+          rowsByChunk[index] = snapshot.docs.map((d) => d.data())
+          setAllStats(rowsByChunk.flat())
+        })
+      })
+      return () => unsubs.forEach((unsub) => unsub())
     }
 
     if (session.role === 'parent' && session.childUids?.length > 0) {
@@ -37,7 +52,7 @@ export function QuizStatsProvider({ children }) {
     }
 
     setAllStats([])
-  }, [session])
+  }, [session, subjects])
 
   // docId يتضمّن السنة الدراسية — وإلا الـ increment كان رح يضل يتراكم عبر السنين على نفس الوثيقة للأبد
   async function recordAttempt(subjectId, isCorrect) {

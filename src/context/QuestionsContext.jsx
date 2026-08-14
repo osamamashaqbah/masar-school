@@ -3,12 +3,13 @@ import { collection, addDoc, updateDoc, doc, onSnapshot, serverTimestamp, query,
 import { db } from '../firebase'
 import { useSession } from './SessionContext'
 import { useSchoolStructure } from './SchoolStructureContext'
+import { chunkArray } from '../utils/chunk'
 
 const QuestionsContext = createContext(null)
 
 export function QuestionsProvider({ children }) {
   const { session } = useSession()
-  const { currentAcademicYear } = useSchoolStructure()
+  const { currentAcademicYear, subjects } = useSchoolStructure()
   const [myQuestions, setMyQuestions] = useState([])
   const [teacherQuestions, setTeacherQuestions] = useState([])
 
@@ -20,11 +21,20 @@ export function QuestionsProvider({ children }) {
       return () => unsub()
     }
     if (session.role === 'instructor') {
-      const q2 = query(collection(db, 'questions'), where('schoolId', '==', session.schoolId))
-      const unsub = onSnapshot(q2, (s) => setTeacherQuestions(s.docs.map((d) => ({ id: d.id, ...d.data() }))))
-      return () => unsub()
+      const subjectIds = subjects.filter((subject) => subject.teacherUid === session.uid).map((subject) => subject.id)
+      if (subjectIds.length === 0) { setTeacherQuestions([]); return }
+      const subjectChunks = chunkArray(subjectIds)
+      const rowsByChunk = subjectChunks.map(() => [])
+      const unsubs = subjectChunks.map((chunk, index) => {
+        const q = query(collection(db, 'questions'), where('schoolId', '==', session.schoolId), where('subjectId', 'in', chunk))
+        return onSnapshot(q, (snap) => {
+          rowsByChunk[index] = snap.docs.map((d) => ({ id: d.id, ...d.data() }))
+          setTeacherQuestions(rowsByChunk.flat())
+        })
+      })
+      return () => unsubs.forEach((unsub) => unsub())
     }
-  }, [session])
+  }, [session, subjects])
 
   async function askQuestion(subjectId, text) {
     await addDoc(collection(db, 'questions'), {

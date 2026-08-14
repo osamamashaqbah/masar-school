@@ -293,7 +293,7 @@ function CaseDetails({ feedbackCase }) {
 
       <form className="messages-input-row" onSubmit={handleReply}>
         <input type="text" placeholder="اكتب ردك..." value={draft} onChange={(e) => setDraft(e.target.value)} maxLength={4000} />
-        <button type="submit" className="btn btn-primary" disabled={!draft.trim() || sending}><i className="ti ti-send" /></button>
+        <button type="submit" className="btn btn-primary" aria-label="إرسال الرد" disabled={!draft.trim() || sending}><i className="ti ti-send" /></button>
       </form>
     </div>
   )

@@ -1,3 +1,4 @@
+import { useEffect } from 'react'
 import { useParams, useNavigate } from 'react-router-dom'
 import { useSchoolStructure } from '../context/SchoolStructureContext'
 import { useNotes } from '../context/NotesContext'
@@ -6,11 +7,16 @@ export default function LessonPage() {
   const { subjectId, lessonIndex } = useParams()
   const navigate = useNavigate()
   const { subjects } = useSchoolStructure()
-  const { getNote } = useNotes()
+  const { getNote, loadCourseNotes } = useNotes()
 
   const subject = subjects.find((s) => s.id === subjectId)
   const index = Number(lessonIndex)
   const lesson = subject?.lessons[index]
+
+  useEffect(() => {
+    loadCourseNotes(subjectId)
+  }, [subjectId, loadCourseNotes])
+
   if (!subject || !lesson) return <div>الدرس غير موجود</div>
 
   const instructorNote = getNote(subjectId, index)

@@ -38,7 +38,11 @@ service cloud.firestore {
     }
 
     function isParentOf(uid) {
-      return isParent() && myData().childUids.hasAny([uid]);
+      return isParent()
+        && myData().childUids is list
+        && myData().childUids.hasAny([uid])
+        && exists(/databases/$(database)/documents/users/$(uid))
+        && get(/databases/$(database)/documents/users/$(uid)).data.schoolId == mySchoolId();
     }
 
     function subjectData(subjectId) {
@@ -58,7 +62,9 @@ service cloud.firestore {
 
     // هل قسم/شعبة الطالب (studentUid) نفس الشعبة المعطاة
     function studentInSection(studentUid, sectionId) {
-      return get(/databases/$(database)/documents/users/$(studentUid)).data.sectionId == sectionId;
+      return get(/databases/$(database)/documents/users/$(studentUid)).data.sectionId == sectionId
+        && get(/databases/$(database)/documents/users/$(studentUid)).data.schoolId == mySchoolId()
+        && get(/databases/$(database)/documents/users/$(studentUid)).data.role == 'student';
     }
 
     // شعب المعلّم يلي فعلاً بيدرّسها (محفوظة على وثيقة المعلّم نفسه، ومحدثة فقط من addSubject
@@ -107,8 +113,8 @@ service cloud.firestore {
         request.auth.uid == uid
         || isParentOf(uid)
         || (isAdmin() && sameSchool(resource.data.schoolId))
-        || (get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role == 'instructor' && resource.data.role == 'student')
-        || (get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role == 'instructor' && resource.data.role == 'parent')
+        || (get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role == 'instructor'
+          && sameSchool(resource.data.schoolId) && resource.data.role in ['student', 'parent'])
         || isPlatformAdmin()
       );
       // ما في تسجيل ذاتي ولا إنشاء حساب "admin" من المتصفح إطلاقًا — أول حساب إدارة لأي مدرسة
@@ -122,6 +128,8 @@ service cloud.firestore {
       // أي حقل حساس متل role أو sectionId أو childUids أو schoolId عن هالطريق
       allow update: if (
         isAdmin() && sameSchool(resource.data.schoolId) && request.resource.data.schoolId == resource.data.schoolId
+        && request.resource.data.role == resource.data.role
+        && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['name', 'avatarId', 'consentGivenAt', 'taughtSectionIds', 'parentUids', 'childUids', 'sectionId'])
       ) || (
         isSignedIn() && request.auth.uid == uid
         && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['name', 'avatarId', 'consentGivenAt'])
@@ -309,7 +317,12 @@ service cloud.firestore {
         && request.resource.data.teacherUid == request.auth.uid
         && request.resource.data.schoolId == mySchoolId()
         && request.resource.data.academicYear == currentYear()
-        && request.resource.data.keys().hasAll(['subjectId', 'studentUid', 'categoryId', 'score', 'maxScore', 'teacherUid', 'schoolId']);
+        && request.resource.data.keys().hasAll(['subjectId', 'studentUid', 'categoryId', 'score', 'maxScore', 'teacherUid', 'schoolId'])
+        && request.resource.data.score is number
+        && request.resource.data.maxScore is number
+        && request.resource.data.maxScore > 0
+        && request.resource.data.score >= 0
+        && request.resource.data.score <= request.resource.data.maxScore;
       // بالتحديث: ممنوع تغيير هوية الطالب أو المادة أو صاحب العلامة الأصلي (يمنع "سرقة"/نقل علامة طالب لطالب تاني)
       // وممنوع تعديل علامة بسنة مقفولة (مش السنة الحالية) — يحمي التاريخ من التعديل بعد الترفيع
       allow update: if teachesStudentInSubject(request.resource.data.subjectId, request.resource.data.studentUid)
@@ -319,7 +332,12 @@ service cloud.firestore {
         && resource.data.subjectId == request.resource.data.subjectId
         && request.resource.data.schoolId == resource.data.schoolId
         && request.resource.data.academicYear == currentYear()
-        && request.resource.data.keys().hasAll(['subjectId', 'studentUid', 'categoryId', 'score', 'maxScore', 'teacherUid', 'schoolId']);
+        && request.resource.data.keys().hasAll(['subjectId', 'studentUid', 'categoryId', 'score', 'maxScore', 'teacherUid', 'schoolId'])
+        && request.resource.data.score is number
+        && request.resource.data.maxScore is number
+        && request.resource.data.maxScore > 0
+        && request.resource.data.score >= 0
+        && request.resource.data.score <= request.resource.data.maxScore;
       allow delete: if false;
     }
 
@@ -510,8 +528,8 @@ service cloud.firestore {
     match /auditLog/{id} {
       allow read: if isAdmin() && sameSchool(resource.data.schoolId);
       allow create: if isSignedIn() && request.resource.data.actorUid == request.auth.uid
-        && request.resource.data.schoolId == mySchoolId()
-        && request.resource.data.keys().hasAll(['schoolId', 'actorUid', 'action', 'targetType', 'createdAt']);
+        && request.resource.data.keys().hasAll(['schoolId', 'actorUid', 'action', 'targetType', 'createdAt'])
+        && (isPlatformAdmin() || request.resource.data.schoolId == mySchoolId());
       allow update, delete: if false;
     }
 
@@ -529,23 +547,26 @@ service cloud.firestore {
 
     // ===================== excuseRequests (طلب عذر مسبق من ولي الأمر) =====================
     match /excuseRequests/{id} {
-      allow read: if isSignedIn() && (
-        resource.data.requestedByUid == request.auth.uid
-        || isParentOf(resource.data.studentUid)
-        // القراءة (list) خفّفناها لنفس مدرسة المعلّم بس — الرول الأصلية (sectionId in myTaughtSectionIds())
-        // بترجع permission-denied لأي LIST query لأنها "in" على مصفوفة جاية من get() ديناميكي؛ نفس
-        // القاعدة تنجح لو get() مفرد بس. الموافقة/الرفض الفعلية لسا محمية بدقة الشعبة بقاعدة update تحت.
-        || (isInstructor() && sameSchool(resource.data.schoolId))
-        || (isAdmin() && sameSchool(resource.data.schoolId))
-      );
+      allow read: if isSignedIn() && resource.data.requestedByUid == request.auth.uid;
+      allow read: if isParentOf(resource.data.studentUid);
+      allow read: if isInstructor() && resource.data.keys().hasAll(['schoolId'])
+        && sameSchool(resource.data.schoolId)
+        && (resource.data.keys().hasAll(['instructorUids'])
+          ? request.auth.uid in resource.data.instructorUids
+          : false);
+      allow read: if isAdmin() && resource.data.keys().hasAll(['schoolId'])
+        && sameSchool(resource.data.schoolId);
       allow create: if isParent() && isParentOf(request.resource.data.studentUid)
         && request.resource.data.requestedByUid == request.auth.uid
         && request.resource.data.schoolId == mySchoolId()
         && request.resource.data.status == 'pending'
         && studentInSection(request.resource.data.studentUid, request.resource.data.sectionId)
-        && request.resource.data.keys().hasAll(['studentUid', 'sectionId', 'date', 'reason', 'status', 'requestedByUid', 'schoolId']);
+        && request.resource.data.keys().hasAll(['studentUid', 'sectionId', 'date', 'reason', 'status', 'requestedByUid', 'schoolId', 'instructorUids'])
+        && request.resource.data.instructorUids is list;
       // المعلّم بس يقدر يوافق/يرفض، وبس على طلبات شعبه
-      allow update: if isInstructor() && resource.data.sectionId in myTaughtSectionIds() && sameSchool(resource.data.schoolId)
+      allow update: if isInstructor()
+        && request.auth.uid in resource.data.get('instructorUids', [])
+        && sameSchool(resource.data.schoolId)
         && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['status', 'decidedAt', 'decidedByUid'])
         && request.resource.data.status in ['approved', 'rejected'];
       allow delete: if false;
@@ -554,13 +575,12 @@ service cloud.firestore {
     // ===================== earlyWarnings (إنذار مبكر) =====================
     // وثيقة واحدة محسوبة لكل طالب (docId = studentUid)، الإدارة بس بتكتبها (recompute من لوحة الإدارة)
     match /earlyWarnings/{studentUid} {
-      allow read: if isSignedIn() && (
-        request.auth.uid == studentUid
-        || isParentOf(studentUid)
-        || (isAdmin() && sameSchool(resource.data.schoolId))
-        // نفس ملاحظة excuseRequests فوق — القراءة list محتاجة تتجنّب "in" على مصفوفة get() ديناميكية
-        || (isInstructor() && sameSchool(resource.data.schoolId))
-      );
+      allow read: if isSignedIn() && request.auth.uid == studentUid;
+      allow read: if isParentOf(studentUid);
+      allow read: if isAdmin() && resource.data.keys().hasAll(['schoolId'])
+        && sameSchool(resource.data.schoolId);
+      allow read: if isInstructor() && sameSchool(resource.data.schoolId)
+        && request.auth.uid in resource.data.instructorUids;
       allow create, update: if isAdmin()
         && request.resource.data.studentUid == studentUid
         && request.resource.data.schoolId == mySchoolId()
@@ -650,7 +670,8 @@ service cloud.firestore {
     // مقيّدة بمعلم المادة، بس تحديث timesUsed/timesCorrect مسموح لأي حدا بنفس المدرسة لأنه
     // بينكتب من جلسة الطالب وقت حل اختبار مبني من سؤال بالبنك (إحصائية مجهّلة، مو حساسة)
     match /questionBank/{qId} {
-      allow read: if isSignedIn() && sameSchool(resource.data.schoolId) && (isAdmin() || isInstructor());
+      allow read: if isSignedIn() && sameSchool(resource.data.schoolId)
+        && (isAdmin() || (isInstructor() && teachesSubject(resource.data.subjectId)));
       allow create: if isSignedIn() && request.resource.data.schoolId == mySchoolId()
         && request.resource.data.createdByUid == request.auth.uid
         && (isAdmin() || teachesSubject(request.resource.data.subjectId));
@@ -660,7 +681,13 @@ service cloud.firestore {
         && request.resource.data.schoolId == resource.data.schoolId
         && request.resource.data.subjectId == resource.data.subjectId && (
         (isAdmin() || teachesSubject(resource.data.subjectId))
-        || request.resource.data.diff(resource.data).affectedKeys().hasOnly(['timesUsed', 'timesCorrect'])
+        || (isStudent()
+          && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['timesUsed', 'timesCorrect'])
+          && request.resource.data.timesUsed is int
+          && request.resource.data.timesCorrect is int
+          && request.resource.data.timesUsed == resource.data.timesUsed + 1
+          && request.resource.data.timesCorrect in [resource.data.timesCorrect, resource.data.timesCorrect + 1]
+          && request.resource.data.timesCorrect <= request.resource.data.timesUsed)
       );
       allow delete: if isSignedIn() && sameSchool(resource.data.schoolId) && (isAdmin() || teachesSubject(resource.data.subjectId));
     }

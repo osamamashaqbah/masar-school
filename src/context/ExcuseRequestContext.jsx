@@ -27,16 +27,19 @@ export function ExcuseRequestProvider({ children }) {
 
   useEffect(() => {
     if (myTaughtSectionIds.length === 0) { setSectionRequests([]); return }
-    const q = query(collection(db, 'excuseRequests'), where('sectionId', 'in', myTaughtSectionIds.slice(0, 30)))
+    const q = query(collection(db, 'excuseRequests'), where('schoolId', '==', session.schoolId), where('instructorUids', 'array-contains', session.uid))
     const unsub = onSnapshot(q, (s) => setSectionRequests(s.docs.map((d) => ({ id: d.id, ...d.data() }))))
     return () => unsub()
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [sectionIdsKey])
 
   async function submitRequest(studentUid, studentName, sectionId, date, reason) {
+    const instructorUids = [...new Set(subjects
+      .filter((subject) => subject.sectionId === sectionId && subject.teacherUid)
+      .map((subject) => subject.teacherUid))]
     await addDoc(collection(db, 'excuseRequests'), {
       studentUid, studentName, sectionId, date, reason: reason.trim(),
-      status: 'pending', requestedByUid: session.uid, schoolId: session.schoolId, createdAt: Date.now(),
+      status: 'pending', requestedByUid: session.uid, schoolId: session.schoolId, instructorUids, createdAt: Date.now(),
     })
   }
 

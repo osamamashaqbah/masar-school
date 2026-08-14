@@ -7,6 +7,7 @@ import { useFeedback } from '../context/FeedbackContext'
 import {
   KIND_LABELS, KIND_ICONS, CATEGORY_LABELS, STATUS_LABELS, STATUS_COLORS, IMPORTANCE_LABELS, QUICK_TEMPLATES,
 } from '../utils/feedbackLabels'
+import { chunkArray } from '../utils/chunk'
 
 function StatusBadge({ status }) {
   return <span className="tag" style={{ background: STATUS_COLORS[status], color: '#fff' }}>{STATUS_LABELS[status] || status}</span>
@@ -30,10 +31,17 @@ function ComposerParent({ onDone }) {
 
   useEffect(() => {
     if (!session.childUids?.length) { setChildren([]); return }
-    const q = query(collection(db, 'users'), where(documentId(), 'in', session.childUids.slice(0, 10)))
-    const unsub = onSnapshot(q, (snap) => setChildren(snap.docs.map((d) => ({ id: d.id, ...d.data() }))))
-    return () => unsub()
-  }, [session.childUids])
+    const chunks = chunkArray(session.childUids)
+    const childrenByChunk = chunks.map(() => [])
+    const unsubs = chunks.map((chunk, index) => {
+      const q = query(collection(db, 'users'), where('schoolId', '==', session.schoolId), where(documentId(), 'in', chunk))
+      return onSnapshot(q, (snap) => {
+        childrenByChunk[index] = snap.docs.map((d) => ({ id: d.id, ...d.data() }))
+        setChildren(childrenByChunk.flat())
+      })
+    })
+    return () => unsubs.forEach((unsub) => unsub())
+  }, [session.childUids, session.schoolId])
 
   const child = children.find((c) => c.id === childUid)
   const childSubjects = child ? subjects.filter((s) => s.sectionId === child.sectionId && s.teacherUid) : []
@@ -147,11 +155,11 @@ function ComposerInstructor({ onDone }) {
 
   useEffect(() => {
     if (!subject) { setStudents([]); setStudentUid(''); return }
-    const q = query(collection(db, 'users'), where('role', '==', 'student'), where('sectionId', '==', subject.sectionId))
+    const q = query(collection(db, 'users'), where('schoolId', '==', session.schoolId), where('role', '==', 'student'), where('sectionId', '==', subject.sectionId))
     const unsub = onSnapshot(q, (snap) => setStudents(snap.docs.map((d) => ({ id: d.id, ...d.data() }))))
     return () => unsub()
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [subjectId])
+  }, [subjectId, session.schoolId])
 
   const student = students.find((s) => s.id === studentUid)
   const recipientUid = student?.parentUids?.[0] || null

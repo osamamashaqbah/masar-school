@@ -117,6 +117,14 @@ describe('tenant isolation', () => {
     )
   })
 
+  it('an admin cannot promote an existing user to admin by editing the role', async () => {
+    await seedSchoolWithAdmin('schoolA', 'adminA')
+    await seedUser('schoolA', 'teacherA', { name: 'T', role: 'instructor', email: 't@x.com' })
+
+    const adminCtx = testEnv.authenticatedContext('adminA')
+    await assertFails(updateDoc(doc(adminCtx.firestore(), 'users', 'teacherA'), { role: 'admin' }))
+  })
+
   it('an admin cannot invite a user into another school', async () => {
     await seedSchoolWithAdmin('schoolA', 'adminA')
     await seedSchoolWithAdmin('schoolB', 'adminB')
@@ -127,6 +135,61 @@ describe('tenant isolation', () => {
         name: 'معلّم جديد', role: 'instructor', email: 't@x.com', schoolId: 'schoolB',
       })
     )
+  })
+
+  it('an instructor cannot read students or parents from another school', async () => {
+    await seedSchoolWithAdmin('schoolA', 'adminA')
+    await seedSchoolWithAdmin('schoolB', 'adminB')
+    await seedUser('schoolA', 'teacherA', { name: 'T', role: 'instructor', email: 't@a.com' })
+    await seedUser('schoolB', 'studentB', { name: 'Student B', role: 'student', email: 's@b.com' })
+    await seedUser('schoolB', 'parentB', { name: 'Parent B', role: 'parent', email: 'p@b.com', childUids: ['studentB'] })
+
+    const teacherCtx = testEnv.authenticatedContext('teacherA')
+    await assertFails(getDoc(doc(teacherCtx.firestore(), 'users', 'studentB')))
+    await assertFails(getDoc(doc(teacherCtx.firestore(), 'users', 'parentB')))
+  })
+})
+
+describe('marks and attendance tenant boundaries', () => {
+  async function seedTeacherFixture() {
+    await seedSchoolWithAdmin('schoolA', 'adminA')
+    await seedSchoolWithAdmin('schoolB', 'adminB')
+    await testEnv.withSecurityRulesDisabled(async (ctx) => {
+      await setDoc(doc(ctx.firestore(), 'schools', 'schoolA'), { currentAcademicYear: '2025-2026' }, { merge: true })
+      await setDoc(doc(ctx.firestore(), 'subjects', 'subjA'), {
+        schoolId: 'schoolA', sectionId: 'sec1', teacherUid: 'teacherA', name: 'رياضيات', lessons: [],
+      })
+    })
+    await seedUser('schoolA', 'teacherA', { name: 'T', role: 'instructor', email: 't@a.com' })
+    await seedUser('schoolA', 'studentA', { name: 'Student A', role: 'student', email: 's@a.com', sectionId: 'sec1' })
+    await seedUser('schoolB', 'studentB', { name: 'Student B', role: 'student', email: 's@b.com', sectionId: 'sec1' })
+  }
+
+  it('a teacher cannot write marks or attendance for a same-section student from another school', async () => {
+    await seedTeacherFixture()
+    const teacherCtx = testEnv.authenticatedContext('teacherA')
+
+    await assertFails(setDoc(doc(teacherCtx.firestore(), 'marks', 'cross-school-mark'), {
+      subjectId: 'subjA', studentUid: 'studentB', categoryId: 'quiz', score: 8, maxScore: 10,
+      teacherUid: 'teacherA', schoolId: 'schoolA', academicYear: '2025-2026',
+    }))
+    await assertFails(setDoc(doc(teacherCtx.firestore(), 'attendance', 'cross-school-attendance'), {
+      studentUid: 'studentB', sectionId: 'sec1', date: '2026-01-01', excused: false,
+      teacherUid: 'teacherA', schoolId: 'schoolA', academicYear: '2025-2026',
+    }))
+  })
+
+  it('marks enforce numeric bounds while allowing a zero score', async () => {
+    await seedTeacherFixture()
+    const teacherCtx = testEnv.authenticatedContext('teacherA')
+    const mark = (score, id) => setDoc(doc(teacherCtx.firestore(), 'marks', id), {
+      subjectId: 'subjA', studentUid: 'studentA', categoryId: 'quiz', score, maxScore: 10,
+      teacherUid: 'teacherA', schoolId: 'schoolA', academicYear: '2025-2026',
+    })
+
+    await assertSucceeds(mark(0, 'zero-score'))
+    await assertFails(mark(-1, 'negative-score'))
+    await assertFails(mark(11, 'over-max-score'))
   })
 })
 
@@ -270,7 +333,7 @@ describe('earlyWarnings / honorBoards', () => {
     await seedUser('schoolA', 'studentA', { name: 'St', role: 'student', email: 's@x.com', sectionId: 'sec1' })
     await testEnv.withSecurityRulesDisabled(async (ctx) => {
       await setDoc(doc(ctx.firestore(), 'earlyWarnings', 'studentA'), {
-        studentUid: 'studentA', schoolId: 'schoolA', sectionId: 'sec1', attendanceAlert: true, updatedAt: Date.now(),
+        studentUid: 'studentA', schoolId: 'schoolA', sectionId: 'sec1', instructorUids: ['teacherA'], attendanceAlert: true, updatedAt: Date.now(),
       })
     })
 
@@ -290,6 +353,37 @@ describe('earlyWarnings / honorBoards', () => {
 
     const studentCtx = testEnv.authenticatedContext('studentA')
     await assertFails(getDoc(doc(studentCtx.firestore(), 'earlyWarnings', 'studentB')))
+  })
+
+  it('an instructor cannot read an early-warning doc for a section they do not teach', async () => {
+    await seedSchoolWithAdmin('schoolA', 'adminA')
+    await seedUser('schoolA', 'teacherA', { name: 'T', role: 'instructor', email: 't@x.com', taughtSectionIds: ['sec1'] })
+    await testEnv.withSecurityRulesDisabled(async (ctx) => {
+      await setDoc(doc(ctx.firestore(), 'earlyWarnings', 'studentB'), {
+        studentUid: 'studentB', schoolId: 'schoolA', sectionId: 'sec2', attendanceAlert: true, updatedAt: Date.now(),
+      })
+    })
+
+    const teacherCtx = testEnv.authenticatedContext('teacherA')
+    await assertFails(getDoc(doc(teacherCtx.firestore(), 'earlyWarnings', 'studentB')))
+  })
+
+  it('an instructor can query early warnings for their taught sections', async () => {
+    await seedSchoolWithAdmin('schoolA', 'adminA')
+    await seedUser('schoolA', 'teacherA', { name: 'T', role: 'instructor', email: 't@x.com', taughtSectionIds: ['sec1'], childUids: [] })
+    await seedUser('schoolA', 'studentA', { name: 'S', role: 'student', email: 's@x.com', sectionId: 'sec1', parentUids: [] })
+    await testEnv.withSecurityRulesDisabled(async (ctx) => {
+      await setDoc(doc(ctx.firestore(), 'earlyWarnings', 'studentA'), {
+        studentUid: 'studentA', schoolId: 'schoolA', sectionId: 'sec1', instructorUids: ['teacherA'], attendanceAlert: true, updatedAt: Date.now(),
+      })
+    })
+
+    const teacherCtx = testEnv.authenticatedContext('teacherA')
+    const snap = await assertSucceeds(getDocs(query(
+      collection(teacherCtx.firestore(), 'earlyWarnings'), where('instructorUids', 'array-contains', 'teacherA'),
+      where('schoolId', '==', 'schoolA'),
+    )))
+    expect(snap.size).toBe(1)
   })
 
   it('any signed-in user in the same school can read a honor board', async () => {
@@ -480,7 +574,7 @@ describe('announcements / excuseRequests / auditLog', () => {
     await assertSucceeds(
       addDoc(collection(parentCtx.firestore(), 'excuseRequests'), {
         studentUid: 'studentA', sectionId: 'sec1', date: '2026-01-01', reason: 'سفر',
-        status: 'pending', requestedByUid: 'parentA', schoolId: 'schoolA',
+        status: 'pending', requestedByUid: 'parentA', schoolId: 'schoolA', instructorUids: [],
       })
     )
   })
@@ -494,9 +588,25 @@ describe('announcements / excuseRequests / auditLog', () => {
     await assertFails(
       addDoc(collection(parentCtx.firestore(), 'excuseRequests'), {
         studentUid: 'studentB', sectionId: 'sec1', date: '2026-01-01', reason: 'سفر',
-        status: 'pending', requestedByUid: 'parentA', schoolId: 'schoolA',
+        status: 'pending', requestedByUid: 'parentA', schoolId: 'schoolA', instructorUids: [],
       })
     )
+  })
+
+  it('an instructor cannot read an excuse request from a section they do not teach', async () => {
+    await seedSchoolWithAdmin('schoolA', 'adminA')
+    await seedUser('schoolA', 'teacherA', { name: 'T', role: 'instructor', email: 't@x.com', taughtSectionIds: ['sec1'] })
+    let requestId
+    await testEnv.withSecurityRulesDisabled(async (ctx) => {
+      const ref = await addDoc(collection(ctx.firestore(), 'excuseRequests'), {
+        studentUid: 'studentB', sectionId: 'sec2', date: '2026-01-01', reason: 'سفر',
+        status: 'pending', requestedByUid: 'parentB', schoolId: 'schoolA', instructorUids: ['teacherB'],
+      })
+      requestId = ref.id
+    })
+
+    const teacherCtx = testEnv.authenticatedContext('teacherA')
+    await assertFails(getDoc(doc(teacherCtx.firestore(), 'excuseRequests', requestId)))
   })
 
   it('a user can write their own auditLog entry', async () => {
@@ -508,6 +618,16 @@ describe('announcements / excuseRequests / auditLog', () => {
         schoolId: 'schoolA', actorUid: 'adminA', action: 'create_user', targetType: 'student', createdAt: Date.now(),
       })
     )
+  })
+
+  it('a platform admin can write an audit entry for a school they support', async () => {
+    await testEnv.withSecurityRulesDisabled(async (ctx) => {
+      await setDoc(doc(ctx.firestore(), 'platformAdmins', 'ownerA'), { name: 'Owner' })
+    })
+    const ownerCtx = testEnv.authenticatedContext('ownerA')
+    await assertSucceeds(addDoc(collection(ownerCtx.firestore(), 'auditLog'), {
+      schoolId: 'schoolA', actorUid: 'ownerA', action: 'support_access', targetType: 'school', createdAt: Date.now(),
+    }))
   })
 
   it('only an admin can read the auditLog', async () => {
@@ -1237,6 +1357,39 @@ describe('questionBank (بنك الأسئلة)', () => {
 
     const studentCtx = testEnv.authenticatedContext('studentA')
     await assertFails(getDoc(doc(studentCtx.firestore(), 'questionBank', qId)))
+  })
+
+  it('an instructor can read only questions for subjects they teach', async () => {
+    await seedBankFixture('schoolA', 'A')
+    await seedUser('schoolA', 'teacherB', { name: 'T2', role: 'instructor', email: 't2@x.com' })
+    await testEnv.withSecurityRulesDisabled(async (ctx) => {
+      await setDoc(doc(ctx.firestore(), 'subjects', 'subjB'), {
+        name: 'علوم', schoolId: 'schoolA', sectionId: 'secB', teacherUid: 'teacherB', lessons: [],
+      })
+    })
+    let ownQuestionId, otherQuestionId
+    await testEnv.withSecurityRulesDisabled(async (ctx) => {
+      const db = ctx.firestore()
+      const own = await addDoc(collection(db, 'questionBank'), {
+        schoolId: 'schoolA', subjectId: 'subjA', questionText: 'سؤال أ', options: ['1', '2'], correctIndex: 0,
+        difficulty: 'easy', tags: [], createdByUid: 'teacherA', timesUsed: 0, timesCorrect: 0,
+      })
+      const other = await addDoc(collection(db, 'questionBank'), {
+        schoolId: 'schoolA', subjectId: 'subjB', questionText: 'سؤال ب', options: ['1', '2'], correctIndex: 0,
+        difficulty: 'easy', tags: [], createdByUid: 'teacherB', timesUsed: 0, timesCorrect: 0,
+      })
+      ownQuestionId = own.id
+      otherQuestionId = other.id
+    })
+
+    const teacherCtx = testEnv.authenticatedContext('teacherA')
+    await assertSucceeds(getDoc(doc(teacherCtx.firestore(), 'questionBank', ownQuestionId)))
+    await assertFails(getDoc(doc(teacherCtx.firestore(), 'questionBank', otherQuestionId)))
+    const ownQuery = await assertSucceeds(getDocs(query(
+      collection(teacherCtx.firestore(), 'questionBank'),
+      where('schoolId', '==', 'schoolA'), where('subjectId', 'in', ['subjA']),
+    )))
+    expect(ownQuery.docs.map((d) => d.id)).toContain(ownQuestionId)
   })
 
   it('a student can still bump usage stats without reading the question', async () => {

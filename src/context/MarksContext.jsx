@@ -6,6 +6,7 @@ import { useSchoolStructure } from './SchoolStructureContext'
 import { sendNotification } from '../utils/notify'
 import { logAudit } from '../utils/audit'
 import { categoriesFor, markDocId, aggregateMark } from '../utils/gradeCategories'
+import { chunkArray } from '../utils/chunk'
 
 const MarksContext = createContext(null)
 
@@ -60,9 +61,16 @@ export function MarksProvider({ children }) {
     }
 
     if (session.role === 'parent' && session.childUids?.length > 0) {
-      const q = query(collection(db, 'marks'), where('studentUid', 'in', session.childUids.slice(0, 10)))
-      const unsub = onSnapshot(q, (s) => setAllMarks(s.docs.map((d) => ({ id: d.id, ...d.data() }))))
-      return () => unsub()
+      const chunks = chunkArray(session.childUids)
+      const rowsByChunk = chunks.map(() => [])
+      const unsubs = chunks.map((chunk, index) => {
+        const q = query(collection(db, 'marks'), where('studentUid', 'in', chunk))
+        return onSnapshot(q, (s) => {
+          rowsByChunk[index] = s.docs.map((d) => ({ id: d.id, ...d.data() }))
+          setAllMarks(rowsByChunk.flat())
+        })
+      })
+      return () => unsubs.forEach((unsub) => unsub())
     }
 
     setAllMarks([])
@@ -71,13 +79,18 @@ export function MarksProvider({ children }) {
 
   // score و maxScore أرقام. homeworkId اختياري (بينحط تلقائي لما العلامة جايه من تقييم واجب)
   async function setMarkValue(subjectId, studentUid, categoryId, score, maxScore, homeworkId = null) {
+    const numericScore = Number(score)
+    const numericMaxScore = Number(maxScore)
+    if (!Number.isFinite(numericScore) || !Number.isFinite(numericMaxScore) || numericMaxScore <= 0 || numericScore < 0 || numericScore > numericMaxScore) {
+      throw new Error('invalid-mark')
+    }
     const docId = markDocId(studentUid, subjectId, categoryId, homeworkId)
     await setDoc(doc(db, 'marks', docId), {
       subjectId,
       studentUid,
       categoryId,
-      score: Number(score),
-      maxScore: Number(maxScore),
+      score: numericScore,
+      maxScore: numericMaxScore,
       homeworkId: homeworkId || null,
       source: homeworkId ? 'homework' : 'manual',
       teacherUid: session.uid,

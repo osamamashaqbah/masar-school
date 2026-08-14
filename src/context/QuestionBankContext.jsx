@@ -2,6 +2,8 @@ import { createContext, useContext, useState, useEffect } from 'react'
 import { collection, addDoc, updateDoc, deleteDoc, doc, increment, onSnapshot, query, where, serverTimestamp } from 'firebase/firestore'
 import { db } from '../firebase'
 import { useSession } from './SessionContext'
+import { useSchoolStructure } from './SchoolStructureContext'
+import { chunkArray } from '../utils/chunk'
 
 const QuestionBankContext = createContext(null)
 
@@ -13,18 +15,34 @@ export const DIFFICULTIES = [
 
 export function QuestionBankProvider({ children }) {
   const { session } = useSession()
+  const { subjects } = useSchoolStructure()
   const [questions, setQuestions] = useState([])
 
   // بنك الأسئلة كله للمدرسة — للإدارة والمعلمين بس (القواعد بتمنع الطلاب). عدد معقول لمدرسة
   // وحدة (مئات لآلاف بحد أقصى)، فـ listener وحدة مقبولة هون بدون حاجة لـ pagination الآن
   useEffect(() => {
     if (!session || (session.role !== 'admin' && session.role !== 'instructor')) { setQuestions([]); return }
-    const q = query(collection(db, 'questionBank'), where('schoolId', '==', session.schoolId))
-    const unsub = onSnapshot(q, (snap) => setQuestions(snap.docs.map((d) => ({ id: d.id, ...d.data() }))), (err) => {
-      console.error('[بنك الأسئلة] فشل التحميل:', err); setQuestions([])
+    const subjectIds = session.role === 'instructor'
+      ? subjects.filter((subject) => subject.teacherUid === session.uid).map((subject) => subject.id)
+      : null
+    if (subjectIds && subjectIds.length === 0) { setQuestions([]); return }
+
+    const chunks = subjectIds ? chunkArray(subjectIds) : [null]
+    const rowsByChunk = chunks.map(() => [])
+    const handleError = (err) => {
+      console.error('[بنك الأسئلة] فشل التحميل:', err)
+      setQuestions([])
+    }
+    const unsubs = chunks.map((chunk, index) => {
+      const filters = [where('schoolId', '==', session.schoolId)]
+      if (chunk) filters.push(where('subjectId', 'in', chunk))
+      return onSnapshot(query(collection(db, 'questionBank'), ...filters), (snap) => {
+        rowsByChunk[index] = snap.docs.map((d) => ({ id: d.id, ...d.data() }))
+        setQuestions(rowsByChunk.flat())
+      }, handleError)
     })
-    return () => unsub()
-  }, [session])
+    return () => unsubs.forEach((unsub) => unsub())
+  }, [session, subjects])
 
   async function addQuestion({ subjectId, subjectName, questionText, options, correctIndex, difficulty, tags }) {
     const ref = await addDoc(collection(db, 'questionBank'), {

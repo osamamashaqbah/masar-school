@@ -4,6 +4,7 @@ import { db } from '../firebase'
 import { useSession } from '../context/SessionContext'
 import { useSchoolStructure } from '../context/SchoolStructureContext'
 import { useMessages } from '../context/MessagesContext'
+import { chunkArray } from '../utils/chunk'
 
 export default function MessagesPage() {
   const { session } = useSession()
@@ -20,31 +21,39 @@ export default function MessagesPage() {
 
     if (session.role === 'parent') {
       if (!session.childUids?.length) { setContacts([]); return }
-      const q = query(collection(db, 'users'), where(documentId(), 'in', session.childUids.slice(0, 10)))
-      const unsub = onSnapshot(q, (snap) => {
-        const children = snap.docs.map((d) => ({ id: d.id, ...d.data() }))
+      const chunks = chunkArray(session.childUids)
+      const childrenByChunk = chunks.map(() => [])
+      function updateContacts() {
+        const children = childrenByChunk.flat()
         const sectionIds = new Set(children.map((c) => c.sectionId))
         const teacherMap = new Map()
         subjects.filter((s) => sectionIds.has(s.sectionId) && s.teacherUid).forEach((s) => {
           teacherMap.set(s.teacherUid, s.teacherName || 'معلّم')
         })
         setContacts([...teacherMap.entries()].map(([uid, name]) => ({ uid, name })))
+      }
+      const unsubs = chunks.map((chunk, index) => {
+        const q = query(collection(db, 'users'), where('schoolId', '==', session.schoolId), where(documentId(), 'in', chunk))
+        return onSnapshot(q, (snap) => {
+          childrenByChunk[index] = snap.docs.map((d) => ({ id: d.id, ...d.data() }))
+          updateContacts()
+        })
       })
-      return () => unsub()
+      return () => unsubs.forEach((unsub) => unsub())
     }
 
     if (session.role === 'instructor') {
       const myTaughtSectionIds = [...new Set(subjects.filter((s) => s.teacherUid === session.uid).map((s) => s.sectionId))]
       if (myTaughtSectionIds.length === 0) { setContacts([]); return }
-      const q = query(collection(db, 'users'), where('role', '==', 'student'), where('sectionId', 'in', myTaughtSectionIds.slice(0, 10)))
-      const unsub = onSnapshot(q, async (snap) => {
-        const students = snap.docs.map((d) => ({ id: d.id, ...d.data() }))
+      const sectionChunks = chunkArray(myTaughtSectionIds)
+      const studentsByChunk = sectionChunks.map(() => [])
+      async function updateContacts() {
+        const students = studentsByChunk.flat()
         const parentUids = [...new Set(students.flatMap((s) => s.parentUids || []))]
         if (parentUids.length === 0) { setContacts([]); return }
-        const chunks = []
-        for (let i = 0; i < parentUids.length; i += 10) chunks.push(parentUids.slice(i, i + 10))
+        const parentChunks = chunkArray(parentUids)
         const chunkSnaps = await Promise.all(
-          chunks.map((chunk) => getDocs(query(collection(db, 'users'), where(documentId(), 'in', chunk))))
+          parentChunks.map((chunk) => getDocs(query(collection(db, 'users'), where('schoolId', '==', session.schoolId), where(documentId(), 'in', chunk))))
         )
         const parents = chunkSnaps.flatMap((s) => s.docs.map((d) => ({ id: d.id, ...d.data() })))
         setContacts(parents.map((p) => ({
@@ -52,8 +61,15 @@ export default function MessagesPage() {
           name: p.name,
           sub: students.filter((s) => (s.parentUids || []).includes(p.id)).map((s) => s.name).join('، '),
         })))
+      }
+      const unsubs = sectionChunks.map((chunk, index) => {
+        const q = query(collection(db, 'users'), where('schoolId', '==', session.schoolId), where('role', '==', 'student'), where('sectionId', 'in', chunk))
+        return onSnapshot(q, (snap) => {
+          studentsByChunk[index] = snap.docs.map((d) => ({ id: d.id, ...d.data() }))
+          updateContacts()
+        })
       })
-      return () => unsub()
+      return () => unsubs.forEach((unsub) => unsub())
     }
   }, [session, subjects])
 

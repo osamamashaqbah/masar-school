@@ -6,6 +6,7 @@ const MESSAGES = {
   unavailable: 'تعذّر الاتصال بالسيرفر. تأكد من الإنترنت وحاول مرة ثانية.',
   'failed-precondition': 'تعذّر تنفيذ العملية بسبب حالة البيانات الحالية.',
   'not-found': 'الوثيقة المطلوبة غير موجودة.',
+  'invalid-mark': 'الدرجة لازم تكون بين صفر والحد الأعلى.',
 }
 
 export function firestoreErrorMessage(err, fallback = 'صار خطأ غير متوقع. حاول مرة ثانية.') {

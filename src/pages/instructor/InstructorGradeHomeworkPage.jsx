@@ -55,11 +55,17 @@ export default function InstructorGradeHomeworkPage() {
   async function handleGrade(sub, hw) {
     const score = scores[sub.id]
     const max = maxScores[sub.id]
-    if (!score || !max) return
+    if (score === '' || score === undefined || max === '' || max === undefined) return
+    const numericScore = Number(score)
+    const numericMax = Number(max)
+    if (!Number.isFinite(numericScore) || !Number.isFinite(numericMax) || numericMax <= 0 || numericScore < 0 || numericScore > numericMax) {
+      setActionErrors((p) => ({ ...p, [sub.id]: 'الدرجة لازم تكون بين صفر والحد الأعلى.' }))
+      return
+    }
     setBusyIds((p) => ({ ...p, [sub.id]: true }))
     setActionErrors((p) => ({ ...p, [sub.id]: null }))
     try {
-      await setMarkValue(hw.courseId, sub.studentUid, 'homework', score, max, hw.id)
+      await setMarkValue(hw.courseId, sub.studentUid, 'homework', numericScore, numericMax, hw.id)
       await markSubmissionGraded(sub.id)
     } catch (err) {
       // بدون catch هون: لو فشلت setMarkValue أو markSubmissionGraded (صلاحية/شبكة)، السبينر كان

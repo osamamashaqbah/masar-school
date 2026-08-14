@@ -14,6 +14,7 @@ import AttendanceReport from '../components/AttendanceReport'
 import ReportCardPrint from '../components/ReportCardPrint'
 import TaskCenter from '../components/TaskCenter'
 import { useNotifications } from '../context/NotificationContext'
+import { chunkArray } from '../utils/chunk'
 
 function excuseStatusLabel(status) {
   if (status === 'approved') return { text: 'تمت الموافقة', className: 'excused' }
@@ -95,11 +96,16 @@ export default function ParentDashboardPage() {
 
   useEffect(() => {
     if (!session?.childUids || session.childUids.length === 0) return
-    const q = query(collection(db, 'users'), where(documentId(), 'in', session.childUids.slice(0, 10)))
-    const unsubscribe = onSnapshot(q, (snapshot) => {
-      setChildren(snapshot.docs.map((d) => ({ id: d.id, ...d.data() })))
+    const chunks = chunkArray(session.childUids)
+    const childrenByChunk = chunks.map(() => [])
+    const unsubs = chunks.map((chunk, index) => {
+      const q = query(collection(db, 'users'), where('schoolId', '==', session.schoolId), where(documentId(), 'in', chunk))
+      return onSnapshot(q, (snapshot) => {
+        childrenByChunk[index] = snapshot.docs.map((d) => ({ id: d.id, ...d.data() }))
+        setChildren(childrenByChunk.flat())
+      })
     })
-    return () => unsubscribe()
+    return () => unsubs.forEach((unsubscribe) => unsubscribe())
   }, [session])
 
   const parentTasks = [

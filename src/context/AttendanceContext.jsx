@@ -4,6 +4,7 @@ import { db } from '../firebase'
 import { useSession } from './SessionContext'
 import { useSchoolStructure } from './SchoolStructureContext'
 import { sendNotification } from '../utils/notify'
+import { chunkArray } from '../utils/chunk'
 
 const AttendanceContext = createContext(null)
 
@@ -24,9 +25,16 @@ export function AttendanceProvider({ children }) {
 
   useEffect(() => {
     if (!session || session.role !== 'parent' || !session.childUids?.length) { setChildrenAbsences([]); return }
-    const q = query(collection(db, 'attendance'), where('studentUid', 'in', session.childUids.slice(0, 10)))
-    const unsub = onSnapshot(q, (s) => setChildrenAbsences(s.docs.map((d) => ({ id: d.id, ...d.data() }))))
-    return () => unsub()
+    const chunks = chunkArray(session.childUids)
+    const rowsByChunk = chunks.map(() => [])
+    const unsubs = chunks.map((chunk, index) => {
+      const q = query(collection(db, 'attendance'), where('studentUid', 'in', chunk))
+      return onSnapshot(q, (s) => {
+        rowsByChunk[index] = s.docs.map((d) => ({ id: d.id, ...d.data() }))
+        setChildrenAbsences(rowsByChunk.flat())
+      })
+    })
+    return () => unsubs.forEach((unsub) => unsub())
   }, [session])
 
   // للإدارة بس — مطلوب لحساب الإنذار المبكر (غياب) على مستوى المدرسة كلها.

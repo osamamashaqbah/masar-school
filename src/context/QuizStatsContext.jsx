@@ -3,6 +3,7 @@ import { collection, query, where, doc, setDoc, onSnapshot, increment } from 'fi
 import { db } from '../firebase'
 import { useSession } from './SessionContext'
 import { useSchoolStructure } from './SchoolStructureContext'
+import { chunkArray } from '../utils/chunk'
 
 const QuizStatsContext = createContext(null)
 
@@ -23,11 +24,16 @@ export function QuizStatsProvider({ children }) {
     }
 
     if (session.role === 'parent' && session.childUids?.length > 0) {
-      const q = query(collection(db, 'quizStats'), where('uid', 'in', session.childUids.slice(0, 10)))
-      const unsub = onSnapshot(q, (snapshot) => {
-        setAllStats(snapshot.docs.map((d) => d.data()))
+      const chunks = chunkArray(session.childUids)
+      const rowsByChunk = chunks.map(() => [])
+      const unsubs = chunks.map((chunk, index) => {
+        const q = query(collection(db, 'quizStats'), where('uid', 'in', chunk))
+        return onSnapshot(q, (snapshot) => {
+          rowsByChunk[index] = snapshot.docs.map((d) => d.data())
+          setAllStats(rowsByChunk.flat())
+        })
       })
-      return () => unsub()
+      return () => unsubs.forEach((unsub) => unsub())
     }
 
     setAllStats([])

@@ -3,6 +3,7 @@ import { collection, query, where, onSnapshot, doc, setDoc } from 'firebase/fire
 import { db } from '../firebase'
 import { useSession } from './SessionContext'
 import { useSchoolStructure } from './SchoolStructureContext'
+import { chunkArray } from '../utils/chunk'
 
 const ProgressContext = createContext(null)
 
@@ -38,11 +39,16 @@ export function ProgressProvider({ children }) {
     }
 
     if (session.role === 'parent' && session.childUids?.length > 0) {
-      const q = query(collection(db, 'progress'), where('uid', 'in', session.childUids.slice(0, 10)))
-      const unsub = onSnapshot(q, (snapshot) => {
-        setAllProgress(snapshot.docs.map((d) => d.data()))
+      const chunks = chunkArray(session.childUids)
+      const rowsByChunk = chunks.map(() => [])
+      const unsubs = chunks.map((chunk, index) => {
+        const q = query(collection(db, 'progress'), where('uid', 'in', chunk))
+        return onSnapshot(q, (snapshot) => {
+          rowsByChunk[index] = snapshot.docs.map((d) => d.data())
+          setAllProgress(rowsByChunk.flat())
+        })
       })
-      return () => unsub()
+      return () => unsubs.forEach((unsub) => unsub())
     }
 
     setAllProgress([])

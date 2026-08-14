@@ -35,14 +35,14 @@ export default function InstructorAttendancePage() {
   useEffect(() => {
     if (!sectionId) { setStudents([]); return }
     setStudentsError('')
-    const q = query(collection(db, 'users'), where('role', '==', 'student'), where('sectionId', '==', sectionId))
+    const q = query(collection(db, 'users'), where('schoolId', '==', session.schoolId), where('role', '==', 'student'), where('sectionId', '==', sectionId))
     const unsub = onSnapshot(
       q,
       (snap) => setStudents(snap.docs.map((d) => ({ id: d.id, ...d.data() }))),
       (err) => setStudentsError(`ما قدرنا نجيب لستة الطلاب (${err.code}). جرب تسجّل خروج ودخول من جديد، وإذا استمرت المشكلة تواصل مع إدارة المدرسة.`)
     )
     return () => unsub()
-  }, [sectionId])
+  }, [sectionId, session.schoolId])
 
   useEffect(() => {
     if (!sectionId || !date) { setAbsentSet(new Set()); setExcusedMap({}); return }

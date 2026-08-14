@@ -34,14 +34,14 @@ export default function InstructorManualGradesPage() {
   useEffect(() => {
     if (!subject) return
     setStudentsError('')
-    const q = query(collection(db, 'users'), where('role', '==', 'student'), where('sectionId', '==', subject.sectionId))
+    const q = query(collection(db, 'users'), where('schoolId', '==', session.schoolId), where('role', '==', 'student'), where('sectionId', '==', subject.sectionId))
     const unsub = onSnapshot(
       q,
       (snap) => setStudents(snap.docs.map((d) => ({ id: d.id, ...d.data() }))),
       (err) => setStudentsError(`ما قدرنا نجيب لستة الطلاب (${err.code}). جرب تسجّل خروج ودخول من جديد، وإذا استمرت المشكلة تواصل مع إدارة المدرسة.`)
     )
     return () => unsub()
-  }, [subject])
+  }, [subject, session.schoolId])
 
   // لما يختار المعلّم مادة + فئة، نحمّل الدرجات الموجودة مسبقاً (إذا في)
   useEffect(() => {

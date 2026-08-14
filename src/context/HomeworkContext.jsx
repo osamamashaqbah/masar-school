@@ -4,6 +4,7 @@ import { db } from '../firebase'
 import { useSession } from './SessionContext'
 import { useSchoolStructure } from './SchoolStructureContext'
 import { computeProcrastinationPattern } from '../utils/procrastination'
+import { chunkArray } from '../utils/chunk'
 
 const HomeworkContext = createContext(null)
 
@@ -23,9 +24,16 @@ export function HomeworkProvider({ children }) {
       return () => unsub()
     }
     if (session.role === 'parent' && session.childUids?.length > 0) {
-      const q = query(collection(db, 'submissions'), where('studentUid', 'in', session.childUids.slice(0, 10)))
-      const unsub = onSnapshot(q, (s) => setSubmissionsForPattern(s.docs.map((d) => d.data())))
-      return () => unsub()
+      const chunks = chunkArray(session.childUids)
+      const rowsByChunk = chunks.map(() => [])
+      const unsubs = chunks.map((chunk, index) => {
+        const q = query(collection(db, 'submissions'), where('studentUid', 'in', chunk))
+        return onSnapshot(q, (s) => {
+          rowsByChunk[index] = s.docs.map((d) => d.data())
+          setSubmissionsForPattern(rowsByChunk.flat())
+        })
+      })
+      return () => unsubs.forEach((unsub) => unsub())
     }
     setSubmissionsForPattern([])
   }, [session])

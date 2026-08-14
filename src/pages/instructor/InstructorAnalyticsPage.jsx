@@ -5,6 +5,7 @@ import { useSession } from '../../context/SessionContext'
 import { useSchoolStructure } from '../../context/SchoolStructureContext'
 import { useQuizStats } from '../../context/QuizStatsContext'
 import { useProgress } from '../../context/ProgressContext'
+import { chunkArray } from '../../utils/chunk'
 
 export default function InstructorAnalyticsPage() {
   const { session } = useSession()
@@ -25,23 +26,31 @@ export default function InstructorAnalyticsPage() {
   useEffect(() => {
     if (myTaughtSectionIds.length === 0) { setStudents([]); return }
     setStudentsError('')
-    const q = query(
-      collection(db, 'users'),
-      where('role', '==', 'student'),
-      where('sectionId', 'in', myTaughtSectionIds.slice(0, 30))
-    )
-    const unsub = onSnapshot(
-      q,
-      (snap) => setStudents(snap.docs.map((d) => ({ id: d.id, ...d.data() }))),
-      (err) => setStudentsError(`ما قدرنا نجيب لستة الطلاب (${err.code}). جرب تسجّل خروج ودخول من جديد، وإذا استمرت المشكلة تواصل مع إدارة المدرسة.`)
-    )
-    return () => unsub()
+    setStudents([])
+    const unsubs = chunkArray(myTaughtSectionIds).map((sectionChunk) => {
+      const q = query(
+        collection(db, 'users'),
+        where('schoolId', '==', session.schoolId),
+        where('role', '==', 'student'),
+        where('sectionId', 'in', sectionChunk)
+      )
+      return onSnapshot(
+        q,
+        (snap) => setStudents((current) => {
+          const merged = new Map(current.map((student) => [student.id, student]))
+          snap.docs.forEach((d) => merged.set(d.id, { id: d.id, ...d.data() }))
+          return [...merged.values()]
+        }),
+        (err) => setStudentsError(`ما قدرنا نجيب لستة الطلاب (${err.code}). جرب تسجّل خروج ودخول من جديد، وإذا استمرت المشكلة تواصل مع إدارة المدرسة.`)
+      )
+    })
+    return () => unsubs.forEach((unsub) => unsub())
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [sectionIdsKey])
 
   useEffect(() => {
     if (myTaughtSectionIds.length === 0) { setWarnings([]); return }
-    const q = query(collection(db, 'earlyWarnings'), where('sectionId', 'in', myTaughtSectionIds.slice(0, 30)))
+    const q = query(collection(db, 'earlyWarnings'), where('schoolId', '==', session.schoolId), where('instructorUids', 'array-contains', session.uid))
     const unsub = onSnapshot(q, (snap) => setWarnings(snap.docs.map((d) => d.data())))
     return () => unsub()
     // eslint-disable-next-line react-hooks/exhaustive-deps

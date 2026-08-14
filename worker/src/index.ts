@@ -1,5 +1,5 @@
 import { getAccessToken, verifyFirebaseIdToken, createIdentityUser, deleteIdentityUser, type ServiceAccount } from './google'
-import { firestoreGetDoc, firestoreCreateDoc, firestorePatchDoc } from './firestore'
+import { firestoreGetDoc, firestoreCreateDoc, firestorePatchDoc, firestoreDeleteDoc } from './firestore'
 
 interface Env extends Cloudflare.Env {
   FIREBASE_SERVICE_ACCOUNT_KEY: string
@@ -117,27 +117,43 @@ async function handleCreateSchoolUser(request: Request, env: Env, origin: string
   try {
     created = await createIdentityUser(accessToken, projectId, { email, password, displayName: name })
   } catch (err) {
-    return json({ error: 'auth_error', message: err instanceof Error ? err.message : String(err) }, 400, origin)
+    const message = err instanceof Error ? err.message : ''
+    const knownError = ['EMAIL_EXISTS', 'INVALID_EMAIL', 'WEAK_PASSWORD', 'OPERATION_NOT_ALLOWED']
+      .find((code) => message.includes(code))
+    return json({ error: 'auth_error', message: knownError || 'AUTH_ERROR' }, 400, origin)
   }
 
+  const patchedChildren: Array<{ path: string; parentUids: string[] }> = []
+  let profileCreated = false
   try {
     await firestoreCreateDoc(accessToken, projectId, 'users', created.localId, {
       name, role, email, schoolId,
       ...(role === 'parent' ? { childUids } : {}),
     })
+    profileCreated = true
 
     if (role === 'parent') {
       for (const childUid of childUids) {
         const child = await firestoreGetDoc(accessToken, projectId, `users/${childUid}`)
         const parentUids = Array.isArray(child?.parentUids) ? (child.parentUids as string[]) : []
+        patchedChildren.push({ path: `users/${childUid}`, parentUids })
         if (!parentUids.includes(created.localId)) {
           await firestorePatchDoc(accessToken, projectId, `users/${childUid}`, { parentUids: [...parentUids, created.localId] })
         }
       }
     }
   } catch (profileErr) {
-    // فشلت كتابة الملف الشخصي بعد نجاح إنشاء حساب Auth — نتراجع فورًا بدل ترك حساب يتيم
-    // بلا ملف تعريف وبريد محجوز للأبد (Bug 2.1، MASAR_CRITICAL_BUGS_DETAILED_AR.md)
+    // نرجّع كل الآثار الجزئية: روابط الأبناء، ملف Firestore، ثم حساب Auth.
+    await Promise.all(patchedChildren.map(({ path, parentUids }) =>
+      firestorePatchDoc(accessToken, projectId, path, { parentUids }).catch((rollbackErr) => {
+        console.error('[create-school-user] فشل تراجع رابط ولي الأمر:', path, rollbackErr)
+      })
+    ))
+    if (profileCreated) {
+      await firestoreDeleteDoc(accessToken, projectId, `users/${created.localId}`).catch((rollbackErr) => {
+        console.error('[create-school-user] فشل حذف ملف المستخدم أثناء التراجع:', created.localId, rollbackErr)
+      })
+    }
     await deleteIdentityUser(accessToken, projectId, created.localId).catch((rollbackErr) => {
       console.error('[create-school-user] فشل التراجع أيضًا — حساب يتيم فعليًا:', created.localId, rollbackErr)
     })

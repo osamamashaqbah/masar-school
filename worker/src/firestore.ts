@@ -84,3 +84,12 @@ export async function firestorePatchDoc(
   })
   if (!res.ok) throw new Error(`فشل تحديث ${path}: ${res.status} ${await res.text()}`)
 }
+
+export async function firestoreDeleteDoc(accessToken: string, projectId: string, path: string): Promise<void> {
+  const res = await fetch(`${BASE(projectId)}/${path}`, {
+    method: 'DELETE',
+    headers: { Authorization: `Bearer ${accessToken}` },
+  })
+  if (res.status === 404) return
+  if (!res.ok) throw new Error(`فشل حذف ${path}: ${res.status} ${await res.text()}`)
+}

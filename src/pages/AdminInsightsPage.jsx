@@ -55,15 +55,17 @@ export default function AdminInsightsPage() {
         const { attendanceAlert, averageAlert, subjectAlerts } = evaluateEarlyWarning({
           unexcusedCount: unexcused, excusedCount: excused, average, subjectTotals,
         })
-        return { student, average, unexcused, excused, attendanceAlert, averageAlert, subjectAlerts }
+        const instructorUids = [...new Set(studentSubjects.map((subject) => subject.teacherUid).filter(Boolean))]
+        return { student, average, unexcused, excused, attendanceAlert, averageAlert, subjectAlerts, instructorUids }
       })
 
       await Promise.all(
-        perStudent.map(({ student, average, unexcused, excused, attendanceAlert, averageAlert, subjectAlerts }) =>
+        perStudent.map(({ student, average, unexcused, excused, attendanceAlert, averageAlert, subjectAlerts, instructorUids }) =>
           setDoc(doc(db, 'earlyWarnings', student.id), {
             studentUid: student.id,
             schoolId: session.schoolId,
             sectionId: student.sectionId || null,
+            instructorUids,
             attendanceAlert, unexcusedCount: unexcused, excusedCount: excused,
             averageAlert, average,
             subjectAlerts,

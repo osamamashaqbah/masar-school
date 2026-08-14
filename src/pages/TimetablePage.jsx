@@ -5,6 +5,7 @@ import { useSession } from '../context/SessionContext'
 import { useSchoolStructure } from '../context/SchoolStructureContext'
 import { useTimetable, DAYS, PERIODS } from '../context/TimetableContext'
 import { parseTimetableExcel } from '../utils/parseTimetableExcel'
+import { chunkArray } from '../utils/chunk'
 
 function TimetableGrid({ sectionId, editable, todayDayIdx, coverageToday }) {
   const { subjects } = useSchoolStructure()
@@ -180,9 +181,16 @@ export default function TimetablePage() {
 
   useEffect(() => {
     if (session.role !== 'parent' || !session.childUids?.length) return
-    const q = query(collection(db, 'users'), where(documentId(), 'in', session.childUids.slice(0, 10)))
-    const unsub = onSnapshot(q, (snap) => setChildren(snap.docs.map((d) => ({ id: d.id, ...d.data() }))))
-    return () => unsub()
+    const chunks = chunkArray(session.childUids)
+    const childrenByChunk = chunks.map(() => [])
+    const unsubs = chunks.map((chunk, index) => {
+      const q = query(collection(db, 'users'), where('schoolId', '==', session.schoolId), where(documentId(), 'in', chunk))
+      return onSnapshot(q, (snap) => {
+        childrenByChunk[index] = snap.docs.map((d) => ({ id: d.id, ...d.data() }))
+        setChildren(childrenByChunk.flat())
+      })
+    })
+    return () => unsubs.forEach((unsub) => unsub())
   }, [session])
 
   // بدلاء اليوم فقط — بيانات محدودة جدًا (تغطية يوم واحد لمدرسة وحدة)، عرض لحظي مقبول ضمن حصة Spark

@@ -75,6 +75,7 @@ export function AttendanceProvider({ children }) {
   async function getAttendanceForDate(sectionId, date) {
     const q = query(
       collection(db, 'attendance'),
+      where('schoolId', '==', session.schoolId),
       where('teacherUid', '==', session.uid),
       where('date', '==', date),
       where('sectionId', '==', sectionId)

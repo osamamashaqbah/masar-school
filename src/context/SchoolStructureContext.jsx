@@ -1,8 +1,9 @@
 import { createContext, useContext, useState, useEffect } from 'react'
-import { collection, addDoc, updateDoc, doc, onSnapshot, arrayUnion, query, where } from 'firebase/firestore'
+import { collection, addDoc, updateDoc, doc, onSnapshot, arrayUnion, query, where, runTransaction } from 'firebase/firestore'
 import { db } from '../firebase'
 import { useSession } from './SessionContext'
 import { logAudit } from '../utils/audit'
+import { rolloverSectionDocId } from '../utils/rollover'
 
 const SchoolStructureContext = createContext(null)
 
@@ -107,9 +108,28 @@ export function SchoolStructureProvider({ children }) {
     return ref.id
   }
 
-  async function addSection(gradeId, name) {
-    const ref = await addDoc(collection(db, 'sections'), { gradeId, name, schoolId: session.schoolId })
-    return ref.id
+  async function addSection(gradeId, name, { idempotencyKey } = {}) {
+    const data = { gradeId, name, schoolId: session.schoolId }
+    if (!idempotencyKey) {
+      const ref = await addDoc(collection(db, 'sections'), data)
+      return ref.id
+    }
+
+    // A rollover can fail after creating its target sections. Reusing a deterministic
+    // document makes a retry resume the same operation instead of creating duplicates.
+    const sectionRef = doc(db, 'sections', rolloverSectionDocId(idempotencyKey))
+    await runTransaction(db, async (transaction) => {
+      const snap = await transaction.get(sectionRef)
+      if (snap.exists()) {
+        const existing = snap.data()
+        if (existing.schoolId !== session.schoolId || existing.gradeId !== gradeId || existing.name !== name || existing.rolloverKey !== idempotencyKey) {
+          throw new Error('rollover-section-conflict')
+        }
+        return
+      }
+      transaction.set(sectionRef, { ...data, rolloverKey: idempotencyKey })
+    })
+    return sectionRef.id
   }
 
   async function addSubject({ sectionId, name, teacherUid, teacherName }) {

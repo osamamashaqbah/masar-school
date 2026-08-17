@@ -3,6 +3,7 @@ import { doc, writeBatch } from 'firebase/firestore'
 import { db } from '../firebase'
 import { useSession } from '../context/SessionContext'
 import { useSchoolStructure } from '../context/SchoolStructureContext'
+import { buildRolloverKey } from '../utils/rollover'
 
 const GRADUATE = 'graduate'
 const EXISTING = 'existing'
@@ -44,7 +45,18 @@ export default function AdminRolloverPage() {
         const c = choices[section.id]
         if (c.type === EXISTING) resolvedTarget[section.id] = c.targetSectionId
         else if (c.type === GRADUATE) resolvedTarget[section.id] = null
-        else if (c.type === NEW) resolvedTarget[section.id] = await addSection(c.newGradeId, c.newName.trim())
+        else if (c.type === NEW) {
+          const targetName = c.newName.trim().replace(/\s+/g, ' ')
+          const rolloverKey = buildRolloverKey({
+            schoolId: session.schoolId,
+            currentAcademicYear,
+            newYear,
+            sourceSectionId: section.id,
+            newGradeId: c.newGradeId,
+            name: targetName,
+          })
+          resolvedTarget[section.id] = await addSection(c.newGradeId, targetName, { idempotencyKey: rolloverKey })
+        }
       }
 
       // 2) تحريك كل طالب لشعبته الجديدة، على batches بحد 450 عملية

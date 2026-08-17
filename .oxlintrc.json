@@ -3,6 +3,16 @@
   "plugins": ["react", "oxc"],
   "rules": {
     "react/rules-of-hooks": "error",
-    "react/only-export-components": ["warn", { "allowConstantExport": true }]
+    "react/only-export-components": ["warn", {
+      "allowConstantExport": true,
+      "allowExportNames": [
+        "DAYS", "PERIODS", "DIFFICULTIES",
+        "useAnnouncements", "useAttendance", "useBulkImport", "useExamCenter",
+        "useExcuseRequests", "useFeedback", "useHomework", "useIntervention",
+        "useMarks", "useMessages", "useNotes", "useNotifications", "useProgress",
+        "useQuestionBank", "useQuestions", "useQuizStats", "useScheduleOps",
+        "useSchoolStructure", "useSession", "useTheme", "useTimetable"
+      ]
+    }]
   }
 }

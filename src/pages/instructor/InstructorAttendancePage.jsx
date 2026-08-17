@@ -29,6 +29,8 @@ export default function InstructorAttendancePage() {
   const [saved, setSaved] = useState(false)
   const [saveError, setSaveError] = useState('')
   const [studentsError, setStudentsError] = useState('')
+  const [decisionError, setDecisionError] = useState('')
+  const [decidingId, setDecidingId] = useState('')
 
   const mySections = gradeId ? getSectionsForGrade(gradeId).filter((s) => myTaughtSectionIds.includes(s.id)) : []
 
@@ -67,6 +69,19 @@ export default function InstructorAttendancePage() {
 
   function setExcused(uid, excused) {
     setExcusedMap((prev) => ({ ...prev, [uid]: excused }))
+  }
+
+  async function handleDecision(request, status) {
+    setDecisionError('')
+    setDecidingId(request.id)
+    try {
+      await decideRequest(request, status)
+    } catch (err) {
+      console.error('فشل اتخاذ قرار طلب العذر:', err)
+      setDecisionError(`ما قدرنا نحفظ القرار: ${err.code || err.message}`)
+    } finally {
+      setDecidingId('')
+    }
   }
 
   async function handleSave() {
@@ -109,12 +124,13 @@ export default function InstructorAttendancePage() {
       {pendingRequests.length > 0 && (
         <div className="panel card-hover-lift animate-stagger" style={{ maxWidth: '620px', marginBottom: '18px' }}>
           <div style={{ fontWeight: 800, marginBottom: '10px' }}><i className="ti ti-calendar-off" /> طلبات عذر مسبق ({pendingRequests.length})</div>
+          {decisionError && <p className="auth-error">{decisionError}</p>}
           {pendingRequests.map((r) => (
             <div key={r.id} className="attendance-check-row" style={{ alignItems: 'center' }}>
               <span>{r.studentName} — {r.date} — {r.reason}</span>
               <div className="excuse-toggle">
-                <button type="button" className="excuse-toggle-btn active excused" onClick={() => decideRequest(r, 'approved')}>موافقة</button>
-                <button type="button" className="excuse-toggle-btn active unexcused" onClick={() => decideRequest(r, 'rejected')}>رفض</button>
+                <button type="button" className="excuse-toggle-btn active excused" disabled={decidingId === r.id} onClick={() => handleDecision(r, 'approved')}>موافقة</button>
+                <button type="button" className="excuse-toggle-btn active unexcused" disabled={decidingId === r.id} onClick={() => handleDecision(r, 'rejected')}>رفض</button>
               </div>
             </div>
           ))}

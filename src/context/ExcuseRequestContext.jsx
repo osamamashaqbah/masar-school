@@ -1,5 +1,5 @@
 import { createContext, useContext, useState, useEffect } from 'react'
-import { collection, addDoc, doc, setDoc, updateDoc, onSnapshot, query, where } from 'firebase/firestore'
+import { collection, addDoc, doc, runTransaction, onSnapshot, query, where } from 'firebase/firestore'
 import { db } from '../firebase'
 import { useSession } from './SessionContext'
 import { useSchoolStructure } from './SchoolStructureContext'
@@ -45,14 +45,42 @@ export function ExcuseRequestProvider({ children }) {
 
   // موافقة الطلب بتسجّل الغياب "بعذر" تلقائيًا — يغني المعلّم عن تذكّره وقت أخذ الحضور
   async function decideRequest(request, status) {
-    await updateDoc(doc(db, 'excuseRequests', request.id), { status, decidedAt: Date.now(), decidedByUid: session.uid })
-    if (status === 'approved') {
-      const docId = `${request.studentUid}_${request.date}`
-      await setDoc(doc(db, 'attendance', docId), {
-        studentUid: request.studentUid, sectionId: request.sectionId, date: request.date, excused: true,
-        teacherUid: session.uid, schoolId: session.schoolId, academicYear: currentAcademicYear, createdAt: Date.now(),
-      })
-    }
+    if (!['approved', 'rejected'].includes(status)) throw new Error('invalid-excuse-decision')
+
+    const requestRef = doc(db, 'excuseRequests', request.id)
+    const attendanceRef = doc(db, 'attendance', `${request.studentUid}_${request.date}`)
+    await runTransaction(db, async (transaction) => {
+      const requestSnap = await transaction.get(requestRef)
+      if (!requestSnap.exists() || requestSnap.data().status !== 'pending') throw new Error('excuse-request-not-pending')
+
+      let attendanceSnap = null
+      if (status === 'approved') attendanceSnap = await transaction.get(attendanceRef)
+
+      transaction.update(requestRef, { status, decidedAt: Date.now(), decidedByUid: session.uid })
+      if (status !== 'approved') return
+
+      const requestData = requestSnap.data()
+      const attendanceData = {
+        studentUid: requestData.studentUid,
+        sectionId: requestData.sectionId,
+        date: requestData.date,
+        excused: true,
+        excuseRequestId: request.id,
+        updatedByUid: session.uid,
+        updatedAt: Date.now(),
+      }
+      if (attendanceSnap.exists()) {
+        transaction.update(attendanceRef, attendanceData)
+      } else {
+        transaction.set(attendanceRef, {
+          ...attendanceData,
+          teacherUid: session.uid,
+          schoolId: session.schoolId,
+          academicYear: currentAcademicYear,
+          createdAt: Date.now(),
+        })
+      }
+    })
     try {
       await sendNotification(
         request.requestedByUid,

@@ -78,6 +78,10 @@ service cloud.firestore {
       return isInstructor() && ('taughtSectionIds' in myData()) ? myData().taughtSectionIds : [];
     }
 
+    function teachesSection(sectionId) {
+      return isInstructor() && sectionId in myTaughtSectionIds();
+    }
+
     // هل المعلّم فعلاً بيدرّس هالمادة، وكمان الطالب studentUid بشعبة هالمادة
     // (بيستبدل الاعتماد القديم على isInstructor() المجردة بربط حقيقي بين المعلّم والطالب)
     function teachesStudentInSubject(subjectId, studentUid) {
@@ -288,16 +292,19 @@ service cloud.firestore {
     // ===================== notifications =====================
     match /notifications/{notifId} {
       allow read: if isSignedIn() && resource.data.recipientUid == request.auth.uid;
-      allow create: if isSignedIn() && (
-        (request.resource.data.recipientUid == request.auth.uid)
-        || (
-          (isInstructor() || isAdmin())
-          && request.resource.data.keys().hasAll(['recipientUid', 'message', 'type', 'schoolId'])
-          && request.resource.data.type in ['info', 'grade', 'homework', 'attendance', 'warning', 'feedback']
-          && request.resource.data.schoolId == mySchoolId()
-          && get(/databases/$(database)/documents/users/$(request.resource.data.recipientUid)).data.schoolId == mySchoolId()
-        )
-      );
+      allow create: if isSignedIn()
+        && request.resource.data.keys().hasAll(['recipientUid', 'message', 'type', 'schoolId', 'read', 'createdAt'])
+        && request.resource.data.message is string
+        && request.resource.data.read is bool
+        && request.resource.data.type in ['info', 'grade', 'homework', 'attendance', 'warning', 'feedback', 'schedule']
+        && request.resource.data.schoolId == mySchoolId()
+        && (
+          request.resource.data.recipientUid == request.auth.uid
+          || (
+            (isInstructor() || isAdmin())
+            && get(/databases/$(database)/documents/users/$(request.resource.data.recipientUid)).data.schoolId == mySchoolId()
+          )
+        );
       allow update: if isSignedIn() && resource.data.recipientUid == request.auth.uid
         && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['read']);
       allow delete: if false;
@@ -540,10 +547,10 @@ service cloud.firestore {
     // ===================== attendance =====================
     match /attendance/{attId} {
       allow read: if isSignedIn() && (
-        resource.data.studentUid == request.auth.uid
-        || isParentOf(resource.data.studentUid)
-        || resource.data.teacherUid == request.auth.uid
-        || (isAdmin() && sameSchool(resource.data.schoolId))
+        resource.data.get('studentUid', '') == request.auth.uid
+        || isParentOf(resource.data.get('studentUid', ''))
+        || (sameSchool(resource.data.get('schoolId', '')) && teachesSection(resource.data.get('sectionId', '')))
+        || (isAdmin() && sameSchool(resource.data.get('schoolId', '')))
         || isPlatformAdmin()
       );
       allow create: if isInstructor()
@@ -553,16 +560,18 @@ service cloud.firestore {
         && request.resource.data.sectionId in myTaughtSectionIds()
         && studentInSection(request.resource.data.studentUid, request.resource.data.sectionId);
       allow update: if isInstructor()
-        && resource.data.teacherUid == request.auth.uid
+        && teachesSection(resource.data.sectionId)
         && resource.data.schoolId == mySchoolId()
-        && resource.data.sectionId in myTaughtSectionIds()
-        && request.resource.data.teacherUid == request.auth.uid
-        && request.resource.data.schoolId == mySchoolId()
-        && request.resource.data.academicYear == currentYear()
-        && request.resource.data.sectionId in myTaughtSectionIds()
-        && studentInSection(request.resource.data.studentUid, request.resource.data.sectionId);
+        && request.resource.data.schoolId == resource.data.schoolId
+        && request.resource.data.academicYear == resource.data.academicYear
+        && request.resource.data.sectionId == resource.data.sectionId
+        && request.resource.data.studentUid == resource.data.studentUid
+        && request.resource.data.date == resource.data.date
+        && request.resource.data.teacherUid == resource.data.teacherUid
+        && request.resource.data.excused is bool
+        && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['excused', 'updatedByUid', 'updatedAt', 'excuseRequestId']);
       allow delete: if isInstructor()
-        && resource.data.teacherUid == request.auth.uid
+        && teachesSection(resource.data.sectionId)
         && resource.data.schoolId == mySchoolId()
         && resource.data.sectionId in myTaughtSectionIds();
     }
@@ -610,8 +619,10 @@ service cloud.firestore {
       allow update: if isInstructor()
         && request.auth.uid in resource.data.get('instructorUids', [])
         && sameSchool(resource.data.schoolId)
+        && resource.data.status == 'pending'
         && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['status', 'decidedAt', 'decidedByUid'])
-        && request.resource.data.status in ['approved', 'rejected'];
+        && request.resource.data.status in ['approved', 'rejected']
+        && request.resource.data.decidedByUid == request.auth.uid;
       allow delete: if false;
     }
 

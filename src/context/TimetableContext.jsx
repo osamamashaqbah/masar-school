@@ -1,8 +1,9 @@
 import { createContext, useContext, useState, useRef } from 'react'
-import { doc, setDoc, onSnapshot } from 'firebase/firestore'
+import { doc, setDoc, onSnapshot, runTransaction } from 'firebase/firestore'
 import { db } from '../firebase'
 import { useSession } from './SessionContext'
 import { useSchoolStructure } from './SchoolStructureContext'
+import { replaceTimetableSlot } from '../utils/timetable'
 
 const TimetableContext = createContext(null)
 
@@ -30,11 +31,14 @@ export function TimetableProvider({ children }) {
   }
 
   async function setSlot(sectionId, day, period, subjectId) {
-    const existing = bySectionId[sectionId]
-    const nextSlots = (existing?.slots || []).filter((s) => !(s.day === day && s.period === period))
-    if (subjectId) nextSlots.push({ day, period, subjectId })
-    await setDoc(doc(db, 'timetables', sectionId), {
-      sectionId, schoolId: session.schoolId, academicYear: currentAcademicYear, slots: nextSlots,
+    const timetableRef = doc(db, 'timetables', sectionId)
+    await runTransaction(db, async (transaction) => {
+      const snap = await transaction.get(timetableRef)
+      const existingSlots = snap.exists() && Array.isArray(snap.data().slots) ? snap.data().slots : []
+      transaction.set(timetableRef, {
+        sectionId, schoolId: session.schoolId, academicYear: currentAcademicYear,
+        slots: replaceTimetableSlot(existingSlots, day, period, subjectId),
+      })
     })
   }
 

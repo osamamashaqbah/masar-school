@@ -5,7 +5,7 @@ import {
   assertFails,
   assertSucceeds,
 } from '@firebase/rules-unit-testing'
-import { doc, getDoc, getDocs, setDoc, updateDoc, deleteDoc, collection, addDoc, query, where } from 'firebase/firestore'
+import { doc, getDoc, getDocs, setDoc, updateDoc, deleteDoc, collection, addDoc, query, where, runTransaction } from 'firebase/firestore'
 
 // اختبارات قواعد Firestore: الهدف الوحيد هنا هو إثبات عزل المدارس (tenants) عن بعضها فعليًا،
 // مو بس إخفاءها بالواجهة. يحتاج Firestore emulator (Java) شغال محليًا:
@@ -200,6 +200,21 @@ describe('marks and attendance tenant boundaries', () => {
     await assertFails(setDoc(doc(teacherCtx.firestore(), 'attendance', 'other-section-attendance'), {
       studentUid: 'studentOtherSection', sectionId: 'sec2', date: '2026-01-01', excused: false,
       teacherUid: 'teacherA', schoolId: 'schoolA', academicYear: '2025-2026',
+    }))
+  })
+
+  it('any instructor who teaches the section can read and update its attendance record directly', async () => {
+    await seedTeacherFixture()
+    await seedUser('schoolA', 'teacherB', { name: 'T2', role: 'instructor', email: 't2@a.com', taughtSectionIds: ['sec1'] })
+    await setDoc(doc(testEnv.authenticatedContext('teacherA').firestore(), 'attendance', 'studentA_2026-01-02'), {
+      studentUid: 'studentA', sectionId: 'sec1', date: '2026-01-02', excused: false,
+      teacherUid: 'teacherA', schoolId: 'schoolA', academicYear: '2025-2026',
+    })
+
+    const teacherBCtx = testEnv.authenticatedContext('teacherB')
+    await assertSucceeds(getDoc(doc(teacherBCtx.firestore(), 'attendance', 'studentA_2026-01-02')))
+    await assertSucceeds(updateDoc(doc(teacherBCtx.firestore(), 'attendance', 'studentA_2026-01-02'), {
+      excused: true, updatedByUid: 'teacherB',
     }))
   })
 })
@@ -690,6 +705,48 @@ describe('announcements / excuseRequests / auditLog', () => {
 
     const teacherCtx = testEnv.authenticatedContext('teacherA')
     await assertFails(getDoc(doc(teacherCtx.firestore(), 'excuseRequests', requestId)))
+  })
+
+  it('a notification created for oneself still requires the normal notification schema', async () => {
+    await seedSchoolWithAdmin('schoolA', 'adminA')
+    await seedUser('schoolA', 'studentA', { name: 'St', role: 'student', email: 's@x.com' })
+    const studentCtx = testEnv.authenticatedContext('studentA')
+
+    await assertSucceeds(addDoc(collection(studentCtx.firestore(), 'notifications'), {
+      recipientUid: 'studentA', message: 'تنبيه', type: 'info', schoolId: 'schoolA', read: false, createdAt: Date.now(),
+    }))
+    await assertFails(addDoc(collection(studentCtx.firestore(), 'notifications'), {
+      recipientUid: 'studentA', message: 'تنبيه', schoolId: 'schoolA', read: false, createdAt: Date.now(),
+    }))
+  })
+
+  it('an excuse decision cannot be changed after the first decision', async () => {
+    await seedSchoolWithAdmin('schoolA', 'adminA')
+    await testEnv.withSecurityRulesDisabled(async (ctx) => {
+      await setDoc(doc(ctx.firestore(), 'schools', 'schoolA'), { currentAcademicYear: '2025-2026' }, { merge: true })
+    })
+    await seedUser('schoolA', 'teacherA', { name: 'T', role: 'instructor', email: 't@x.com', taughtSectionIds: ['sec1'] })
+    await seedUser('schoolA', 'studentA', { name: 'St', role: 'student', email: 's@x.com', sectionId: 'sec1' })
+    await testEnv.withSecurityRulesDisabled(async (ctx) => {
+      await setDoc(doc(ctx.firestore(), 'excuseRequests', 'request1'), {
+        studentUid: 'studentA', sectionId: 'sec1', date: '2026-01-01', reason: 'سفر',
+        status: 'pending', requestedByUid: 'parentA', schoolId: 'schoolA', instructorUids: ['teacherA'],
+      })
+    })
+
+    const teacherCtx = testEnv.authenticatedContext('teacherA')
+    const requestRef = doc(teacherCtx.firestore(), 'excuseRequests', 'request1')
+    const attendanceRef = doc(teacherCtx.firestore(), 'attendance', 'studentA_2026-01-01')
+    await assertSucceeds(runTransaction(teacherCtx.firestore(), async (transaction) => {
+      const requestSnap = await transaction.get(requestRef)
+      transaction.set(attendanceRef, {
+        studentUid: 'studentA', sectionId: 'sec1', date: '2026-01-01', excused: true,
+        teacherUid: 'teacherA', schoolId: 'schoolA', academicYear: '2025-2026',
+      })
+      transaction.update(requestRef, { status: 'approved', decidedAt: Date.now(), decidedByUid: 'teacherA' })
+      return requestSnap.exists()
+    }))
+    await assertFails(updateDoc(requestRef, { status: 'rejected', decidedAt: Date.now(), decidedByUid: 'teacherA' }))
   })
 
   it('a user can write their own auditLog entry', async () => {

@@ -28,7 +28,7 @@ export function parseStudentsExcel(file) {
         }
 
         resolve(students)
-      } catch (err) {
+      } catch {
         reject(new Error('صار خطأ بقراءة الملف. تأكد إنه ملف Excel صحيح (.xlsx).'))
       }
     }

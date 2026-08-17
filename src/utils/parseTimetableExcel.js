@@ -71,7 +71,7 @@ export function parseTimetableExcel(file, sectionSubjects) {
         }
 
         resolve({ slots, unmatched })
-      } catch (err) {
+      } catch {
         reject(new Error('صار خطأ بقراءة الملف. تأكد إنه ملف Excel صحيح (.xlsx).'))
       }
     }

@@ -1,5 +1,12 @@
 import { describe, it, expect } from 'vitest'
-import { categoriesFor, DEFAULT_GRADE_CATEGORIES, markDocId, aggregateMark } from './gradeCategories'
+import {
+  categoriesFor,
+  DEFAULT_GRADE_CATEGORIES,
+  markDocId,
+  aggregateMark,
+  computeSubjectTotal,
+  computeStudentAverage,
+} from './gradeCategories'
 
 describe('categoriesFor', () => {
   it('returns the subject\'s own categories when present', () => {
@@ -94,5 +101,47 @@ describe('aggregateMark', () => {
     ]
     expect(aggregateMark(marks, 'homework')).toEqual({ score: 80, maxScore: 100 })
     expect(aggregateMark(marks, 'exam1')).toEqual({ score: 40, maxScore: 50 })
+  })
+})
+
+describe('direct subject scores', () => {
+  const categories = [
+    { id: 'month1', label: 'الشهر الأول', auto: false },
+    { id: 'month2', label: 'الشهر الثاني', auto: false },
+    { id: 'final', label: 'النهائي', auto: false },
+    { id: 'participation', label: 'المشاركة', auto: false },
+  ]
+
+  function getMark(marks) {
+    return (studentUid, subjectId, categoryId) => marks.find(
+      (mark) => mark.studentUid === studentUid && mark.subjectId === subjectId && mark.categoryId === categoryId,
+    ) || null
+  }
+
+  it('sums direct marks with their entered maxima to produce a subject score out of 100', () => {
+    const subject = { id: 'arabic', gradeCategories: categories }
+    const marks = [
+      { studentUid: 'student', subjectId: 'arabic', categoryId: 'month1', score: 17, maxScore: 20 },
+      { studentUid: 'student', subjectId: 'arabic', categoryId: 'month2', score: 14, maxScore: 20 },
+      { studentUid: 'student', subjectId: 'arabic', categoryId: 'final', score: 42, maxScore: 50 },
+      { studentUid: 'student', subjectId: 'arabic', categoryId: 'participation', score: 8, maxScore: 10 },
+    ]
+
+    expect(computeSubjectTotal(subject, 'student', getMark(marks), () => ({ attempts: 0, correct: 0 }))).toEqual({
+      totalScore: 81,
+      totalMax: 100,
+    })
+  })
+
+  it('averages the actual number of subjects instead of assuming a fixed count', () => {
+    const subjects = ['arabic', 'math', 'science'].map((id) => ({ id, gradeCategories: categories }))
+    const marks = subjects.flatMap((subject, index) => [
+      { studentUid: 'student', subjectId: subject.id, categoryId: 'month1', score: 20 - index, maxScore: 20 },
+      { studentUid: 'student', subjectId: subject.id, categoryId: 'month2', score: 20, maxScore: 20 },
+      { studentUid: 'student', subjectId: subject.id, categoryId: 'final', score: 50 - index, maxScore: 50 },
+      { studentUid: 'student', subjectId: subject.id, categoryId: 'participation', score: 10, maxScore: 10 },
+    ])
+
+    expect(computeStudentAverage(subjects, 'student', getMark(marks), () => ({ attempts: 0, correct: 0 }))).toBe(98)
   })
 })

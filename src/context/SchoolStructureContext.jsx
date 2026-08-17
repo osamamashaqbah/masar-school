@@ -12,6 +12,7 @@ export function SchoolStructureProvider({ children }) {
   const [grades, setGrades] = useState([])
   const [sections, setSections] = useState([])
   const [allSubjects, setAllSubjects] = useState([])
+  const [subjectsLoaded, setSubjectsLoaded] = useState(false)
   const [allUsers, setAllUsers] = useState([])
   const [schoolName, setSchoolName] = useState('')
   const [currentAcademicYear, setCurrentAcademicYear] = useState(null)
@@ -29,10 +30,15 @@ export function SchoolStructureProvider({ children }) {
   const archivedSubjects = allSubjects.filter((s) => s.archived)
 
   useEffect(() => {
-    if (!session) return
+    if (!session) { setAllSubjects([]); setSubjectsLoaded(false); return }
+    setAllSubjects([])
+    setSubjectsLoaded(false)
     const unsub1 = onSnapshot(query(collection(db, 'grades'), where('schoolId', '==', session.schoolId)), (s) => setGrades(s.docs.map((d) => ({ id: d.id, ...d.data() }))))
     const unsub2 = onSnapshot(query(collection(db, 'sections'), where('schoolId', '==', session.schoolId)), (s) => setSections(s.docs.map((d) => ({ id: d.id, ...d.data() }))))
-    const unsub3 = onSnapshot(query(collection(db, 'subjects'), where('schoolId', '==', session.schoolId)), (s) => setAllSubjects(s.docs.map((d) => ({ id: d.id, ...d.data(), lessons: d.data().lessons || [] }))))
+    const unsub3 = onSnapshot(query(collection(db, 'subjects'), where('schoolId', '==', session.schoolId)), (s) => {
+      setAllSubjects(s.docs.map((d) => ({ id: d.id, ...d.data(), lessons: d.data().lessons || [] })))
+      setSubjectsLoaded(true)
+    }, () => setSubjectsLoaded(true))
     return () => { unsub1(); unsub2(); unsub3() }
   }, [session])
 
@@ -212,7 +218,7 @@ export function SchoolStructureProvider({ children }) {
   return (
     <SchoolStructureContext.Provider
      value={{
-        grades, sections, subjects, archivedSubjects, allUsers, schoolName, currentAcademicYear, features,
+        grades, sections, subjects, subjectsLoaded, archivedSubjects, allUsers, schoolName, currentAcademicYear, features,
         ramadanSchedule, currency, paymentInfo, branding,
         addGrade, addSection, addSubject,
         getSectionsForGrade, getSubjectsForSection,

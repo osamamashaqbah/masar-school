@@ -365,6 +365,23 @@ a:focus-visible {
 }
 .course-card-flat:hover .course-card-icon { transform: none; }
 
+/* بطاقة مادة واحدة لازم تستفيد من عرض الصفحة بدل ترك عمود فارغ. */
+.grade-subject-grid { grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); }
+.grades-actions { display: flex; align-items: center; gap: 10px; }
+.grades-print-option {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  color: var(--ink-soft);
+  font-size: 12.5px;
+  white-space: nowrap;
+}
+
+@media (min-width: 901px) and (max-width: 1180px) {
+  .grades-topbar { align-items: flex-start; }
+  .grades-actions { width: 100%; justify-content: flex-start; }
+}
+
 @media (min-width: 901px) {
   .app {
     display: grid;

@@ -5,13 +5,13 @@ import { useHomework } from '../context/HomeworkContext'
 export default function HomeworkPage() {
   const { subjectId } = useParams()
   const navigate = useNavigate()
-  const { subjects } = useSchoolStructure()
+  const { subjects, subjectsLoaded } = useSchoolStructure()
   const { getHomeworkForCourse, getSubmission } = useHomework()
 
   const course = subjects.find((c) => c.id === subjectId)
   const homeworkList = getHomeworkForCourse(subjectId)
 
-  if (!course) return <div>المادة غير موجودة</div>
+  if (!course) return <div className="panel">{subjectsLoaded ? 'المادة غير موجودة' : 'جاري تحميل المادة...'}</div>
 
   return (
     <div>

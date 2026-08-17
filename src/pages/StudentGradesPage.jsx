@@ -43,13 +43,13 @@ export default function StudentGradesPage() {
 
   return (
     <div>
-      <div className="topbar">
+      <div className="topbar grades-topbar">
         <div>
           <div className="eyebrow">درجاتي</div>
           <h2 className="page-title" style={{ marginBottom: '16px' }}>درجاتك بكل مادة</h2>
         </div>
-        <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
-          <label style={{ display: 'flex', alignItems: 'center', gap: '5px', fontSize: '12.5px', color: 'var(--ink-soft)' }}>
+        <div className="grades-actions">
+          <label className="grades-print-option">
             <input type="checkbox" checked={bilingualPrint} onChange={(e) => setBilingualPrint(e.target.checked)} /> ثنائي اللغة
           </label>
           <button type="button" className="btn btn-primary" onClick={handlePrint}>

@@ -7,13 +7,13 @@ import { useQuestions } from '../context/QuestionsContext'
 export default function SubjectPage() {
   const { subjectId } = useParams()
   const navigate = useNavigate()
-  const { subjects } = useSchoolStructure()
+  const { subjects, subjectsLoaded } = useSchoolStructure()
   const { progress } = useProgress()
   const { askQuestion, getQuestionsForSubject } = useQuestions()
   const [questionText, setQuestionText] = useState('')
 
   const subject = subjects.find((s) => s.id === subjectId)
-  if (!subject) return <div>المادة غير موجودة</div>
+  if (!subject) return <div className="panel">{subjectsLoaded ? 'المادة غير موجودة' : 'جاري تحميل المادة...'}</div>
 
   const done = progress[subjectId] || 0
   const total = subject.lessons.length

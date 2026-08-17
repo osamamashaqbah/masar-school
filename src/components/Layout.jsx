@@ -151,6 +151,8 @@ export default function Layout() {
 
   const myAvatar = getAvatar(session.avatarId)
   const adminToolLinks = session.role === 'admin' ? buildAdminToolLinks(features) : []
+  const isInstructorPath = location.pathname.startsWith('/app/instructor')
+  const isAdminToolsPath = adminToolLinks.some((link) => location.pathname === link.to)
   function handleNotifClick(n) { if (!n.read) markAsRead(n.id) }
 
   const navClass = ({ isActive }) => 'nav-pill' + (isActive ? ' active' : '')

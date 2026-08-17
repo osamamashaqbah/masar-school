@@ -5,10 +5,7 @@ import './index.css'
 import './design-polish.css'
 import App from './App.jsx'
 
-registerSW({
-  immediate: true,
-  onRegisteredSW: (_url, registration) => registration?.update(),
-})
+registerSW({ immediate: true })
 
 createRoot(document.getElementById('root')).render(
   <StrictMode>

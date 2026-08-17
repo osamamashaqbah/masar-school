@@ -17,10 +17,13 @@ export function ExamCenterProvider({ children }) {
   const [slotsByPeriod, setSlotsByPeriod] = useState({})
   const [scanning, setScanning] = useState(false)
 
-  // القاعدة بتفلتر تلقائيًا: الإدارة بتشوف كل الحالات، الباقي بس published/locked
+  // Firestore ما بيفلتر النتائج حسب القواعد: الاستعلام نفسه لازم يثبت إن غير الإدارة
+  // ما رح يطلب فترات draft، وإلا القاعدة بترفض الاستعلام كاملًا.
   useEffect(() => {
     if (!session) { setPeriods([]); return }
-    const q = query(collection(db, 'examPeriods'), where('schoolId', '==', session.schoolId))
+    const constraints = [where('schoolId', '==', session.schoolId)]
+    if (session.role !== 'admin') constraints.push(where('status', 'in', ['published', 'locked']))
+    const q = query(collection(db, 'examPeriods'), ...constraints)
     const unsub = onSnapshot(q, (snap) => {
       const list = snap.docs.map((d) => ({ id: d.id, ...d.data() }))
       list.sort((a, b) => (a.startDate < b.startDate ? 1 : -1))

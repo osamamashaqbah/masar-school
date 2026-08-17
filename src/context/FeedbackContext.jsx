@@ -21,7 +21,11 @@ export function FeedbackProvider({ children }) {
   // كل حالة أنا مشارك فيها (مرسلة أو واردة) — نفس منطق threads بالضبط
   useEffect(() => {
     if (!session || !feedbackEnabled) { setMyCases([]); return }
-    const q = query(collection(db, 'feedbackCases'), where('participantUids', 'array-contains', session.uid))
+    const q = query(
+      collection(db, 'feedbackCases'),
+      where('schoolId', '==', session.schoolId),
+      where('participantUids', 'array-contains', session.uid),
+    )
     const unsub = onSnapshot(q, (snap) => {
       const list = snap.docs.map((d) => ({ id: d.id, ...d.data() }))
       list.sort((a, b) => (b.updatedAt?.toMillis?.() ?? 0) - (a.updatedAt?.toMillis?.() ?? 0))

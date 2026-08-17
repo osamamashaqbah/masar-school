@@ -35,6 +35,7 @@ export default function Login() {
       }
       navigate(homeByRole[profile.role] || '/app/dashboard')
     } catch (err) {
+      console.error('[تسجيل الدخول] فشل تسجيل الدخول:', err)
       setError(translateFirebaseError(err.code))
     } finally {
       setLoading(false)

@@ -14,6 +14,20 @@ function roleLabel(role) {
   if (role === 'parent') return 'ولي أمر'
   return 'طالب'
 }
+function mobileLabel(link) {
+  const labels = {
+    '/app/admin': 'الإدارة',
+    '/app/school-structure': 'الهيكل',
+    '/app/timetable': 'الجدول',
+    '/app/instructor': 'المعلّم',
+    '/app/parent-dashboard': 'أبنائي',
+    '/app/dashboard': 'لوحتي',
+    '/app/grades': 'درجاتي',
+    '/app/messages': 'الرسائل',
+    '/app/announcements': 'الإعلانات',
+  }
+  return labels[link.to] || link.label
+}
 function notifIcon(type) {
   const map = {
     success: 'ti-circle-check', error: 'ti-circle-x', request: 'ti-user-circle', info: 'ti-info-circle',
@@ -136,13 +150,7 @@ export default function Layout() {
   if (!session) return <Navigate to="/" replace />
 
   const myAvatar = getAvatar(session.avatarId)
-  const isInstructorPath = location.pathname.startsWith('/app/instructor')
   const adminToolLinks = session.role === 'admin' ? buildAdminToolLinks(features) : []
-  const isAdminToolsPath = adminToolLinks.some((l) => location.pathname === l.to)
-  const mobileToolGroups = session.role === 'admin'
-    ? [{ label: 'أدوات الإدارة', links: adminToolLinks }]
-    : instructorLinkGroups
-
   function handleNotifClick(n) { if (!n.read) markAsRead(n.id) }
 
   const navClass = ({ isActive }) => 'nav-pill' + (isActive ? ' active' : '')
@@ -175,6 +183,30 @@ export default function Layout() {
     if (features.examCenter !== false) roleLinks.push({ to: '/app/exams', icon: 'ti-clipboard-list', label: 'مركز الاختبارات' })
   }
 
+  const primaryTargets = {
+    student: ['/app/dashboard', '/app/grades', '/app/timetable'],
+    parent: ['/app/parent-dashboard', '/app/messages', '/app/timetable'],
+    instructor: ['/app/instructor', '/app/messages', '/app/announcements'],
+    admin: ['/app/admin', '/app/school-structure', '/app/timetable'],
+  }[session.role] || []
+  const instructorLinks = instructorLinkGroups.flatMap((group) => group.links)
+  const mobileCandidates = [
+    ...roleLinks,
+    ...(session.role === 'instructor' ? instructorLinks : []),
+    ...(session.role === 'admin' ? adminToolLinks : []),
+    { to: '/app/settings', icon: 'ti-settings', label: 'الإعدادات' },
+  ]
+  const mobilePrimaryLinks = primaryTargets
+    .map((to) => mobileCandidates.find((link) => link.to === to))
+    .filter(Boolean)
+  const mobileSecondaryLinks = mobileCandidates.filter((link, index) => (
+    !primaryTargets.includes(link.to)
+    && mobileCandidates.findIndex((candidate) => candidate.to === link.to) === index
+  ))
+  const mobileToolGroups = [{ label: 'كل الأدوات', links: mobileSecondaryLinks }]
+  const mobileSheetTitle = session.role === 'admin' ? 'أدوات الإدارة' : session.role === 'instructor' ? 'أدوات المعلّم' : 'المزيد'
+  const mobileSheetIcon = session.role === 'admin' ? 'ti-adjustments' : session.role === 'instructor' ? 'ti-chalkboard' : 'ti-dots'
+
   const notifPopover = notifOpen && (
     <div className="notif-popover">
       <div className="notif-popover-header">
@@ -199,6 +231,7 @@ export default function Layout() {
 
   return (
     <div className="app">
+      <a className="skip-link" href="#main-content">تخطي إلى المحتوى</a>
       <ConsentGate />
       {showRamadanBanner && (
         <div className="ramadan-banner">
@@ -226,7 +259,7 @@ export default function Layout() {
           </div>
         </div>
 
-        <nav className="topnav-links">
+        <nav className="topnav-links" aria-label="التنقل الرئيسي">
           <div className="topnav-links-scroll">
             {roleLinks.map((l) => (
               <NavLink key={l.to} to={l.to} className={navClass} title={l.label}>
@@ -340,43 +373,27 @@ export default function Layout() {
         </div>
       </header>
 
-      <main className="main">
+      <main className="main" id="main-content" tabIndex="-1">
         <div key={location.pathname} className="page-transition"><Outlet /></div>
       </main>
 
       {/* شريط تنقّل سفلي للشاشات الصغيرة */}
-      <nav className="bottomnav">
-        {roleLinks.map((l) => (
+      <nav className="bottomnav" aria-label="التنقل على الهاتف">
+        {mobilePrimaryLinks.map((l) => (
           <NavLink key={l.to} to={l.to} className={({ isActive }) => 'bottomnav-item' + (isActive ? ' active' : '')}>
             <i className={`ti ${l.icon}`} />
-            <span>{l.label.split(' ')[0] === 'متابعة' ? 'أبنائي' : l.label.split(' ').slice(-1)[0]}</span>
+            <span>{mobileLabel(l)}</span>
           </NavLink>
         ))}
 
-        {session.role === 'instructor' && (
-          <button
-            className={`bottomnav-item${isInstructorPath ? ' active' : ''}`}
-            onClick={() => setSheetOpen(true)}
-          >
-            <i className="ti ti-chalkboard" />
-            <span>المعلّم</span>
-          </button>
-        )}
-
-        {session.role === 'admin' && (
-          <button
-            className={`bottomnav-item${isAdminToolsPath ? ' active' : ''}`}
-            onClick={() => setSheetOpen(true)}
-          >
-            <i className="ti ti-adjustments" />
-            <span>الإدارة</span>
-          </button>
-        )}
-
-        <NavLink to="/app/settings" className={({ isActive }) => 'bottomnav-item' + (isActive ? ' active' : '')}>
-          <i className="ti ti-settings" />
-          <span>الإعدادات</span>
-        </NavLink>
+        <button
+          className={`bottomnav-item${mobileSecondaryLinks.some((link) => location.pathname === link.to) ? ' active' : ''}`}
+          onClick={() => setSheetOpen(true)}
+          aria-label={mobileSheetTitle}
+        >
+          <i className={`ti ${mobileSheetIcon}`} />
+          <span>المزيد</span>
+        </button>
       </nav>
 
       {/* لوحة سفلية منزلقة بروابط المعلّم على الموبايل */}
@@ -386,13 +403,13 @@ export default function Layout() {
           <div className="bottom-sheet">
             <div className="sheet-handle" />
             <div className="sheet-title">
-              <i className={`ti ${session.role === 'admin' ? 'ti-adjustments' : 'ti-chalkboard'}`} />
-              {session.role === 'admin' ? 'أدوات الإدارة' : 'لوحة المعلّم'}
+              <i className={`ti ${mobileSheetIcon}`} />
+              {mobileSheetTitle}
             </div>
             <div className="sheet-groups">
               {mobileToolGroups.map((group) => (
                 <div className="sheet-group" key={group.label}>
-                  {session.role === 'instructor' && <div className="sheet-group-label">{group.label}</div>}
+                  <div className="sheet-group-label">{group.label}</div>
                   <div className="sheet-grid">
                     {group.links.map((link, idx) => (
                       <NavLink

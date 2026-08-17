@@ -112,33 +112,12 @@ export default function Dashboard() {
         emptyText="لا توجد واجبات قريبة أو تنبيهات جديدة. استمر بهذا الإيقاع."
       />
 
-      <div className="honor-board-grid">
-        <HonorBoard
-          title="لوحة شرف الشعبة"
-          icon="ti-star"
-          entries={sectionBoard?.top}
-          nameKey="studentName"
-          idKey="studentUid"
-          meId={session.uid}
-        />
-        <HonorBoard
-          title="أفضل 10 طلاب بالمدرسة"
-          icon="ti-trophy"
-          entries={topStudents?.top}
-          nameKey="studentName"
-          subKey="sectionName"
-          idKey="studentUid"
-          meId={session.uid}
-        />
-        <HonorBoard
-          title="أفضل 5 شعب بالمدرسة"
-          icon="ti-users-group"
-          entries={topSections?.top}
-          nameKey="sectionName"
-          subKey="gradeName"
-          idKey="sectionId"
-          meId={session.sectionId}
-        />
+      <div className="section-heading">
+        <div>
+          <div className="eyebrow">تعلّمك</div>
+          <h3>المواد الحالية</h3>
+        </div>
+        <span>{mySubjects.length} مادة</span>
       </div>
 
       {mySubjects.length === 0 ? (
@@ -185,6 +164,42 @@ export default function Dashboard() {
           })}
         </div>
       )}
+
+      <div className="section-heading section-heading-secondary">
+        <div>
+          <div className="eyebrow">مجتمع المدرسة</div>
+          <h3>لوحات الشرف</h3>
+        </div>
+      </div>
+
+      <div className="honor-board-grid">
+        <HonorBoard
+          title="لوحة شرف الشعبة"
+          icon="ti-star"
+          entries={sectionBoard?.top}
+          nameKey="studentName"
+          idKey="studentUid"
+          meId={session.uid}
+        />
+        <HonorBoard
+          title="أفضل 10 طلاب بالمدرسة"
+          icon="ti-trophy"
+          entries={topStudents?.top}
+          nameKey="studentName"
+          subKey="sectionName"
+          idKey="studentUid"
+          meId={session.uid}
+        />
+        <HonorBoard
+          title="أفضل 5 شعب بالمدرسة"
+          icon="ti-users-group"
+          entries={topSections?.top}
+          nameKey="sectionName"
+          subKey="gradeName"
+          idKey="sectionId"
+          meId={session.sectionId}
+        />
+      </div>
     </div>
   )
 }

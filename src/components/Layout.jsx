@@ -104,8 +104,6 @@ export default function Layout() {
   const location = useLocation()
 
   const [notifOpen, setNotifOpen] = useState(false)
-  const [instructorOpen, setInstructorOpen] = useState(false)
-  const [adminToolsOpen, setAdminToolsOpen] = useState(false)
   const [sheetOpen, setSheetOpen] = useState(false)
   const navRef = useRef(null)
 
@@ -121,8 +119,6 @@ export default function Layout() {
   // إغلاق أي قائمة منسدلة عند تغيير الصفحة
   useEffect(() => {
     setNotifOpen(false)
-    setInstructorOpen(false)
-    setAdminToolsOpen(false)
     setSheetOpen(false)
   }, [location.pathname])
 
@@ -131,8 +127,6 @@ export default function Layout() {
     function onDocClick(e) {
       if (navRef.current && !navRef.current.contains(e.target)) {
         setNotifOpen(false)
-        setInstructorOpen(false)
-        setAdminToolsOpen(false)
       }
     }
     document.addEventListener('pointerdown', onDocClick)
@@ -151,8 +145,6 @@ export default function Layout() {
 
   const myAvatar = getAvatar(session.avatarId)
   const adminToolLinks = session.role === 'admin' ? buildAdminToolLinks(features) : []
-  const isInstructorPath = location.pathname.startsWith('/app/instructor')
-  const isAdminToolsPath = adminToolLinks.some((link) => location.pathname === link.to)
   function handleNotifClick(n) { if (!n.read) markAsRead(n.id) }
 
   const navClass = ({ isActive }) => 'nav-pill' + (isActive ? ' active' : '')
@@ -270,64 +262,25 @@ export default function Layout() {
             ))}
           </div>
 
-          {session.role === 'instructor' && (
-            <div className="nav-dropdown-wrap">
-              <button
-                className={`nav-pill dropdown-toggle${isInstructorPath ? ' active' : ''}${instructorOpen ? ' open' : ''}`}
-                onClick={() => { setInstructorOpen((o) => !o); setNotifOpen(false) }}
-                title="لوحة المعلّم"
-                aria-haspopup="true"
-                aria-expanded={instructorOpen}
-              >
-                <i className="ti ti-chalkboard" /> <span>لوحة المعلّم</span>
-                <i className="ti ti-chevron-down dropdown-chevron" />
-              </button>
-              {instructorOpen && (
-                <div className="nav-dropdown nav-dropdown-grouped">
-                  {instructorLinkGroups.map((group) => (
-                    <div className="nav-dropdown-group" key={group.label}>
-                      <div className="nav-dropdown-group-label">{group.label}</div>
-                      {group.links.map((link, idx) => (
-                        <NavLink
-                          key={link.to} to={link.to} end={link.to === '/app/instructor'}
-                          style={{ animationDelay: `${idx * 28}ms` }}
-                          className={({ isActive }) => 'dropdown-item' + (isActive ? ' active' : '')}
-                        >
-                          <i className={`ti ${link.icon}`} /> {link.label}
-                        </NavLink>
-                      ))}
-                    </div>
-                  ))}
-                </div>
-              )}
+          {session.role === 'instructor' && instructorLinkGroups.map((group) => (
+            <div className="sidebar-link-group" key={group.label}>
+              <div className="sidebar-link-group-label">{group.label}</div>
+              {group.links.map((link) => (
+                <NavLink key={link.to} to={link.to} end={link.to === '/app/instructor'} className={navClass} title={link.label}>
+                  <i className={`ti ${link.icon}`} /> <span>{link.label}</span>
+                </NavLink>
+              ))}
             </div>
-          )}
+          ))}
 
           {session.role === 'admin' && (
-            <div className="nav-dropdown-wrap">
-              <button
-                className={`nav-pill dropdown-toggle${isAdminToolsPath ? ' active' : ''}${adminToolsOpen ? ' open' : ''}`}
-                onClick={() => { setAdminToolsOpen((o) => !o); setNotifOpen(false) }}
-                title="أدوات الإدارة"
-                aria-haspopup="true"
-                aria-expanded={adminToolsOpen}
-              >
-                <i className="ti ti-adjustments" /> <span>أدوات الإدارة</span>
-                <i className="ti ti-chevron-down dropdown-chevron" />
-              </button>
-              {adminToolsOpen && (
-                <div className="nav-dropdown">
-                  {adminToolLinks.map((link, idx) => (
-                    <NavLink
-                      key={link.to} to={link.to}
-                      style={{ animationDelay: `${idx * 28}ms` }}
-                      className={({ isActive }) => 'dropdown-item' + (isActive ? ' active' : '')}
-                    >
-                      <i className={`ti ${link.icon}`} /> {link.label}
-                    </NavLink>
-                  ))}
-                </div>
-              )}
+            <div className="sidebar-link-group">
+              <div className="sidebar-link-group-label">أدوات الإدارة</div>
+              {adminToolLinks.map((link) => (
+                <NavLink key={link.to} to={link.to} className={navClass} title={link.label}>
+                  <i className={`ti ${link.icon}`} /> <span>{link.label}</span>
+                </NavLink>
+              ))}
             </div>
           )}
 
@@ -350,7 +303,7 @@ export default function Layout() {
           <div className="nav-dropdown-wrap">
             <button
               className={`icon-btn notif-bell${unreadCount > 0 ? ' has-unread' : ''}`}
-              onClick={() => { setNotifOpen((o) => !o); setInstructorOpen(false) }}
+              onClick={() => setNotifOpen((o) => !o)}
               aria-label="الإشعارات"
             >
               <i className="ti ti-bell" />

@@ -138,7 +138,7 @@ export default function AdminFeedbackPage() {
         ))}
       </div>
 
-      <div className="messages-layout">
+      <div className={`messages-layout feedback-layout${filtered.length === 0 && !activeCase ? ' is-empty' : ''}`}>
         <div className="messages-contacts panel">
           {filtered.length === 0 ? (
             <p style={{ color: 'var(--ink-soft)', padding: '8px' }}>لا يوجد شيء هون حاليًا.</p>

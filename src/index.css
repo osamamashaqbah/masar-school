@@ -1680,6 +1680,9 @@ select:focus-visible, textarea:focus-visible{
   flex:1; display:flex; align-items:center; justify-content:center; gap:8px;
   color:var(--ink-faint); font-size:13px; text-align:center; padding:20px;
 }
+.feedback-layout.is-empty{ height:auto; min-height:240px; }
+.feedback-layout.is-empty .messages-contacts,
+.feedback-layout.is-empty .messages-chat{ min-height:240px; }
 .messages-thread{ flex:1; overflow-y:auto; padding:16px 18px; display:flex; flex-direction:column; gap:10px; }
 .messages-bubble{
   max-width:72%; align-self:flex-start; background:var(--paper-deep); color:var(--ink);

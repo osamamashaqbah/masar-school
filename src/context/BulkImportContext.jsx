@@ -1,7 +1,7 @@
 import { createContext, useContext } from 'react'
 import { initializeApp, deleteApp } from 'firebase/app'
 import { getAuth, createUserWithEmailAndPassword, deleteUser, signOut } from 'firebase/auth'
-import { doc, setDoc, updateDoc, arrayUnion } from 'firebase/firestore'
+import { doc, setDoc, deleteDoc, writeBatch, arrayUnion } from 'firebase/firestore'
 import { db, firebaseConfig } from '../firebase'
 import { useSession } from './SessionContext'
 
@@ -78,8 +78,10 @@ export function BulkImportProvider({ children }) {
         if (existingParent) {
           // أخ/أخت لطالب سابق بنفس جوال ولي الأمر: نربط بنفس الحساب بدون ما ننشئ حساب جديد.
           try {
-            await updateDoc(doc(db, 'users', existingParent.uid), { childUids: arrayUnion(studentUid) })
-            await updateDoc(doc(db, 'users', studentUid), { parentUids: arrayUnion(existingParent.uid) })
+            const linkBatch = writeBatch(db)
+            linkBatch.update(doc(db, 'users', existingParent.uid), { childUids: arrayUnion(studentUid) })
+            linkBatch.update(doc(db, 'users', studentUid), { parentUids: arrayUnion(existingParent.uid) })
+            await linkBatch.commit()
             results.push({
               name: existingParent.name, email: existingParent.email, password: null,
               status: 'linked', role: 'parent', note: `مرتبط بحساب ولي الأمر الموجود (إخوان مع ${name})`,
@@ -95,8 +97,11 @@ export function BulkImportProvider({ children }) {
 
           try {
             const parentCredential = await createUserWithEmailAndPassword(secondaryAuth, parentEmail, parentPassword)
+            const parentRef = doc(db, 'users', parentCredential.user.uid)
+            const studentRef = doc(db, 'users', studentUid)
             try {
-              await setDoc(doc(db, 'users', parentCredential.user.uid), {
+              const profileBatch = writeBatch(db)
+              profileBatch.set(parentRef, {
                 name: parentName,
                 role: 'parent',
                 email: parentEmail,
@@ -105,8 +110,10 @@ export function BulkImportProvider({ children }) {
               })
               // منعكسة على وثيقة الطالب نفسه (parentUids) حتى يقدر المعلّم يعرف مين أهل الطالب
               // ويبعتلهم إشعار (حضور/علامة) بدون ما يحتاج صلاحية جديدة يقرا فيها كل حسابات أولياء الأمور.
-              await updateDoc(doc(db, 'users', studentUid), { parentUids: arrayUnion(parentCredential.user.uid) })
+              profileBatch.update(studentRef, { parentUids: arrayUnion(parentCredential.user.uid) })
+              await profileBatch.commit()
             } catch (profileErr) {
+              await deleteDoc(parentRef).catch(() => {})
               await deleteUser(parentCredential.user).catch(() => {})
               throw profileErr
             }

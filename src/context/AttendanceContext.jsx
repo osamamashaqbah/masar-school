@@ -71,17 +71,17 @@ export function AttendanceProvider({ children }) {
     }
   }
 
-  // بيرجع {studentUid, excused} لكل طالب غايب بهاي الشعبة بهاد التاريخ
-  async function getAttendanceForDate(sectionId, date) {
-    const q = query(
-      collection(db, 'attendance'),
-      where('schoolId', '==', session.schoolId),
-      where('teacherUid', '==', session.uid),
-      where('date', '==', date),
-      where('sectionId', '==', sectionId)
-    )
-    const snap = await getDocs(q)
-    return snap.docs.map((d) => ({ studentUid: d.data().studentUid, excused: !!d.data().excused }))
+  // الحضور وثيقة مشتركة بين معلمي الشعبة؛ اقرأ بالمعرفات المباشرة بدل تقييدها بالمعلم
+  // الذي أنشأ الوثيقة، وإلا سيعرض معلم آخر الشعبة كلها كأنها حاضرة.
+  async function getAttendanceForDate(sectionId, date, studentUids = []) {
+    const snaps = await Promise.all([...new Set(studentUids)].map((studentUid) =>
+      getDoc(doc(db, 'attendance', `${studentUid}_${date}`))
+    ))
+    return snaps
+      .filter((snap) => snap.exists())
+      .map((snap) => snap.data())
+      .filter((data) => data.schoolId === session.schoolId && data.sectionId === sectionId && data.date === date)
+      .map((data) => ({ studentUid: data.studentUid, excused: !!data.excused }))
   }
 
   async function setAbsent(studentUid, sectionId, date, excused = false) {

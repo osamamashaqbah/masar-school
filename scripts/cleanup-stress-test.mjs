@@ -23,7 +23,13 @@ if (staleSchoolIds.length === 0) {
 
 console.log(`لقيت ${staleSchoolIds.length} مدرسة اختبار عالقة: ${staleSchoolIds.join(', ')}`)
 
-const collections = ['attendance', 'grades', 'marks', 'sections', 'subjects', 'users']
+const collections = [
+  'attendance', 'grades', 'homework', 'marks', 'notes', 'notifications', 'progress', 'questions',
+  'quizStats', 'sections', 'subjects', 'submissions', 'users', 'threads', 'messages', 'earlyWarnings',
+  'honorBoards', 'announcements', 'auditLog', 'excuseRequests', 'timetables', 'feedbackCases',
+  'feedbackReplies', 'teacherAvailability', 'teacherAbsences', 'substituteCoverage',
+  'studentInterventions', 'examPeriods', 'examSlots', 'questionBank', 'rolloverOperations', 'platformStats',
+]
 for (const schoolId of staleSchoolIds) {
   let total = 0
   for (const name of collections) {

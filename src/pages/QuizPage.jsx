@@ -4,6 +4,7 @@ import { useSchoolStructure } from '../context/SchoolStructureContext'
 import { useProgress } from '../context/ProgressContext'
 import { useQuizStats } from '../context/QuizStatsContext'
 import { useQuestionBank } from '../context/QuestionBankContext'
+import { finalQuizScore } from '../utils/quiz'
 
 
 
@@ -31,7 +32,8 @@ export default function QuizPage() {
 
   if (!subject || !lesson) return <div>الاختبار غير موجود</div>
 
-  const questions = lesson.quiz
+  const questions = Array.isArray(lesson.quiz) ? lesson.quiz : []
+  if (questions.length === 0) return <div>هذا الدرس لا يحتوي اختبارًا</div>
   const question = questions[current]
 
  function submit() {
@@ -48,8 +50,10 @@ export default function QuizPage() {
     if (current + 1 < questions.length) {
       setCurrent((c) => c + 1); setSelected(null); setAnswered(false)
     } else {
+      // score is a render snapshot; include the answer just submitted before deciding the result.
+      const finalScore = finalQuizScore(score, selected, question.correct)
       setFinished(true)
-      if (score > questions.length / 2) completeLesson(subject.id, index)
+      if (finalScore > questions.length / 2) completeLesson(subject.id, index)
     }
   }
 

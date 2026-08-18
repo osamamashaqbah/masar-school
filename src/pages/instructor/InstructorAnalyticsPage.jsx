@@ -57,7 +57,7 @@ export default function InstructorAnalyticsPage() {
   }, [sectionIdsKey])
 
   const flaggedStudents = warnings
-    .filter((w) => w.attendanceAlert || w.averageAlert || w.subjectAlerts?.length > 0)
+    .filter((w) => w.attendanceAlert || w.subjectAlerts?.length > 0)
     .map((w) => ({ ...w, student: students.find((st) => st.id === w.studentUid) }))
     .filter((w) => w.student)
 
@@ -78,12 +78,11 @@ export default function InstructorAnalyticsPage() {
           <div style={{ fontWeight: 800, marginBottom: '10px', display: 'flex', alignItems: 'center', gap: '7px' }}>
             <i className="ti ti-alert-triangle" style={{ color: 'var(--berry)' }} /> طلاب بحاجة لمتابعة ({flaggedStudents.length})
           </div>
-          {flaggedStudents.map(({ student, attendanceAlert, averageAlert, subjectAlerts, average, unexcusedCount, excusedCount }) => (
+          {flaggedStudents.map(({ student, attendanceAlert, subjectAlerts, unexcusedCount, excusedCount }) => (
             <div key={student.id} className="analytics-row" style={{ marginBottom: '8px' }}>
               <div className="analytics-title">{student.name}</div>
               <div style={{ fontSize: '12.5px', color: 'var(--ink-soft)', marginTop: '4px', display: 'flex', flexDirection: 'column', gap: '3px' }}>
                 {attendanceAlert && <span><i className="ti ti-calendar-x" /> غياب: {unexcusedCount} بدون عذر، {excusedCount} بعذر</span>}
-                {averageAlert && <span><i className="ti ti-trending-down" /> المعدل العام: {Math.round(average)}%</span>}
                 {subjectAlerts?.filter((s) => mySubjects.some((m) => m.id === s.subjectId)).map((s) => (
                   <span key={s.subjectId}><i className="ti ti-alert-triangle" /> خطر رسوب بمادتك: {s.totalScore}/{s.totalMax}</span>
                 ))}

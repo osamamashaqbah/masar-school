@@ -39,7 +39,9 @@ const SCHOOL_SCOPED_COLLECTIONS = [
   'progress', 'questions', 'quizStats', 'sections', 'subjects', 'submissions',
   'users', 'threads', 'messages', 'earlyWarnings', 'honorBoards',
   'announcements', 'auditLog', 'excuseRequests', 'timetables',
-  'feedbackCases', 'feedbackReplies',
+  'feedbackCases', 'feedbackReplies', 'teacherAvailability', 'teacherAbsences',
+  'substituteCoverage', 'studentInterventions', 'examPeriods', 'examSlots',
+  'questionBank', 'rolloverOperations',
 ]
 
 const schoolSnap = await db.collection('schools').doc(schoolId).get()

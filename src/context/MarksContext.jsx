@@ -84,7 +84,7 @@ export function MarksProvider({ children }) {
     if (!Number.isFinite(numericScore) || !Number.isFinite(numericMaxScore) || numericMaxScore <= 0 || numericScore < 0 || numericScore > numericMaxScore) {
       throw new Error('invalid-mark')
     }
-    const docId = markDocId(studentUid, subjectId, categoryId, homeworkId)
+    const docId = markDocId(studentUid, subjectId, categoryId, homeworkId, currentAcademicYear)
     await setDoc(doc(db, 'marks', docId), {
       subjectId,
       studentUid,
@@ -130,8 +130,13 @@ export function MarksProvider({ children }) {
 
   function getMarksForStudentSubject(uid, subjectId) {
     const pool = session?.role === 'student' ? myMarks : allMarks
-    return pool.filter((m) => m.studentUid === uid && m.subjectId === subjectId
+    const scoped = pool.filter((m) => m.studentUid === uid && m.subjectId === subjectId
       && (!m.academicYear || m.academicYear === currentAcademicYear))
+    const currentMarks = scoped.filter((m) => m.academicYear && m.academicYear === currentAcademicYear)
+    const currentKeys = new Set(currentMarks.map((m) => `${m.categoryId}:${m.homeworkId || ''}`))
+    // Legacy marks have no year in their document/data. Keep them visible until a current-year
+    // replacement exists, but never aggregate both versions of the same category/homework.
+    return [...currentMarks, ...scoped.filter((m) => !m.academicYear && !currentKeys.has(`${m.categoryId}:${m.homeworkId || ''}`))]
   }
 
   // بيرجع {score, maxScore} أو null إذا ما انحطت علامة بعد (أو إذا كانت بيانات قديمة ناقصة).

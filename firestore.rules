@@ -138,7 +138,7 @@ service cloud.firestore {
       allow update: if (
         isAdmin() && sameSchool(resource.data.schoolId) && request.resource.data.schoolId == resource.data.schoolId
         && request.resource.data.role == resource.data.role
-        && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['name', 'avatarId', 'consentGivenAt', 'taughtSectionIds', 'parentUids', 'childUids', 'sectionId'])
+        && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['name', 'avatarId', 'consentGivenAt', 'taughtSectionIds', 'parentUids', 'childUids', 'messageContactUids', 'sectionId'])
       ) || (
         isSignedIn() && request.auth.uid == uid
         && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['name', 'avatarId', 'consentGivenAt'])
@@ -170,6 +170,16 @@ service cloud.firestore {
       allow create: if isAdmin() && request.resource.data.schoolId == mySchoolId();
       allow update: if isAdmin() && sameSchool(resource.data.schoolId) && request.resource.data.schoolId == resource.data.schoolId;
       allow delete: if isAdmin() && sameSchool(resource.data.schoolId);
+    }
+
+    // ===================== rolloverOperations =====================
+    // حالة الترفيع محفوظة حتى تكمل إعادة المحاولة نفس خريطة الطلاب بدل إعادة بنائها من الواجهة.
+    match /rolloverOperations/{operationId} {
+      allow read: if isAdmin() && (resource == null || sameSchool(resource.data.schoolId));
+      allow create: if isAdmin() && request.resource.data.schoolId == mySchoolId();
+      allow update: if isAdmin() && sameSchool(resource.data.schoolId)
+        && request.resource.data.schoolId == resource.data.schoolId;
+      allow delete: if false;
     }
 
     // ===================== subjects =====================
@@ -365,9 +375,11 @@ service cloud.firestore {
       allow update: if teachesStudentInSubject(request.resource.data.subjectId, request.resource.data.studentUid)
         && request.resource.data.teacherUid == request.auth.uid
         && resource.data.teacherUid == request.auth.uid
+        && resource.data.academicYear == currentYear()
         && resource.data.studentUid == request.resource.data.studentUid
         && resource.data.subjectId == request.resource.data.subjectId
         && request.resource.data.schoolId == resource.data.schoolId
+        && request.resource.data.academicYear == resource.data.academicYear
         && request.resource.data.academicYear == currentYear()
         && request.resource.data.keys().hasAll(['subjectId', 'studentUid', 'categoryId', 'score', 'maxScore', 'teacherUid', 'schoolId'])
         && request.resource.data.score is number
@@ -391,6 +403,11 @@ service cloud.firestore {
         || (myRole() == 'parent' && get(/databases/$(database)/documents/users/$(otherUid)).data.role == 'instructor')
       );
     }
+    function isAuthorizedMessagePeer(otherUid) {
+      return isInstructorParentPair(otherUid)
+        && myData().get('messageContactUids', []).hasAny([otherUid])
+        && get(/databases/$(database)/documents/users/$(otherUid)).data.get('messageContactUids', []).hasAny([request.auth.uid]);
+    }
 
     match /threads/{threadId} {
       // resource == null لو أول رسالة بين هالطرفين لسا ما انبعثت — openThreadWith() بيعمل
@@ -401,7 +418,7 @@ service cloud.firestore {
         && request.resource.data.participantUids.size() == 2
         && request.resource.data.schoolId == mySchoolId()
         && request.resource.data.keys().hasAll(['participantUids', 'schoolId'])
-        && isInstructorParentPair(otherParticipant(request.resource.data.participantUids));
+        && isAuthorizedMessagePeer(otherParticipant(request.resource.data.participantUids));
       // تحديث معلومات آخر رسالة (بعد الإرسال) أو تعليم المحادثة كمقروءة — بدون لمس هوية الأطراف
       allow update: if isSignedIn() && resource.data.participantUids.hasAny([request.auth.uid])
         && request.resource.data.participantUids == resource.data.participantUids
@@ -417,7 +434,7 @@ service cloud.firestore {
         && request.resource.data.schoolId == mySchoolId()
         && request.resource.data.keys().hasAll(['threadId', 'senderUid', 'recipientUid', 'text', 'schoolId'])
         && request.resource.data.text is string && request.resource.data.text.size() > 0 && request.resource.data.text.size() <= 2000
-        && isInstructorParentPair(request.resource.data.recipientUid);
+        && isAuthorizedMessagePeer(request.resource.data.recipientUid);
       // المستلم بس يقدر يعلّم الرسالة كمقروءة، ما في تعديل نص أو حذف
       allow update: if isSignedIn() && resource.data.recipientUid == request.auth.uid
         && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['read']);
@@ -546,13 +563,13 @@ service cloud.firestore {
 
     // ===================== attendance =====================
     match /attendance/{attId} {
-      allow read: if isSignedIn() && (
+      allow read: if isSignedIn() && (resource == null || (
         resource.data.get('studentUid', '') == request.auth.uid
         || isParentOf(resource.data.get('studentUid', ''))
         || (sameSchool(resource.data.get('schoolId', '')) && teachesSection(resource.data.get('sectionId', '')))
         || (isAdmin() && sameSchool(resource.data.get('schoolId', '')))
         || isPlatformAdmin()
-      );
+      ));
       allow create: if isInstructor()
         && request.resource.data.teacherUid == request.auth.uid
         && request.resource.data.schoolId == mySchoolId()

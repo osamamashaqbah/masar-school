@@ -6,6 +6,7 @@ import {
   aggregateMark,
   computeSubjectTotal,
   computeStudentAverage,
+  computeAverageFromSubjectTotals,
 } from './gradeCategories'
 
 describe('categoriesFor', () => {
@@ -55,6 +56,12 @@ describe('markDocId', () => {
   it('manual (non-homework) categories keep the legacy stable doc id', () => {
     expect(markDocId('student-A', 'math', 'exam1')).toBe('student-A_math_exam1')
     expect(markDocId('student-A', 'math', 'exam1', null)).toBe('student-A_math_exam1')
+  })
+
+  it('isolates marks from different academic years', () => {
+    expect(markDocId('student-A', 'math', 'exam1', null, '2025-2026')).not.toBe(
+      markDocId('student-A', 'math', 'exam1', null, '2026-2027'),
+    )
   })
 })
 
@@ -143,5 +150,25 @@ describe('direct subject scores', () => {
     ])
 
     expect(computeStudentAverage(subjects, 'student', getMark(marks), () => ({ attempts: 0, correct: 0 }))).toBe(98)
+  })
+
+  it('counts subjects without entered marks as zero in the average', () => {
+    const subjects = ['arabic', 'math', 'science'].map((id) => ({ id, gradeCategories: categories }))
+    const marks = [
+      { studentUid: 'student', subjectId: 'arabic', categoryId: 'final', score: 80, maxScore: 100 },
+    ]
+
+    expect(computeStudentAverage(subjects, 'student', getMark(marks), () => ({ attempts: 0, correct: 0 }))).toBeCloseTo(80 / 3)
+  })
+
+  it('returns null when the student has no subjects', () => {
+    expect(computeStudentAverage([], 'student', () => null, () => ({ attempts: 0, correct: 0 }))).toBeNull()
+  })
+
+  it('uses every subject, including subjects with no marks, for report averages', () => {
+    expect(computeAverageFromSubjectTotals([
+      { totalScore: 80, totalMax: 100 },
+      { totalScore: 0, totalMax: 0 },
+    ])).toBe(40)
   })
 })

@@ -15,7 +15,9 @@ const COLLECTIONS = [
   'progress', 'questions', 'quizStats', 'sections', 'subjects', 'submissions',
   'users', 'schools', 'threads', 'messages', 'earlyWarnings', 'honorBoards',
   'announcements', 'auditLog', 'excuseRequests', 'timetables',
-  'feedbackCases', 'feedbackReplies',
+  'feedbackCases', 'feedbackReplies', 'teacherAvailability', 'teacherAbsences',
+  'substituteCoverage', 'studentInterventions', 'examPeriods', 'examSlots',
+  'questionBank', 'rolloverOperations', 'platformStats',
 ]
 
 console.log('== حذف Firebase Auth ==')

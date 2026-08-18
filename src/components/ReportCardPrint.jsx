@@ -1,8 +1,11 @@
 // كشف علامات رسمي للطباعة/الحفظ كـ PDF (عبر window.print) — مرئي بس وقت الطباعة، شوف index.css
+import { computeAverageFromSubjectTotals } from '../utils/gradeCategories'
+
 export default function ReportCardPrint({ schoolName, studentName, rows, absentDays, generatedAt, bilingual = false, branding = null }) {
   const grandScore = rows.reduce((sum, r) => sum + r.totalScore, 0)
   const grandMax = rows.reduce((sum, r) => sum + r.totalMax, 0)
-  const overallPct = grandMax > 0 ? Math.round((grandScore / grandMax) * 100) : null
+  const overallAverage = computeAverageFromSubjectTotals(rows)
+  const overallPct = overallAverage === null ? null : Math.round(overallAverage)
   const accentColor = branding?.primaryColor || null
 
   return (

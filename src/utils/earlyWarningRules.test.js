@@ -17,29 +17,31 @@ describe('evaluateEarlyWarning', () => {
     expect(attendanceAlert).toBe(false)
   })
 
-  it('flags overall average below the default min', () => {
-    const { averageAlert } = evaluateEarlyWarning({ unexcusedCount: 0, excusedCount: 0, average: 59, subjectTotals: [] })
-    expect(averageAlert).toBe(true)
-  })
-
-  it('does not flag a null average (no marks entered yet)', () => {
-    const { averageAlert } = evaluateEarlyWarning({ unexcusedCount: 0, excusedCount: 0, average: null, subjectTotals: [] })
+  it('never flags from the overall average', () => {
+    const { averageAlert } = evaluateEarlyWarning({ unexcusedCount: 0, excusedCount: 0, average: 1, subjectTotals: [] })
     expect(averageAlert).toBe(false)
   })
 
   it('flags a subject only once core exams are entered and total is below the fail line', () => {
     const subjectTotals = [
-      { subjectId: 'a', coreExamsEntered: true, totalScore: 49, totalMax: 100 },
+      { subjectId: 'a', coreExamsEntered: true, totalScore: 64, totalMax: 100 },
       { subjectId: 'b', coreExamsEntered: false, totalScore: 10, totalMax: 100 },
     ]
-    const { subjectAlerts } = evaluateEarlyWarning({ unexcusedCount: 0, excusedCount: 0, average: 90, subjectTotals })
+    const { subjectAlerts } = evaluateEarlyWarning({ unexcusedCount: 0, excusedCount: 0, subjectTotals })
     expect(subjectAlerts.map((s) => s.subjectId)).toEqual(['a'])
   })
 
-  it('respects custom thresholds when given', () => {
-    const custom = { ...DEFAULT_THRESHOLDS, averageMin: 70 }
-    const { averageAlert } = evaluateEarlyWarning({ unexcusedCount: 0, excusedCount: 0, average: 65, subjectTotals: [] }, custom)
-    expect(averageAlert).toBe(true)
+  it('normalizes a subject score by its entered maximum before comparing the threshold', () => {
+    const subjectTotals = [{ subjectId: 'a', coreExamsEntered: true, totalScore: 32, totalMax: 50 }]
+    const { subjectAlerts } = evaluateEarlyWarning({ unexcusedCount: 0, excusedCount: 0, subjectTotals })
+    expect(subjectAlerts).toHaveLength(1)
+  })
+
+  it('respects a custom subject threshold', () => {
+    const custom = { ...DEFAULT_THRESHOLDS, subjectFailMin: 70 }
+    const subjectTotals = [{ subjectId: 'a', coreExamsEntered: true, totalScore: 65, totalMax: 100 }]
+    const { subjectAlerts } = evaluateEarlyWarning({ unexcusedCount: 0, excusedCount: 0, subjectTotals }, custom)
+    expect(subjectAlerts).toHaveLength(1)
   })
 })
 

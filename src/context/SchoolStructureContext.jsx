@@ -109,6 +109,51 @@ export function SchoolStructureProvider({ children }) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [allUsers, session, syncedParentLinks])
 
+  // مزامنة أطراف الرسائل على وثائق الحسابات. الواجهة تعرض جهات الاتصال حسب الطالب/الشعبة،
+  // لكن قواعد Firestore تحتاج علاقة ثابتة قابلة للتحقق عند الطلب المباشر أيضًا.
+  useEffect(() => {
+    if (session?.role !== 'admin' || allUsers.length === 0) return
+    const studentsBySection = new Map()
+    allUsers.filter((u) => u.role === 'student' && u.sectionId).forEach((student) => {
+      const list = studentsBySection.get(student.sectionId) || []
+      list.push(student.id)
+      studentsBySection.set(student.sectionId, list)
+    })
+    const parentsByChild = new Map()
+    allUsers.filter((u) => u.role === 'parent').forEach((parent) => {
+      ;(parent.childUids || []).forEach((childUid) => {
+        const list = parentsByChild.get(childUid) || []
+        list.push(parent.id)
+        parentsByChild.set(childUid, list)
+      })
+    })
+    const contactSets = new Map(
+      allUsers
+        .filter((u) => u.role === 'parent' || u.role === 'instructor')
+        .map((u) => [u.id, new Set()]),
+    )
+    subjects.forEach((subject) => {
+      if (!subject.teacherUid || !subject.sectionId) return
+      const teacherContacts = contactSets.get(subject.teacherUid)
+      ;(studentsBySection.get(subject.sectionId) || []).forEach((studentUid) => {
+        ;(parentsByChild.get(studentUid) || []).forEach((parentUid) => {
+          teacherContacts?.add(parentUid)
+          contactSets.get(parentUid)?.add(subject.teacherUid)
+        })
+      })
+    })
+    const updates = allUsers
+      .filter((u) => contactSets.has(u.id))
+      .map((user) => {
+        const next = [...contactSets.get(user.id)].sort()
+        const previous = [...(user.messageContactUids || [])].sort()
+        if (next.length === previous.length && next.every((uid, index) => uid === previous[index])) return null
+        return updateDoc(doc(db, 'users', user.id), { messageContactUids: next }).catch(() => {})
+      })
+      .filter(Boolean)
+    if (updates.length > 0) Promise.all(updates).catch(() => {})
+  }, [allUsers, session, subjects])
+
   async function addGrade(name) {
     const ref = await addDoc(collection(db, 'grades'), { name, schoolId: session.schoolId })
     return ref.id

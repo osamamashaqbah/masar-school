@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { buildRolloverKey, normalizeSectionName, rolloverSectionDocId } from './rollover'
+import { buildRolloverKey, normalizeSectionName, rolloverOperationDocId, rolloverSectionDocId } from './rollover'
 
 describe('rollover idempotency key', () => {
   it('normalizes equivalent names to the same stable key', () => {
@@ -24,5 +24,11 @@ describe('rollover idempotency key', () => {
     expect(buildRolloverKey({ ...base, sourceSectionId: 'sec1' })).not.toBe(
       buildRolloverKey({ ...base, sourceSectionId: 'sec2' }),
     )
+  })
+
+  it('uses one stable operation id for retries of the same academic-year move', () => {
+    const input = { schoolId: 'schoolA', currentAcademicYear: '2025-2026', newYear: '2026-2027' }
+    expect(rolloverOperationDocId(input)).toBe(rolloverOperationDocId({ ...input, newYear: ' 2026-2027 ' }))
+    expect(rolloverOperationDocId(input)).not.toBe(rolloverOperationDocId({ ...input, newYear: '2027-2028' }))
   })
 })

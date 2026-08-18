@@ -2,18 +2,18 @@
 export const DEFAULT_THRESHOLDS = {
   unexcusedMax: 15,
   excusedMax: 5,
-  averageMin: 60,
-  subjectFailMin: 50,
+  subjectFailMin: 65,
 }
 
-// منطق الإنذار المبكر الثلاثي: غياب، رسوب بمادة معينة (بعد اكتمال الاختبار الأول+الثاني+النهائي)، معدل عام
-export function evaluateEarlyWarning({ unexcusedCount, excusedCount, average, subjectTotals }, thresholds = DEFAULT_THRESHOLDS) {
+// الإنذار الأكاديمي مبني على كل مادة لوحدها، وليس على معدل الطالب العام.
+// شرط المادة الحالي: اكتمال الاختبارات الأساسية ثم نزول النسبة الفعلية عن الحد المحدد.
+export function evaluateEarlyWarning({ unexcusedCount, excusedCount, subjectTotals }, thresholds = DEFAULT_THRESHOLDS) {
   const attendanceAlert = unexcusedCount > thresholds.unexcusedMax || excusedCount > thresholds.excusedMax
-  const averageAlert = average !== null && average < thresholds.averageMin
   const subjectAlerts = subjectTotals.filter(
-    (t) => t.coreExamsEntered && t.totalMax > 0 && t.totalScore < thresholds.subjectFailMin
+    (t) => t.coreExamsEntered && t.totalMax > 0 && (t.totalScore / t.totalMax) * 100 < thresholds.subjectFailMin
   )
-  return { attendanceAlert, averageAlert, subjectAlerts }
+  // Kept as false for compatibility with already stored early-warning documents.
+  return { attendanceAlert, averageAlert: false, subjectAlerts }
 }
 
 // أعلى n عنصر بترتيب تنازلي حسب average (يستخدم للوحتي الشرف: طلاب وشعب)

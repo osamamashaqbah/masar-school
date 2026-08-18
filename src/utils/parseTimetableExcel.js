@@ -13,6 +13,16 @@ function normalize(text) {
     .toLowerCase()
 }
 
+export function mapTimetableHeaders(headerRow) {
+  return headerRow.map((cell, colIdx) => {
+    if (colIdx === 0) return null // العمود الأول = رقم الحصة
+    const norm = normalize(cell)
+    if (!norm) return null
+    const dayIdx = DAYS.findIndex((d) => normalize(d) === norm || normalize(d).includes(norm) || norm.includes(normalize(d)))
+    return dayIdx >= 0 ? dayIdx : null
+  })
+}
+
 // يقرأ ملف Excel لجدول حصص شعبة وحدة: الصف الأول = أيام (رؤوس أعمدة)، العمود الأول = رقم الحصة،
 // وباقي الخلايا = اسم المادة. يطابق كل خلية مع مواد الشعبة (sectionSubjects) بمطابقة نص مرنة.
 // يرجع { slots: [{day, period, subjectId}], unmatched: [{period, dayLabel, text}] }
@@ -33,12 +43,7 @@ export function parseTimetableExcel(file, sectionSubjects) {
 
         const headerRow = rows[0]
         // نطابق كل عمود برأسه مع أقرب اسم يوم من DAYS (مرن — ما لازم تطابق حرفي)
-        const dayColumns = headerRow.map((cell, colIdx) => {
-          if (colIdx === 0) return null // العمود الأول = رقم الحصة
-          const norm = normalize(cell)
-          const dayIdx = DAYS.findIndex((d) => normalize(d) === norm || normalize(d).includes(norm) || norm.includes(normalize(d)))
-          return dayIdx >= 0 ? dayIdx : null
-        })
+        const dayColumns = mapTimetableHeaders(headerRow)
 
         if (dayColumns.every((d) => d === null)) {
           reject(new Error('ما قدرنا نتعرف على أي عمود يوم بالصف الأول. تأكد الرؤوس مكتوبة بأسماء الأيام (الأحد، الاثنين...).'))

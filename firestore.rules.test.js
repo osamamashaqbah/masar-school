@@ -75,6 +75,18 @@ describe('tenant isolation', () => {
     await assertSucceeds(addDoc(collection(adminACtx.firestore(), 'grades'), { name: 'الصف الأول', schoolId: 'schoolA' }))
   })
 
+  it('rollover operation state is isolated to the school admin', async () => {
+    await seedSchoolWithAdmin('schoolA', 'adminA')
+    await seedSchoolWithAdmin('schoolB', 'adminB')
+    const adminACtx = testEnv.authenticatedContext('adminA')
+    await assertSucceeds(setDoc(doc(adminACtx.firestore(), 'rolloverOperations', 'operationA'), {
+      schoolId: 'schoolA', currentAcademicYear: '2025-2026', newYear: '2026-2027', status: 'running',
+    }))
+    await assertFails(setDoc(doc(adminACtx.firestore(), 'rolloverOperations', 'operationB'), {
+      schoolId: 'schoolB', currentAcademicYear: '2025-2026', newYear: '2026-2027', status: 'running',
+    }))
+  })
+
   it('a non-admin cannot self-promote to admin of an existing school', async () => {
     await seedSchoolWithAdmin('schoolA', 'adminA')
 
@@ -193,6 +205,21 @@ describe('marks and attendance tenant boundaries', () => {
     await assertFails(mark(11, 'over-max-score'))
   })
 
+  it('a teacher cannot update a mark from a previous academic year', async () => {
+    await seedTeacherFixture()
+    await testEnv.withSecurityRulesDisabled(async (ctx) => {
+      await setDoc(doc(ctx.firestore(), 'marks', 'old-year-mark'), {
+        subjectId: 'subjA', studentUid: 'studentA', categoryId: 'exam1', score: 40, maxScore: 50,
+        teacherUid: 'teacherA', schoolId: 'schoolA', academicYear: '2024-2025',
+      })
+    })
+
+    const teacherCtx = testEnv.authenticatedContext('teacherA')
+    await assertFails(updateDoc(doc(teacherCtx.firestore(), 'marks', 'old-year-mark'), {
+      score: 45, academicYear: '2025-2026',
+    }))
+  })
+
   it('a teacher cannot record attendance outside their assigned sections', async () => {
     await seedTeacherFixture()
     const teacherCtx = testEnv.authenticatedContext('teacherA')
@@ -222,8 +249,8 @@ describe('marks and attendance tenant boundaries', () => {
 describe('messages/threads', () => {
   it('an instructor can open a thread with a parent in their own school', async () => {
     await seedSchoolWithAdmin('schoolA', 'adminA')
-    await seedUser('schoolA', 'teacherA', { name: 'T', role: 'instructor', email: 't@x.com' })
-    await seedUser('schoolA', 'parentA', { name: 'P', role: 'parent', email: 'p@x.com', childUids: [] })
+    await seedUser('schoolA', 'teacherA', { name: 'T', role: 'instructor', email: 't@x.com', messageContactUids: ['parentA'] })
+    await seedUser('schoolA', 'parentA', { name: 'P', role: 'parent', email: 'p@x.com', childUids: [], messageContactUids: ['teacherA'] })
 
     const teacherCtx = testEnv.authenticatedContext('teacherA')
     await assertSucceeds(
@@ -247,6 +274,19 @@ describe('messages/threads', () => {
     )
   })
 
+  it('an instructor cannot open a thread with an unrelated parent in the same school', async () => {
+    await seedSchoolWithAdmin('schoolA', 'adminA')
+    await seedUser('schoolA', 'teacherA', { name: 'T', role: 'instructor', email: 't@x.com', messageContactUids: [] })
+    await seedUser('schoolA', 'parentA', { name: 'P', role: 'parent', email: 'p@x.com', childUids: [], messageContactUids: [] })
+
+    const teacherCtx = testEnv.authenticatedContext('teacherA')
+    await assertFails(
+      setDoc(doc(teacherCtx.firestore(), 'threads', 'teacherA_parentA'), {
+        participantUids: ['teacherA', 'parentA'], schoolId: 'schoolA',
+      })
+    )
+  })
+
   it('two instructors cannot open a thread together (only instructor<->parent allowed)', async () => {
     await seedSchoolWithAdmin('schoolA', 'adminA')
     await seedUser('schoolA', 'teacherA', { name: 'T1', role: 'instructor', email: 't1@x.com' })
@@ -262,8 +302,8 @@ describe('messages/threads', () => {
 
   it('a third party cannot read a thread they are not part of', async () => {
     await seedSchoolWithAdmin('schoolA', 'adminA')
-    await seedUser('schoolA', 'teacherA', { name: 'T', role: 'instructor', email: 't@x.com' })
-    await seedUser('schoolA', 'parentA', { name: 'P', role: 'parent', email: 'p@x.com', childUids: [] })
+    await seedUser('schoolA', 'teacherA', { name: 'T', role: 'instructor', email: 't@x.com', messageContactUids: ['parentA'] })
+    await seedUser('schoolA', 'parentA', { name: 'P', role: 'parent', email: 'p@x.com', childUids: [], messageContactUids: ['teacherA'] })
     await seedUser('schoolA', 'stranger', { name: 'S', role: 'parent', email: 's@x.com', childUids: [] })
     await testEnv.withSecurityRulesDisabled(async (ctx) => {
       await setDoc(doc(ctx.firestore(), 'threads', 'teacherA_parentA'), {
@@ -277,8 +317,8 @@ describe('messages/threads', () => {
 
   it('a parent can send a message to their child\'s instructor', async () => {
     await seedSchoolWithAdmin('schoolA', 'adminA')
-    await seedUser('schoolA', 'teacherA', { name: 'T', role: 'instructor', email: 't@x.com' })
-    await seedUser('schoolA', 'parentA', { name: 'P', role: 'parent', email: 'p@x.com', childUids: [] })
+    await seedUser('schoolA', 'teacherA', { name: 'T', role: 'instructor', email: 't@x.com', messageContactUids: ['parentA'] })
+    await seedUser('schoolA', 'parentA', { name: 'P', role: 'parent', email: 'p@x.com', childUids: [], messageContactUids: ['teacherA'] })
 
     const parentCtx = testEnv.authenticatedContext('parentA')
     await assertSucceeds(

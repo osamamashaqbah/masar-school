@@ -16,3 +16,14 @@ export function buildRolloverKey({ schoolId, currentAcademicYear, newYear, sourc
 export function rolloverSectionDocId(idempotencyKey) {
   return `rollover_${encodeURIComponent(idempotencyKey)}`
 }
+
+export function rolloverOperationDocId({ schoolId, currentAcademicYear, newYear }) {
+  return `operation_${encodeURIComponent(buildRolloverKey({
+    schoolId,
+    currentAcademicYear,
+    newYear,
+    sourceSectionId: 'all-sections',
+    newGradeId: 'all-grades',
+    name: 'student-move',
+  }))}`
+}

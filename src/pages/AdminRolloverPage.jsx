@@ -1,9 +1,9 @@
-import { useState } from 'react'
-import { doc, writeBatch } from 'firebase/firestore'
+import { useEffect, useState } from 'react'
+import { doc, getDoc, setDoc, updateDoc, writeBatch } from 'firebase/firestore'
 import { db } from '../firebase'
 import { useSession } from '../context/SessionContext'
 import { useSchoolStructure } from '../context/SchoolStructureContext'
-import { buildRolloverKey } from '../utils/rollover'
+import { buildRolloverKey, rolloverOperationDocId } from '../utils/rollover'
 
 const GRADUATE = 'graduate'
 const EXISTING = 'existing'
@@ -18,6 +18,7 @@ export default function AdminRolloverPage() {
   const [running, setRunning] = useState(false)
   const [error, setError] = useState('')
   const [result, setResult] = useState(null)
+  const [savedOperation, setSavedOperation] = useState(null)
 
   const students = allUsers.filter((u) => u.role === 'student')
   const sectionsWithStudents = sections.filter((s) => students.some((st) => st.sectionId === s.id))
@@ -33,43 +34,87 @@ export default function AdminRolloverPage() {
     if (c.type === NEW) return !!c.newName?.trim() && !!c.newGradeId
     return c.type === GRADUATE
   })
-  const canConfirm = newYear.trim() && sectionsWithStudents.length > 0 && allMapped && !running
+  useEffect(() => {
+    if (!session || !currentAcademicYear || !newYear.trim()) {
+      setSavedOperation(null)
+      return undefined
+    }
+    let cancelled = false
+    const operationRef = doc(db, 'rolloverOperations', rolloverOperationDocId({
+      schoolId: session.schoolId, currentAcademicYear, newYear,
+    }))
+    getDoc(operationRef).then((snap) => {
+      if (!cancelled && snap.exists() && snap.data().status !== 'completed') setSavedOperation(snap.data())
+    }).catch(() => {
+      if (!cancelled) setSavedOperation(null)
+    })
+    return () => { cancelled = true }
+  }, [session, currentAcademicYear, newYear])
+
+  const canConfirm = newYear.trim() && (savedOperation || (sectionsWithStudents.length > 0 && allMapped)) && !running
 
   async function handleConfirm() {
     setRunning(true)
     setError('')
     try {
-      // 1) ننشئ أي شعب جديدة مطلوبة أول شي، حتى تصير عندنا كل الـ sectionId قبل تحريك الطلاب
-      const resolvedTarget = {}
-      for (const section of sectionsWithStudents) {
-        const c = choices[section.id]
-        if (c.type === EXISTING) resolvedTarget[section.id] = c.targetSectionId
-        else if (c.type === GRADUATE) resolvedTarget[section.id] = null
-        else if (c.type === NEW) {
-          const targetName = c.newName.trim().replace(/\s+/g, ' ')
-          const rolloverKey = buildRolloverKey({
-            schoolId: session.schoolId,
-            currentAcademicYear,
-            newYear,
-            sourceSectionId: section.id,
-            newGradeId: c.newGradeId,
-            name: targetName,
-          })
-          resolvedTarget[section.id] = await addSection(c.newGradeId, targetName, { idempotencyKey: rolloverKey })
+      const operationId = rolloverOperationDocId({
+        schoolId: session.schoolId, currentAcademicYear, newYear,
+      })
+      const operationRef = doc(db, 'rolloverOperations', operationId)
+      const operationSnap = await getDoc(operationRef)
+      let resolvedTarget
+      let studentTargets
+
+      if (operationSnap.exists()) {
+        const operation = operationSnap.data()
+        if (operation.status === 'completed') throw new Error('rollover-already-completed')
+        resolvedTarget = operation.resolvedTarget || {}
+        studentTargets = operation.studentTargets || {}
+      } else {
+        // 1) أنشئ الشعب المطلوبة وسجّل خريطة الطلاب قبل أول batch، حتى تكون إعادة المحاولة قابلة للاستكمال.
+        resolvedTarget = {}
+        for (const section of sectionsWithStudents) {
+          const c = choices[section.id]
+          if (c.type === EXISTING) resolvedTarget[section.id] = c.targetSectionId
+          else if (c.type === GRADUATE) resolvedTarget[section.id] = null
+          else if (c.type === NEW) {
+            const targetName = c.newName.trim().replace(/\s+/g, ' ')
+            const rolloverKey = buildRolloverKey({
+              schoolId: session.schoolId,
+              currentAcademicYear,
+              newYear,
+              sourceSectionId: section.id,
+              newGradeId: c.newGradeId,
+              name: targetName,
+            })
+            resolvedTarget[section.id] = await addSection(c.newGradeId, targetName, { idempotencyKey: rolloverKey })
+          }
         }
+        studentTargets = Object.fromEntries(
+          students
+            .filter((st) => Object.prototype.hasOwnProperty.call(resolvedTarget, st.sectionId))
+            .map((st) => [st.id, resolvedTarget[st.sectionId]]),
+        )
+        await setDoc(operationRef, {
+          schoolId: session.schoolId,
+          currentAcademicYear,
+          newYear: newYear.trim(),
+          resolvedTarget,
+          studentTargets,
+          status: 'running',
+          createdAt: Date.now(),
+        })
       }
 
-      // 2) تحريك كل طالب لشعبته الجديدة، على batches بحد 450 عملية
-      let movedCount = 0
-      let graduatedCount = 0
-      const affectedStudents = students.filter((st) => st.sectionId in resolvedTarget)
-      for (let i = 0; i < affectedStudents.length; i += 450) {
+      // 2) حرّك فقط الطلاب غير المكتملين. الخريطة المحفوظة تمنع إعادة توزيع الطلاب بشكل مختلف بعد الفشل.
+      const pendingStudents = students.filter((st) =>
+        Object.prototype.hasOwnProperty.call(studentTargets, st.id) && st.sectionId !== studentTargets[st.id]
+      )
+      for (let i = 0; i < pendingStudents.length; i += 450) {
         const batch = writeBatch(db)
-        affectedStudents.slice(i, i + 450).forEach((st) => {
-          const target = resolvedTarget[st.sectionId]
+        pendingStudents.slice(i, i + 450).forEach((st) => {
+          const target = studentTargets[st.id]
           batch.update(doc(db, 'users', st.id), { sectionId: target })
-          if (target === null) graduatedCount += 1
-          else movedCount += 1
         })
         await batch.commit()
       }
@@ -78,8 +123,13 @@ export default function AdminRolloverPage() {
       const finalBatch = writeBatch(db)
       finalBatch.update(doc(db, 'schools', session.schoolId), { currentAcademicYear: newYear.trim() })
       await finalBatch.commit()
+      await updateDoc(operationRef, { status: 'completed', completedAt: Date.now() })
 
+      const targets = Object.values(studentTargets)
+      const movedCount = targets.filter((target) => target !== null).length
+      const graduatedCount = targets.filter((target) => target === null).length
       setResult({ movedCount, graduatedCount, newYear: newYear.trim() })
+      setSavedOperation(null)
       setChoices({})
       setNewYear('')
     } catch (err) {

@@ -49,14 +49,15 @@ export default function InstructorAttendancePage() {
   useEffect(() => {
     if (!sectionId || !date) { setAbsentSet(new Set()); setExcusedMap({}); return }
     let cancelled = false
-    getAttendanceForDate(sectionId, date).then((records) => {
+    const studentUids = students.map((student) => student.id)
+    getAttendanceForDate(sectionId, date, studentUids).then((records) => {
       if (cancelled) return
       setAbsentSet(new Set(records.map((r) => r.studentUid)))
       setExcusedMap(Object.fromEntries(records.map((r) => [r.studentUid, r.excused])))
     })
     return () => { cancelled = true }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [sectionId, date])
+  }, [sectionId, date, students])
 
   function toggleAbsent(uid) {
     setAbsentSet((prev) => {
@@ -87,7 +88,7 @@ export default function InstructorAttendancePage() {
   async function handleSave() {
     setSaveError('')
     try {
-      const previousRecords = await getAttendanceForDate(sectionId, date)
+      const previousRecords = await getAttendanceForDate(sectionId, date, students.map((student) => student.id))
       const previousMap = new Map(previousRecords.map((r) => [r.studentUid, r.excused]))
 
       for (const st of students) {

@@ -224,12 +224,11 @@ export default function StudentProfilePage() {
         </div>
       </div>
 
-      {earlyWarning && (earlyWarning.attendanceAlert || earlyWarning.averageAlert || earlyWarning.subjectAlerts?.length > 0) && (
+      {earlyWarning && (earlyWarning.attendanceAlert || earlyWarning.subjectAlerts?.length > 0) && (
         <div className="panel" style={{ marginBottom: '20px', borderColor: 'var(--berry)' }}>
           <div style={{ fontWeight: 700, marginBottom: '6px', color: 'var(--berry)' }}><i className="ti ti-alert-triangle" /> إنذار مبكر نشط</div>
           <div style={{ fontSize: '12.5px', display: 'flex', flexDirection: 'column', gap: '3px' }}>
             {earlyWarning.attendanceAlert && <span>غياب مرتفع</span>}
-            {earlyWarning.averageAlert && <span>معدل عام منخفض</span>}
             {(earlyWarning.subjectAlerts || []).map((s) => <span key={s.subjectId}>خطر رسوب بمادة {s.subjectName}: {s.totalScore}/{s.totalMax}</span>)}
           </div>
         </div>
@@ -264,8 +263,8 @@ export default function StudentProfilePage() {
 
       <InterventionForm
         studentUid={studentUid} studentName={student.name}
-        defaultRisk={earlyWarning?.averageAlert || earlyWarning?.subjectAlerts?.length > 0 ? 'high' : earlyWarning?.attendanceAlert ? 'medium' : 'low'}
-        defaultReason={earlyWarning?.attendanceAlert ? 'غياب متكرر' : earlyWarning?.averageAlert ? 'معدل عام منخفض' : ''}
+        defaultRisk={earlyWarning?.subjectAlerts?.length > 0 ? 'high' : earlyWarning?.attendanceAlert ? 'medium' : 'low'}
+        defaultReason={earlyWarning?.attendanceAlert ? 'غياب متكرر' : earlyWarning?.subjectAlerts?.length > 0 ? 'علامة منخفضة بمادة' : ''}
       />
     </div>
   )

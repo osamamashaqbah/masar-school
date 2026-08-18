@@ -52,22 +52,22 @@ export default function AdminInsightsPage() {
         })
         const average = computeStudentAverage(studentSubjects, student.id, localGetMark, getStudentStats)
         const { unexcused, excused } = localGetAbsenceCounts(student.id)
-        const { attendanceAlert, averageAlert, subjectAlerts } = evaluateEarlyWarning({
-          unexcusedCount: unexcused, excusedCount: excused, average, subjectTotals,
+        const { attendanceAlert, subjectAlerts } = evaluateEarlyWarning({
+          unexcusedCount: unexcused, excusedCount: excused, subjectTotals,
         })
         const instructorUids = [...new Set(studentSubjects.map((subject) => subject.teacherUid).filter(Boolean))]
-        return { student, average, unexcused, excused, attendanceAlert, averageAlert, subjectAlerts, instructorUids }
+        return { student, average, unexcused, excused, attendanceAlert, subjectAlerts, instructorUids }
       })
 
       await Promise.all(
-        perStudent.map(({ student, average, unexcused, excused, attendanceAlert, averageAlert, subjectAlerts, instructorUids }) =>
+        perStudent.map(({ student, average, unexcused, excused, attendanceAlert, subjectAlerts, instructorUids }) =>
           setDoc(doc(db, 'earlyWarnings', student.id), {
             studentUid: student.id,
             schoolId: session.schoolId,
             sectionId: student.sectionId || null,
             instructorUids,
             attendanceAlert, unexcusedCount: unexcused, excusedCount: excused,
-            averageAlert, average,
+            averageAlert: false, average,
             subjectAlerts,
             updatedAt: Date.now(),
           })
@@ -131,9 +131,9 @@ export default function AdminInsightsPage() {
       })
 
       setResult({
-        flaggedCount: perStudent.filter((p) => p.attendanceAlert || p.averageAlert || p.subjectAlerts.length > 0).length,
+        flaggedCount: perStudent.filter((p) => p.attendanceAlert || p.subjectAlerts.length > 0).length,
         totalCount: perStudent.length,
-        flagged: perStudent.filter((p) => p.attendanceAlert || p.averageAlert || p.subjectAlerts.length > 0),
+        flagged: perStudent.filter((p) => p.attendanceAlert || p.subjectAlerts.length > 0),
       })
     } catch (err) {
       setError(`صار خطأ وقت التحديث: ${err.code || err.message}`)
@@ -169,7 +169,7 @@ export default function AdminInsightsPage() {
           {result.flagged.length === 0 ? (
             <p style={{ color: 'var(--ink-soft)', fontSize: '13px' }}>ولا طالب عنده إنذار حاليًا. 🎉</p>
           ) : (
-            result.flagged.map(({ student, attendanceAlert, averageAlert, subjectAlerts, average, unexcused, excused }) => (
+            result.flagged.map(({ student, attendanceAlert, subjectAlerts, unexcused, excused }) => (
               <div key={student.id} className="analytics-row" style={{ marginBottom: '10px' }}>
                 <div className="analytics-title">
                   {student.name}{' '}
@@ -179,7 +179,6 @@ export default function AdminInsightsPage() {
                 </div>
                 <div style={{ fontSize: '12.5px', color: 'var(--ink-soft)', marginTop: '4px', display: 'flex', flexDirection: 'column', gap: '3px' }}>
                   {attendanceAlert && <span><i className="ti ti-calendar-x" /> غياب: {unexcused} بدون عذر، {excused} بعذر</span>}
-                  {averageAlert && <span><i className="ti ti-trending-down" /> المعدل العام: {Math.round(average)}%</span>}
                   {subjectAlerts.map((s) => (
                     <span key={s.subjectId}><i className="ti ti-alert-triangle" /> خطر رسوب بمادة {s.subjectName}: {s.totalScore}/{s.totalMax}</span>
                   ))}

@@ -31,6 +31,7 @@ const { importStudents } = useBulkImport()
   const [importResults, setImportResults] = useState(null)
   const [credentialsHidden, setCredentialsHidden] = useState(false)
   const [importLoading, setImportLoading] = useState(false)
+  const [importProgress, setImportProgress] = useState(null)
 
   useEffect(() => {
     if (session?.role !== 'admin') return
@@ -79,6 +80,7 @@ function exportResultsToExcel() {
     setImportLoading(true)
     setImportResults(null)
     setCredentialsHidden(false)
+    setImportProgress(null)
 
     try {
       const rows = await parseStudentsExcel(importFile)
@@ -113,7 +115,8 @@ function exportResultsToExcel() {
       setImportCreatedCount(createdCount)
 
       if (matched.length > 0) {
-        const results = await importStudents(matched)
+        setImportProgress({ completed: 0, total: matched.length })
+        const results = await importStudents(matched, setImportProgress)
         setImportResults(results)
       }
     } catch (err) {
@@ -263,7 +266,7 @@ function exportResultsToExcel() {
         </div>
         {importError && <p className="auth-error">{importError}</p>}
         <button type="submit" className="btn btn-primary" disabled={importLoading || !importFile}>
-          {importLoading ? <i className="ti ti-loader-2 spin" /> : (<><i className="ti ti-upload" /> استيراد الطلاب</>)}
+          {importLoading ? <><i className="ti ti-loader-2 spin" /> استيراد {importProgress?.completed || 0}/{importProgress?.total || '…'}</> : (<><i className="ti ti-upload" /> استيراد الطلاب</>)}
         </button>
       </form>
 

@@ -37,13 +37,15 @@ export function BulkImportProvider({ children }) {
   // لكل طالب بننشئ حساب الطالب نفسه + حساب ولي أمر مرتبط فيه تلقائيًا (childUids).
   // إذا أكثر من طالب عندهم نفس "جوال ولي الأمر" (إخوان)، بنربطهم كلهم بنفس حساب ولي الأمر
   // بدل ما ننشئ حساب جديد لكل وحد.
-  async function importStudents(students) {
+  async function importStudents(students, onProgress) {
     const results = []
     // جوال ولي الأمر -> { uid, email, password, name }
     const parentByPhone = new Map()
 
-    for (let i = 0; i < students.length; i++) {
-      const { name, sectionId, parentPhone, parentName: customParentName } = students[i]
+    let completed = 0
+
+    async function processStudent({ student, index }) {
+      const { name, sectionId, parentPhone, parentName: customParentName } = student
       const slug = slugify(name).toLowerCase()
       // مفتاح ثابت (مدرسة+شعبة+اسم) بدل Date.now() — لو الاستيراد انقطع بالمنتصف، إعادة رفع
       // نفس الملف بترجع تصادف auth/email-already-in-use على الصفوف يلي خلصت فعلاً بدل ما
@@ -52,7 +54,7 @@ export function BulkImportProvider({ children }) {
       const studentPassword = `Student${Math.floor(1000 + Math.random() * 9000)}`
       const existingParent = parentPhone ? parentByPhone.get(parentPhone) : null
 
-      const secondaryApp = initializeApp(firebaseConfig, `bulk-${Date.now()}-${i}`)
+      const secondaryApp = initializeApp(firebaseConfig, `bulk-${Date.now()}-${index}`)
       const secondaryAuth = getAuth(secondaryApp)
 
       try {
@@ -145,7 +147,24 @@ export function BulkImportProvider({ children }) {
         }
       } finally {
         await deleteApp(secondaryApp)
+        completed += 1
+        onProgress?.({ completed, total: students.length })
       }
+    }
+
+    // الطلاب ذوو رقم ولي الأمر نفسه يبقون بالتسلسل حتى يُعاد استخدام حساب واحد،
+    // بينما العائلات المختلفة تُعالج على دفعات صغيرة لتسريع الاستيراد دون ضغط Auth.
+    const groupsByParent = new Map()
+    students.forEach((student, index) => {
+      const key = student.parentPhone || `row-${index}`
+      if (!groupsByParent.has(key)) groupsByParent.set(key, [])
+      groupsByParent.get(key).push({ student, index })
+    })
+    const groups = [...groupsByParent.values()]
+    for (let i = 0; i < groups.length; i += 5) {
+      await Promise.all(groups.slice(i, i + 5).map(async (group) => {
+        for (const item of group) await processStudent(item)
+      }))
     }
 
     return results

@@ -1,5 +1,7 @@
 import { useState } from 'react'
 import * as XLSX from 'xlsx'
+import { EmailAuthProvider, reauthenticateWithCredential } from 'firebase/auth'
+import { auth } from '../firebase'
 import { useSession } from '../context/SessionContext'
 import { useSchoolStructure } from '../context/SchoolStructureContext'
 import { useMarks } from '../context/MarksContext'
@@ -19,10 +21,21 @@ export default function AdminExportPage() {
   const { allMarks } = useMarks()
   const { schoolAbsences } = useAttendance()
   const [exporting, setExporting] = useState(false)
+  const [password, setPassword] = useState('')
+  const [error, setError] = useState('')
+  const [success, setSuccess] = useState('')
 
-  function handleExport() {
+  async function handleExport(e) {
+    e.preventDefault()
+    setError('')
+    setSuccess('')
+    if (!password) { setError('اكتب كلمة السر الحالية للتأكيد.'); return }
     setExporting(true)
     try {
+      await reauthenticateWithCredential(auth.currentUser, EmailAuthProvider.credential(session.email, password))
+      const audited = await logAudit(session.schoolId, session.uid, session.name, 'export_school_data', 'school', session.schoolId, 'إعادة تحقق ناجحة قبل تصدير بيانات المدرسة')
+      if (!audited) throw new Error('تعذّر تسجيل عملية التصدير في سجل التدقيق.')
+
       const wb = XLSX.utils.book_new()
       const sectionName = (id) => sections.find((s) => s.id === id)?.name || ''
       const gradeName = (id) => grades.find((g) => g.id === id)?.name || ''
@@ -53,7 +66,12 @@ export default function AdminExportPage() {
       ), 'الحضور والغياب')
 
       XLSX.writeFile(wb, `مسار-تصدير-${session.schoolId}-${new Date().toISOString().slice(0, 10)}.xlsx`)
-      logAudit(session.schoolId, session.uid, session.name, 'export_school_data', 'school', session.schoolId)
+      setPassword('')
+      setSuccess('تم تصدير الملف وتسجيل العملية في سجل التدقيق.')
+    } catch (err) {
+      setError(err.code === 'auth/invalid-credential' || err.code === 'auth/wrong-password'
+        ? 'كلمة السر غير صحيحة.'
+        : err.message || 'تعذّر التصدير. حاول مرة ثانية.')
     } finally {
       setExporting(false)
     }
@@ -67,9 +85,17 @@ export default function AdminExportPage() {
         بيصدّر ملف Excel واحد فيه كل المستخدمين، المواد، العلامات، والحضور — نسخة احتياطية تقدر تحتفظ فيها،
         أو تستخدمها لأي طلب وصول لبياناتك حسب قانون حماية البيانات الشخصية.
       </p>
-      <button type="button" className="btn btn-primary" onClick={handleExport} disabled={exporting} style={{ width: 'auto', padding: '11px 22px' }}>
-        {exporting ? <i className="ti ti-loader-2 spin" /> : <><i className="ti ti-download" /> تصدير الآن</>}
-      </button>
+      <form className="panel" onSubmit={handleExport} style={{ maxWidth: '520px' }}>
+        <div className="field">
+          <label htmlFor="export-password">كلمة السر الحالية (للتأكيد)</label>
+          <input id="export-password" type="password" autoComplete="current-password" value={password} onChange={(e) => setPassword(e.target.value)} required />
+        </div>
+        {error && <p className="auth-error">{error}</p>}
+        {success && <p style={{ color: 'var(--pine)', fontSize: '13px' }}>{success}</p>}
+        <button type="submit" className="btn btn-primary" disabled={exporting} style={{ width: 'auto', padding: '11px 22px' }}>
+          {exporting ? <i className="ti ti-loader-2 spin" /> : <><i className="ti ti-download" /> تحقق وصدّر الآن</>}
+        </button>
+      </form>
     </div>
   )
 }

@@ -9,7 +9,7 @@ export async function logAudit(schoolId, actorUid, actorName, action, targetType
     const idToken = await auth.currentUser?.getIdToken()
     if (!workerUrl || !idToken) {
       console.error('[سجل التدقيق] Worker غير مضبوط أو الجلسة منتهية')
-      return
+      return false
     }
     const response = await fetch(`${workerUrl}/audit-log`, {
       method: 'POST',
@@ -17,7 +17,9 @@ export async function logAudit(schoolId, actorUid, actorName, action, targetType
       body: JSON.stringify({ schoolId, action, targetType, targetId: targetId || null, details }),
     })
     if (!response.ok) throw new Error(`audit-log ${response.status}`)
+    return true
   } catch (err) {
     console.error('[سجل التدقيق] فشل التسجيل:', err)
+    return false
   }
 }

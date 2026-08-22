@@ -21,6 +21,7 @@ export function SchoolStructureProvider({ children }) {
   const [currency, setCurrency] = useState('JOD')
   const [paymentInfo, setPaymentInfo] = useState(null)
   const [branding, setBranding] = useState(null)
+  const [gradebookLocks, setGradebookLocks] = useState({ marks: false, attendance: false })
   const [syncedPermissions, setSyncedPermissions] = useState(false)
   const [syncedParentLinks, setSyncedParentLinks] = useState(false)
 
@@ -47,7 +48,7 @@ export function SchoolStructureProvider({ children }) {
   useEffect(() => {
     if (!session) {
       setSchoolName(''); setCurrentAcademicYear(null); setFeatures({})
-      setRamadanSchedule({ enabled: false, shortDayHours: null }); setCurrency('JOD')
+      setRamadanSchedule({ enabled: false, shortDayHours: null }); setCurrency('JOD'); setGradebookLocks({ marks: false, attendance: false })
       return
     }
     const unsub = onSnapshot(doc(db, 'schools', session.schoolId), (snap) => {
@@ -58,6 +59,7 @@ export function SchoolStructureProvider({ children }) {
       setCurrency(snap.data()?.currency || 'JOD')
       setPaymentInfo(snap.data()?.paymentInfo || null)
       setBranding(snap.data()?.branding || null)
+      setGradebookLocks(snap.data()?.gradebookLocks || { marks: false, attendance: false })
     })
     return () => unsub()
   }, [session])
@@ -259,16 +261,21 @@ export function SchoolStructureProvider({ children }) {
     await updateDoc(doc(db, 'schools', session.schoolId), { branding: info })
     logAudit(session.schoolId, session.uid, session.name, 'set_branding', 'school', session.schoolId, JSON.stringify(info))
   }
+  async function setGradebookLock(area, locked) {
+    if (!['marks', 'attendance'].includes(area)) return
+    await updateDoc(doc(db, 'schools', session.schoolId), { [`gradebookLocks.${area}`]: locked })
+    logAudit(session.schoolId, session.uid, session.name, locked ? 'lock_gradebook' : 'unlock_gradebook', 'school', session.schoolId, area)
+  }
 
   return (
     <SchoolStructureContext.Provider
      value={{
         grades, sections, subjects, subjectsLoaded, archivedSubjects, allUsers, schoolName, currentAcademicYear, features,
-        ramadanSchedule, currency, paymentInfo, branding,
+        ramadanSchedule, currency, paymentInfo, branding, gradebookLocks,
         addGrade, addSection, addSubject,
         getSectionsForGrade, getSubjectsForSection,
         addLessonToSubject, updateSubjectLesson, updateSubjectCategories,
-        archiveSubject, restoreSubject, setFeature, updateRamadanSchedule, updateCurrency, updatePaymentInfo, updateBranding,
+        archiveSubject, restoreSubject, setFeature, updateRamadanSchedule, updateCurrency, updatePaymentInfo, updateBranding, setGradebookLock,
       }}
     >
       {children}

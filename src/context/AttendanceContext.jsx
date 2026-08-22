@@ -5,6 +5,7 @@ import { useSession } from './SessionContext'
 import { useSchoolStructure } from './SchoolStructureContext'
 import { sendNotification } from '../utils/notify'
 import { chunkArray } from '../utils/chunk'
+import { logAudit } from '../utils/audit'
 
 const AttendanceContext = createContext(null)
 
@@ -96,6 +97,7 @@ export function AttendanceProvider({ children }) {
       academicYear: currentAcademicYear,
       createdAt: Date.now(),
     })
+    logAudit(session.schoolId, session.uid, session.name, 'set_attendance', 'student', studentUid, `${date}: ${excused ? 'excused' : 'absent'}`)
 
     // إشعار الطالب وأهله بالغياب — أفضل جهد، ما لازم يوقف حفظ الحضور لو فشل لأي سبب.
     try {
@@ -123,11 +125,13 @@ export function AttendanceProvider({ children }) {
   async function updateExcused(studentUid, date, excused) {
     const docId = `${studentUid}_${date}`
     await setDoc(doc(db, 'attendance', docId), { excused }, { merge: true })
+    logAudit(session.schoolId, session.uid, session.name, 'update_attendance_excuse', 'student', studentUid, `${date}: ${excused}`)
   }
 
   async function setPresent(studentUid, date) {
     const docId = `${studentUid}_${date}`
     await deleteDoc(doc(db, 'attendance', docId))
+    logAudit(session.schoolId, session.uid, session.name, 'remove_attendance', 'student', studentUid, date)
   }
 
   // بيرجع [{date, excused}, ...] الأحدث أول

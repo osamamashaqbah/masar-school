@@ -43,6 +43,8 @@ await db.collection('users').doc(userRecord.uid).set({
   role: 'admin',
   email,
   schoolId: schoolRef.id,
+  status: 'active',
+  mustChangePassword: true,
 })
 
 console.log(`تم إنشاء مدرسة "${school}" (schoolId: ${schoolRef.id})`)

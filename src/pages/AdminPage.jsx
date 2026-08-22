@@ -9,7 +9,7 @@ import TaskCenter from '../components/TaskCenter'
 
 export default function AdminPage() {
   const { session } = useSession()
-  const { subjects } = useSchoolStructure()
+  const { subjects, grades, sections, currentAcademicYear } = useSchoolStructure()
   const { notifications, unreadCount } = useNotifications()
 
   const [users, setUsers] = useState([])
@@ -21,6 +21,8 @@ export default function AdminPage() {
   const [error, setError] = useState('')
   const [success, setSuccess] = useState('')
   const [loading, setLoading] = useState(false)
+  const [accountActionUid, setAccountActionUid] = useState(null)
+  const [temporaryCredential, setTemporaryCredential] = useState(null)
 
   useEffect(() => {
     if (session?.role !== 'admin') return
@@ -37,12 +39,36 @@ export default function AdminPage() {
   const studentCount = users.filter((u) => u.role === 'student').length
   const parentCount = users.filter((u) => u.role === 'parent').length
   const students = users.filter((u) => u.role === 'student')
+  const studentsWithoutSection = students.filter((u) => !u.sectionId)
+  const subjectsWithoutTeacher = subjects.filter((s) => !s.teacherUid)
+  const instructorsWithoutSubjects = users.filter((u) => u.role === 'instructor' && !subjects.some((s) => s.teacherUid === u.id))
   const adminTasks = [
+    ...(!currentAcademicYear ? [{
+      id: 'academic-year', icon: 'ti-calendar-event', title: 'حدّد السنة الدراسية الحالية', meta: 'السجلات الجديدة تحتاج سنة نشطة', badge: 'إعداد', tone: 'urgent', to: '/app/settings',
+    }] : []),
+    ...(grades.length === 0 ? [{
+      id: 'first-grade', icon: 'ti-school', title: 'أنشئ الصفوف والشعب', meta: 'ابدأ بالهيكل الدراسي قبل استيراد الطلاب', badge: 'إعداد', tone: 'urgent', to: '/app/school-structure',
+    }] : []),
     ...(students.length === 0 ? [{
       id: 'first-student', icon: 'ti-user-plus', title: 'أضف أول طالب للمدرسة', meta: 'لا توجد حسابات طلاب بعد', badge: 'ابدأ هنا', tone: 'urgent', to: '/app/admin',
     }] : []),
-    ...(subjects.length === 0 ? [{
-      id: 'first-subject', icon: 'ti-books', title: 'أضف مواد وشعب المدرسة', meta: 'أنشئ هيكلًا دراسيًا لتبدأ المتابعة', badge: 'إعداد', tone: 'soon', to: '/app/school-structure',
+    ...(sections.length === 0 && grades.length > 0 ? [{
+      id: 'first-section', icon: 'ti-layout-grid', title: 'أضف أول شعبة', meta: 'اربط الطلاب والمعلمين بشعب واضحة', badge: 'إعداد', tone: 'soon', to: '/app/school-structure',
+    }] : []),
+    ...(subjects.length === 0 && sections.length > 0 ? [{
+      id: 'first-subject', icon: 'ti-books', title: 'أضف مواد للشعب', meta: 'أنشئ مواد حتى يبدأ التدريس والتقييم', badge: 'إعداد', tone: 'soon', to: '/app/school-structure',
+    }] : []),
+    ...(studentsWithoutSection.length > 0 ? [{
+      id: 'unassigned-students', icon: 'ti-user-search', title: `${studentsWithoutSection.length} طالب بلا شعبة`, meta: 'اربطهم قبل تسجيل الحضور والدرجات', badge: 'يحتاج متابعة', tone: 'urgent', to: '/app/school-structure',
+    }] : []),
+    ...(subjectsWithoutTeacher.length > 0 ? [{
+      id: 'unassigned-subjects', icon: 'ti-chalkboard-off', title: `${subjectsWithoutTeacher.length} مادة بلا معلم`, meta: 'لن يستطيع أحد إدارتها أو تقييم طلابها', badge: 'يحتاج متابعة', tone: 'soon', to: '/app/school-structure',
+    }] : []),
+    ...(instructorsWithoutSubjects.length > 0 ? [{
+      id: 'idle-instructors', icon: 'ti-chalkboard', title: `${instructorsWithoutSubjects.length} معلم بلا مادة`, meta: 'راجع توزيع الحصص والمواد', badge: 'توزيع', tone: 'soon', to: '/app/school-structure',
+    }] : []),
+    ...(!import.meta.env.VITE_ADMIN_OPS_WORKER_URL ? [{
+      id: 'worker-config', icon: 'ti-alert-triangle', title: 'اربط خدمة إنشاء الحسابات', meta: 'إضافة المستخدمين ستفشل بدون Worker مضبوط', badge: 'تشغيل', tone: 'urgent', to: '/app/settings',
     }] : []),
     ...notifications.filter((notification) => !notification.read).slice(0, 3).map((notification) => ({
       id: `notification-${notification.id}`,
@@ -102,6 +128,49 @@ export default function AdminPage() {
     }
   }
 
+  async function handleAccountAction(user, action) {
+    if (action === 'deactivate' && !window.confirm(`تعطيل حساب ${user.name}؟ لن يستطيع الدخول حتى تفعّله من جديد.`)) return
+    setError('')
+    setSuccess('')
+    setTemporaryCredential(null)
+    setAccountActionUid(user.id)
+    try {
+      const idToken = await auth.currentUser.getIdToken()
+      const res = await fetch(`${import.meta.env.VITE_ADMIN_OPS_WORKER_URL}/update-school-user`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${idToken}` },
+        body: JSON.stringify({ uid: user.id, action }),
+      })
+      const data = await res.json().catch(() => ({}))
+      if (!res.ok) {
+        setError(translateWorkerError(data))
+        return
+      }
+      if (action === 'reset-password') {
+        setTemporaryCredential({ email: user.email, password: data.temporaryPassword })
+        setSuccess('تم إصدار كلمة سر مؤقتة. سلّمها للمستخدم بأمان وسيُطلب منه تغييرها عند الدخول.')
+      } else {
+        setSuccess(action === 'deactivate' ? 'تم تعطيل الحساب.' : 'تم تفعيل الحساب.')
+      }
+    } catch (err) {
+      console.error('[إدارة الحساب] خطأ غير متوقع:', err)
+      setError('صار خطأ غير متوقع. تأكد من اتصالك بالإنترنت وحاول مرة ثانية.')
+    } finally {
+      setAccountActionUid(null)
+    }
+  }
+
+  const readinessSteps = [
+    { label: 'السنة الدراسية', done: Boolean(currentAcademicYear) },
+    { label: 'الصفوف والشعب', done: grades.length > 0 && sections.length > 0 },
+    { label: 'الطلاب', done: students.length > 0 },
+    { label: 'ربط الطلاب بالشعب', done: students.length > 0 && studentsWithoutSection.length === 0 },
+    { label: 'المواد والمعلمون', done: subjects.length > 0 && subjectsWithoutTeacher.length === 0 },
+    { label: 'خدمة الحسابات', done: Boolean(import.meta.env.VITE_ADMIN_OPS_WORKER_URL) },
+  ]
+  const readyCount = readinessSteps.filter((step) => step.done).length
+  const readinessPercent = Math.round((readyCount / readinessSteps.length) * 100)
+
   return (
     <div>
       <div className="eyebrow">لوحة إدارة المدرسة</div>
@@ -119,6 +188,28 @@ export default function AdminPage() {
         ]}
         emptyText="لا توجد مهام عاجلة. راجع المؤشرات أو أنشئ حسابًا جديدًا عند الحاجة."
       />
+
+      <div className="panel" style={{ marginTop: '16px' }} aria-label="مؤشر جاهزية المدرسة">
+        <div style={{ display: 'flex', justifyContent: 'space-between', gap: '12px', alignItems: 'center' }}>
+          <div>
+            <div className="eyebrow" style={{ marginBottom: '4px' }}>مؤشر التفعيل</div>
+            <strong>{readyCount} من {readinessSteps.length} خطوات مكتملة</strong>
+          </div>
+          <strong style={{ color: readinessPercent === 100 ? 'var(--pine)' : 'var(--sunset)' }}>{readinessPercent}%</strong>
+        </div>
+        <div
+          role="progressbar"
+          aria-valuenow={readinessPercent}
+          aria-valuemin="0"
+          aria-valuemax="100"
+          style={{ height: '8px', margin: '12px 0', borderRadius: '99px', background: 'var(--paper-deep)', overflow: 'hidden' }}
+        >
+          <div style={{ width: `${readinessPercent}%`, height: '100%', background: readinessPercent === 100 ? 'var(--pine)' : 'var(--sunset)', transition: 'width 180ms ease' }} />
+        </div>
+        <div style={{ display: 'flex', flexWrap: 'wrap', gap: '6px 14px', fontSize: '12px', color: 'var(--ink-soft)' }}>
+          {readinessSteps.map((step) => <span key={step.label}><i className={`ti ${step.done ? 'ti-circle-check' : 'ti-circle-x'}`} /> {step.label}</span>)}
+        </div>
+      </div>
 
       <div className="owner-stats-grid">
         <div className="owner-stat-card">
@@ -203,6 +294,17 @@ export default function AdminPage() {
         </button>
       </form>
 
+      {temporaryCredential && (
+        <div className="panel" style={{ maxWidth: '520px', marginTop: '16px', borderColor: 'var(--sunset)' }}>
+          <strong><i className="ti ti-key" /> بيانات مؤقتة — تظهر الآن فقط</strong>
+          <p style={{ margin: '8px 0 0', fontSize: '13px' }}>البريد: {temporaryCredential.email}</p>
+          <p style={{ margin: '4px 0', fontSize: '13px' }}>كلمة السر: <code>{temporaryCredential.password}</code></p>
+          <button type="button" className="btn" style={{ marginTop: '8px', width: 'auto' }} onClick={() => setTemporaryCredential(null)}>
+            <i className="ti ti-eye-off" /> أخفيها
+          </button>
+        </div>
+      )}
+
       <div className="eyebrow" style={{ marginTop: '32px' }}>كل المستخدمين</div>
       <h2 className="page-title" style={{ marginBottom: '16px', fontSize: '20px' }}>قائمة الحسابات المسجّلة</h2>
 
@@ -230,9 +332,27 @@ export default function AdminPage() {
                 </div>
               )}
             </div>
-            <span className="tag" style={{ background: roleColor(u.role) + '22', color: roleColor(u.role) }}>
-              {roleLabel(u.role)}
-            </span>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '6px', flexWrap: 'wrap', justifyContent: 'flex-end' }}>
+              <span className="tag" style={{ background: roleColor(u.role) + '22', color: roleColor(u.role) }}>
+                {roleLabel(u.role)}
+              </span>
+              {u.role !== 'admin' && (
+                <>
+                  <span className="tag" style={{ background: (u.status === 'inactive' ? 'var(--berry)' : 'var(--pine)') + '22', color: u.status === 'inactive' ? 'var(--berry)' : 'var(--pine)' }}>
+                    {u.status === 'inactive' ? 'معطّل' : 'نشط'}
+                  </span>
+                  <button type="button" className="btn" style={{ width: 'auto', padding: '5px 8px', fontSize: '11px' }} disabled={accountActionUid === u.id} onClick={() => handleAccountAction(u, u.status === 'inactive' ? 'activate' : 'deactivate')}>
+                    {accountActionUid === u.id ? <i className="ti ti-loader-2 spin" /> : <i className={`ti ${u.status === 'inactive' ? 'ti-user-check' : 'ti-user-off'}`} />}
+                    {u.status === 'inactive' ? 'تفعيل' : 'تعطيل'}
+                  </button>
+                  {u.status !== 'inactive' && (
+                    <button type="button" className="btn" style={{ width: 'auto', padding: '5px 8px', fontSize: '11px' }} disabled={accountActionUid === u.id} onClick={() => handleAccountAction(u, 'reset-password')}>
+                      <i className="ti ti-key" /> إعادة كلمة السر
+                    </button>
+                  )}
+                </>
+              )}
+            </div>
           </div>
         ))}
       </div>

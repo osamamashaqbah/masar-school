@@ -47,6 +47,42 @@ function FeatureFlagsSection() {
   )
 }
 
+function GradebookLockSection() {
+  const { currentAcademicYear, gradebookLocks, setGradebookLock } = useSchoolStructure()
+  const areas = [
+    { key: 'marks', label: 'العلامات', icon: 'ti-certificate' },
+    { key: 'attendance', label: 'الحضور والغياب', icon: 'ti-calendar-check' },
+  ]
+
+  async function toggle(area, locked) {
+    if (locked && !window.confirm(`سيتم منع تعديل ${area === 'marks' ? 'العلامات' : 'الحضور'} للسنة الحالية. متأكد؟`)) return
+    await setGradebookLock(area, locked)
+  }
+
+  return (
+    <div className="settings-section">
+      <div className="settings-section-head">
+        <h3><i className="ti ti-lock" /> قفل السجل الدراسي</h3>
+        <p>بعد القفل لا يستطيع المعلمون تعديل بيانات السنة الحالية حتى تفك الإدارة القفل.</p>
+      </div>
+      <div className="panel card-hover-lift" style={{ maxWidth: '480px' }}>
+        <p style={{ fontSize: '12px', color: 'var(--ink-soft)', marginTop: 0 }}>السنة الحالية: {currentAcademicYear || 'غير محددة'}</p>
+        {areas.map((area) => {
+          const locked = gradebookLocks?.[area.key] === true
+          return (
+            <div key={area.key} className="account-panel-row" style={{ justifyContent: 'space-between', padding: '8px 0' }}>
+              <span style={{ fontSize: '13.5px' }}><i className={`ti ${area.icon}`} /> {area.label}</span>
+              <button type="button" style={{ background: locked ? 'var(--sunset)' : 'var(--pine)', color: '#fff', border: 'none', borderRadius: '99px', padding: '5px 14px', fontSize: '12px', fontWeight: 700, cursor: 'pointer' }} onClick={() => toggle(area.key, !locked)}>
+                {locked ? 'مقفول' : 'مفتوح'}
+              </button>
+            </div>
+          )
+        })}
+      </div>
+    </div>
+  )
+}
+
 const CURRENCIES = [
   { code: 'JOD', label: 'دينار أردني (JOD)' },
   { code: 'SAR', label: 'ريال سعودي (SAR)' },
@@ -338,7 +374,7 @@ function ProfileSection() {
 }
 
 export default function SettingsPage() {
-  const { session } = useSession()
+  const { session, clearMustChangePassword } = useSession()
   const [currentPassword, setCurrentPassword] = useState('')
   const [newPassword, setNewPassword] = useState('')
   const [confirmPassword, setConfirmPassword] = useState('')
@@ -365,6 +401,7 @@ export default function SettingsPage() {
       const credential = EmailAuthProvider.credential(session.email, currentPassword)
       await reauthenticateWithCredential(auth.currentUser, credential)
       await updatePassword(auth.currentUser, newPassword)
+      if (session.mustChangePassword) await clearMustChangePassword()
 
       setSuccess('تم تغيير كلمة السر بنجاح.')
       setCurrentPassword('')
@@ -387,6 +424,13 @@ export default function SettingsPage() {
         <div className="role-badge"><i className="ti ti-settings" /> {roleLabel(session.role)}</div>
       </div>
 
+      {session.mustChangePassword && (
+        <div className="panel" style={{ maxWidth: '560px', marginBottom: '18px', borderColor: 'var(--sunset)' }}>
+          <strong><i className="ti ti-shield-lock" /> لازم تغيّر كلمة السر قبل استخدام المنصة.</strong>
+          <p style={{ margin: '6px 0 0', color: 'var(--ink-soft)', fontSize: '13px' }}>تم إنشاء هذا الحساب بكلمة سر مؤقتة. بعد الحفظ ستفتح لك بقية الصفحات.</p>
+        </div>
+      )}
+
       <AccountSection />
 
       <ProfileSection />
@@ -394,6 +438,7 @@ export default function SettingsPage() {
       <ThemePickerSection />
 
       {session.role === 'admin' && <FeatureFlagsSection />}
+      {session.role === 'admin' && <GradebookLockSection />}
       {session.role === 'admin' && <GulfReadinessSection />}
 
       <div className="settings-section-head">

@@ -120,6 +120,7 @@ function translateFirebaseError(code) {
     'auth/invalid-email': 'صيغة البريد الإلكتروني مو صحيحة.',
     'auth/too-many-requests': 'محاولات كتير. جرب بعد شوي.',
     'app/no-profile': 'في مشكلة بحسابك. تواصل مع إدارة المدرسة.',
+    'app/inactive-account': 'هذا الحساب معطّل. تواصل مع إدارة المدرسة لتفعيله.',
   }
   return map[code] || 'صار خطأ غير متوقع. جرب مرة ثانية.'
 }

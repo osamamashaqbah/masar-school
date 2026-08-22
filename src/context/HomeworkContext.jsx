@@ -137,11 +137,14 @@ export function HomeworkProvider({ children }) {
   }
 
   // واجبات الطالب يلي إلها موعد نهائي قريب وما انسلّمت بعد — مرتبة الأقرب أول، مع مستوى إلحاح
-  function getUpcomingDeadlines(subjectIds) {
+  function getUpcomingDeadlines(subjectIds, studentUid = session?.uid) {
     const now = Date.now()
+    const submittedIds = studentUid === session?.uid
+      ? new Set(Object.keys(submissions))
+      : new Set(submissionsForPattern.filter((submission) => submission.studentUid === studentUid).map((submission) => submission.homeworkId))
     return homework
       .filter((h) => subjectIds.includes(h.courseId) && (!h.academicYear || h.academicYear === currentAcademicYear))
-      .filter((h) => !getSubmission(h.id))
+      .filter((h) => !submittedIds.has(h.id))
       .map((h) => {
         const deadlineMs = h.deadline?.toMillis?.() ?? new Date(h.deadline).getTime()
         const hoursLeft = (deadlineMs - now) / 3600000

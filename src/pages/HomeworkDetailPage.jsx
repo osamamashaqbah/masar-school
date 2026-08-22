@@ -2,6 +2,7 @@ import { useState } from 'react'
 import { useParams, useNavigate } from 'react-router-dom'
 import { useSchoolStructure } from '../context/SchoolStructureContext'
 import { useHomework } from '../context/HomeworkContext'
+import { useSession } from '../context/SessionContext'
 import { parseMaterialUrl } from '../utils/parseMaterialUrl'
 
 const STATUS_LABELS = {
@@ -16,6 +17,7 @@ export default function HomeworkDetailPage() {
   const navigate = useNavigate()
   const { subjects } = useSchoolStructure()
   const { homework, getSubmission, submitHomework, resubmitHomework } = useHomework()
+  const { session } = useSession()
 
   const hw = homework.find((h) => h.id === homeworkId)
   const course = hw ? subjects.find((c) => c.id === hw.courseId) : null
@@ -92,7 +94,9 @@ export default function HomeworkDetailPage() {
       )}
 
       <div className="quiz-card animate-stagger" style={{ animationDelay: '120ms' }}>
-        {submission && !canResubmit ? (
+        {session.role !== 'student' ? (
+          <p style={{ margin: 0, color: 'var(--ink-soft)' }}><i className="ti ti-eye" /> هذا الواجب للعرض والمتابعة. التسليم يتم من حساب الطالب.</p>
+        ) : submission && !canResubmit ? (
           <div>
             <p style={{ color: submission.status === 'graded' ? 'var(--pine)' : 'inherit', fontWeight: 600, margin: '0 0 6px' }}>
               <i className={`ti ${submission.status === 'graded' ? 'ti-circle-check' : 'ti-clock'}`} />{' '}

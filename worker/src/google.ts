@@ -72,6 +72,20 @@ export async function createIdentityUser(
   return { localId: data.localId, email: data.email || input.email }
 }
 
+export async function updateIdentityUser(
+  accessToken: string,
+  projectId: string,
+  localId: string,
+  input: { disableUser?: boolean; password?: string },
+): Promise<void> {
+    const res = await fetch(`${IDENTITYTOOLKIT_BASE}/${projectId}/accounts:update`, {
+    method: 'POST',
+    headers: { Authorization: `Bearer ${accessToken}`, 'Content-Type': 'application/json' },
+    body: JSON.stringify({ localId, ...input }),
+  })
+  if (!res.ok) throw new Error(`فشل تحديث حساب Auth ${localId}: ${res.status} ${await res.text()}`)
+}
+
 // حذف حساب Auth — نستخدمها للتراجع لو فشلت كتابة الملف الشخصي بعد نجاح إنشاء الحساب
 // (Bug 2.1: حساب يتيم بلا ملف Firestore وبريد محجوز للأبد)
 export async function deleteIdentityUser(accessToken: string, projectId: string, localId: string): Promise<void> {

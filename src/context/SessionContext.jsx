@@ -18,18 +18,31 @@ export function SessionProvider({ children }) {
       sectionId: data.sectionId || null,
       childUids: data.childUids || [],
       consentGivenAt: data.consentGivenAt || null,
+      status: data.status || 'active',
+      mustChangePassword: data.mustChangePassword === true,
     }
   }
 
   useEffect(() => {
     const unsubscribe = onAuthStateChanged(auth, async (firebaseUser) => {
-      if (firebaseUser) {
-        const profileSnap = await getDoc(doc(db, 'users', firebaseUser.uid))
-        setSession(profileSnap.exists() ? buildSession(firebaseUser.uid, firebaseUser.email, profileSnap.data()) : null)
-      } else {
+      try {
+        if (firebaseUser) {
+          const profileSnap = await getDoc(doc(db, 'users', firebaseUser.uid))
+          if (!profileSnap.exists() || profileSnap.data().status === 'inactive') {
+            await signOut(auth)
+            setSession(null)
+          } else {
+            setSession(buildSession(firebaseUser.uid, firebaseUser.email, profileSnap.data()))
+          }
+        } else {
+          setSession(null)
+        }
+      } catch (err) {
+        console.error('[الجلسة] فشل تحميل ملف المستخدم:', err)
         setSession(null)
+      } finally {
+        setAuthLoading(false)
       }
-      setAuthLoading(false)
     })
     return () => unsubscribe()
   }, [])
@@ -44,6 +57,12 @@ export function SessionProvider({ children }) {
       await signOut(auth)
       const err = new Error('signed in but no matching user profile')
       err.code = 'app/no-profile'
+      throw err
+    }
+    if (profileSnap.data().status === 'inactive') {
+      await signOut(auth)
+      const err = new Error('user account is inactive')
+      err.code = 'app/inactive-account'
       throw err
     }
     const nextSession = buildSession(credential.user.uid, credential.user.email, profileSnap.data())
@@ -70,8 +89,13 @@ export function SessionProvider({ children }) {
     setSession((prev) => ({ ...prev, consentGivenAt: new Date() }))
   }
 
+  async function clearMustChangePassword() {
+    await updateDoc(doc(db, 'users', session.uid), { mustChangePassword: false })
+    setSession((prev) => ({ ...prev, mustChangePassword: false }))
+  }
+
   return (
-    <SessionContext.Provider value={{ session, login, logout, authLoading, updateProfile, giveConsent }}>
+    <SessionContext.Provider value={{ session, login, logout, authLoading, updateProfile, giveConsent, clearMustChangePassword }}>
       {children}
     </SessionContext.Provider>
   )

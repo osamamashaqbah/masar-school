@@ -75,7 +75,7 @@ export default function ParentDashboardPage() {
   const { getMark, formatMark } = useMarks()
   const { getStudentStats } = useQuizStats()
   const { getAbsenceDatesFor } = useAttendance()
-  const { getProcrastinationPattern } = useHomework()
+  const { getProcrastinationPattern, getUpcomingDeadlines } = useHomework()
   const { myRequests } = useExcuseRequests()
   const { notifications, unreadCount } = useNotifications()
 
@@ -127,6 +127,18 @@ export default function ParentDashboardPage() {
       tone: 'urgent',
       to: '/app/parent-dashboard',
     })),
+    ...children.flatMap((child) => {
+      const childSubjects = subjects.filter((subject) => subject.sectionId === child.sectionId)
+      return getUpcomingDeadlines(childSubjects.map((subject) => subject.id), child.id).slice(0, 2).map((homework) => ({
+        id: `homework-${child.id}-${homework.id}`,
+        icon: 'ti-notebook-off',
+        title: `${child.name}: واجب يحتاج تسليم`,
+        meta: homework.title,
+        badge: homework.urgency === 'urgent' ? 'عاجل' : 'قريب',
+        tone: homework.urgency === 'urgent' ? 'urgent' : 'soon',
+        to: `/app/homework/${homework.courseId}`,
+      }))
+    }).slice(0, 3),
     ...notifications.filter((notification) => !notification.read).slice(0, 2).map((notification) => ({
       id: `notification-${notification.id}`,
       icon: 'ti-bell',

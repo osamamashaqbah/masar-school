@@ -65,6 +65,7 @@ export function BulkImportProvider({ children }) {
             email: studentEmail,
             sectionId,
             schoolId: session.schoolId,
+            mustChangePassword: true,
           })
         } catch (profileErr) {
           // فشل كتابة الملف الشخصي بعد نجاح إنشاء حساب Auth — نتراجع فورًا بدل ترك حساب
@@ -107,6 +108,7 @@ export function BulkImportProvider({ children }) {
                 email: parentEmail,
                 childUids: [studentUid],
                 schoolId: session.schoolId,
+                mustChangePassword: true,
               })
               // منعكسة على وثيقة الطالب نفسه (parentUids) حتى يقدر المعلّم يعرف مين أهل الطالب
               // ويبعتلهم إشعار (حضور/علامة) بدون ما يحتاج صلاحية جديدة يقرا فيها كل حسابات أولياء الأمور.

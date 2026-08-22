@@ -1,4 +1,4 @@
-import { getAccessToken, verifyFirebaseIdToken, createIdentityUser, deleteIdentityUser, type ServiceAccount } from './google'
+import { getAccessToken, verifyFirebaseIdToken, createIdentityUser, updateIdentityUser, deleteIdentityUser, type ServiceAccount } from './google'
 import { firestoreGetDoc, firestoreCreateDoc, firestorePatchDoc, firestoreDeleteDoc } from './firestore'
 
 interface Env extends Cloudflare.Env {
@@ -11,6 +11,11 @@ interface CreateUserBody {
   password?: unknown
   role?: unknown
   childUids?: unknown
+}
+
+interface UpdateUserBody {
+  uid?: unknown
+  action?: unknown
 }
 
 const VALID_ROLES = ['student', 'instructor', 'parent'] as const
@@ -53,14 +58,16 @@ export default {
     }
 
     const url = new URL(request.url)
-    if (url.pathname !== '/create-school-user' || request.method !== 'POST') {
+    if (request.method !== 'POST' || !['/create-school-user', '/update-school-user'].includes(url.pathname)) {
       return json({ error: 'not_found' }, 404, origin)
     }
 
     try {
-      return await handleCreateSchoolUser(request, env, origin)
+      return url.pathname === '/create-school-user'
+        ? await handleCreateSchoolUser(request, env, origin)
+        : await handleUpdateSchoolUser(request, env, origin)
     } catch (err) {
-      console.error('[create-school-user] خطأ غير متوقع:', err)
+      console.error('[admin-ops] خطأ غير متوقع:', err)
       return json({ error: 'internal', message: 'حدث خطأ داخلي. حاول مرة ثانية.' }, 500, origin)
     }
   },
@@ -127,7 +134,7 @@ async function handleCreateSchoolUser(request: Request, env: Env, origin: string
   let profileCreated = false
   try {
     await firestoreCreateDoc(accessToken, projectId, 'users', created.localId, {
-      name, role, email, schoolId,
+      name, role, email, schoolId, mustChangePassword: true, status: 'active',
       ...(role === 'parent' ? { childUids } : {}),
     })
     profileCreated = true
@@ -173,4 +180,78 @@ async function handleCreateSchoolUser(request: Request, env: Env, origin: string
   }).catch((err) => console.error('[audit] فشل التسجيل:', err))
 
   return json({ uid: created.localId }, 200, origin)
+}
+
+async function handleUpdateSchoolUser(request: Request, env: Env, origin: string): Promise<Response> {
+  const authHeader = request.headers.get('Authorization') || ''
+  const idToken = authHeader.startsWith('Bearer ') ? authHeader.slice('Bearer '.length) : ''
+  if (!idToken) return json({ error: 'unauthenticated' }, 401, origin)
+
+  const projectId = env.FIREBASE_PROJECT_ID
+  let callerUid: string
+  try {
+    callerUid = (await verifyFirebaseIdToken(idToken, projectId)).uid
+  } catch (err) {
+    console.error('[update-school-user] توكن غير صالح:', err)
+    return json({ error: 'unauthenticated' }, 401, origin)
+  }
+
+  const body = (await request.json().catch(() => ({}))) as UpdateUserBody
+  if (typeof body.uid !== 'string' || !body.uid.trim()) return json({ error: 'invalid_input', message: 'uid مطلوب' }, 400, origin)
+  if (!['deactivate', 'activate', 'reset-password'].includes(String(body.action))) {
+    return json({ error: 'invalid_input', message: 'إجراء الحساب غير صالح' }, 400, origin)
+  }
+
+  const serviceAccount = JSON.parse(env.FIREBASE_SERVICE_ACCOUNT_KEY) as ServiceAccount
+  const accessToken = await getAccessToken(serviceAccount, [
+    'https://www.googleapis.com/auth/identitytoolkit',
+    'https://www.googleapis.com/auth/datastore',
+  ])
+  const callerProfile = await firestoreGetDoc(accessToken, projectId, `users/${callerUid}`)
+  if (!callerProfile || callerProfile.role !== 'admin' || typeof callerProfile.schoolId !== 'string') {
+    return json({ error: 'permission_denied' }, 403, origin)
+  }
+
+  const uid = body.uid.trim()
+  if (uid === callerUid) return json({ error: 'invalid_input', message: 'ما بتقدر تغيّر حالة حسابك من هون' }, 400, origin)
+  const target = await firestoreGetDoc(accessToken, projectId, `users/${uid}`)
+  if (!target || target.schoolId !== callerProfile.schoolId || !['student', 'instructor', 'parent'].includes(String(target.role))) {
+    return json({ error: 'permission_denied' }, 403, origin)
+  }
+
+  const action = String(body.action)
+  const previousStatus = target.status === 'inactive' ? 'inactive' : 'active'
+  const previousMustChangePassword = target.mustChangePassword === true
+  const temporaryPassword = action === 'reset-password' ? `Temp-${crypto.randomUUID().replaceAll('-', '').slice(0, 12)}` : undefined
+  const nextStatus = action === 'deactivate' ? 'inactive' : action === 'activate' ? 'active' : previousStatus
+  const disabled = nextStatus === 'inactive'
+  await firestorePatchDoc(accessToken, projectId, `users/${uid}`, {
+    status: nextStatus,
+    ...(temporaryPassword ? { mustChangePassword: true } : {}),
+  })
+  try {
+    await updateIdentityUser(accessToken, projectId, uid, {
+      disableUser: disabled,
+      ...(temporaryPassword ? { password: temporaryPassword } : {}),
+    })
+  } catch (err) {
+    await firestorePatchDoc(accessToken, projectId, `users/${uid}`, {
+      status: previousStatus,
+      mustChangePassword: previousMustChangePassword,
+    }).catch((rollbackErr) => console.error('[update-school-user] فشل تراجع ملف المستخدم:', rollbackErr))
+    throw err
+  }
+
+  await firestoreCreateDoc(accessToken, projectId, 'auditLog', crypto.randomUUID(), {
+    schoolId: callerProfile.schoolId,
+    actorUid: callerUid,
+    actorName: typeof callerProfile.name === 'string' ? callerProfile.name : '',
+    action: `user_${action}`,
+    targetType: target.role,
+    targetId: uid,
+    details: typeof target.email === 'string' ? target.email : uid,
+    createdAt: new Date().toISOString(),
+  }).catch((err) => console.error('[audit] فشل تسجيل إجراء الحساب:', err))
+
+  return json({ uid, status: nextStatus, ...(temporaryPassword ? { temporaryPassword } : {}) }, 200, origin)
 }

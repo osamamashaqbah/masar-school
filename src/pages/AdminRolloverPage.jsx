@@ -121,7 +121,7 @@ export default function AdminRolloverPage() {
 
       // 3) آخر خطوة بعد نجاح كل شي فوق — تفعيل السنة الجديدة
       const finalBatch = writeBatch(db)
-      finalBatch.update(doc(db, 'schools', session.schoolId), { currentAcademicYear: newYear.trim() })
+      finalBatch.update(doc(db, 'schools', session.schoolId), { currentAcademicYear: newYear.trim(), gradebookLocks: { marks: false, attendance: false } })
       await finalBatch.commit()
       await updateDoc(operationRef, { status: 'completed', completedAt: Date.now() })
 

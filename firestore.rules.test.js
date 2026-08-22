@@ -160,6 +160,14 @@ describe('tenant isolation', () => {
     await assertFails(getDoc(doc(teacherCtx.firestore(), 'users', 'studentB')))
     await assertFails(getDoc(doc(teacherCtx.firestore(), 'users', 'parentB')))
   })
+
+  it('an inactive account cannot read its own profile', async () => {
+    await seedSchoolWithAdmin('schoolA', 'adminA')
+    await seedUser('schoolA', 'studentA', { name: 'Student A', role: 'student', email: 'a@x.com', status: 'inactive' })
+
+    const studentCtx = testEnv.authenticatedContext('studentA')
+    await assertFails(getDoc(doc(studentCtx.firestore(), 'users', 'studentA')))
+  })
 })
 
 describe('marks and attendance tenant boundaries', () => {
@@ -203,6 +211,24 @@ describe('marks and attendance tenant boundaries', () => {
     await assertSucceeds(mark(0, 'zero-score'))
     await assertFails(mark(-1, 'negative-score'))
     await assertFails(mark(11, 'over-max-score'))
+  })
+
+  it('an admin can lock marks and attendance for the active school year', async () => {
+    await seedTeacherFixture()
+    const adminCtx = testEnv.authenticatedContext('adminA')
+    const teacherCtx = testEnv.authenticatedContext('teacherA')
+
+    await assertSucceeds(updateDoc(doc(adminCtx.firestore(), 'schools', 'schoolA'), {
+      gradebookLocks: { marks: true, attendance: true },
+    }))
+    await assertFails(setDoc(doc(teacherCtx.firestore(), 'marks', 'locked-mark'), {
+      subjectId: 'subjA', studentUid: 'studentA', categoryId: 'quiz', score: 8, maxScore: 10,
+      teacherUid: 'teacherA', schoolId: 'schoolA', academicYear: '2025-2026',
+    }))
+    await assertFails(setDoc(doc(teacherCtx.firestore(), 'attendance', 'locked-attendance'), {
+      studentUid: 'studentA', sectionId: 'sec1', date: '2026-01-01', excused: false,
+      teacherUid: 'teacherA', schoolId: 'schoolA', academicYear: '2025-2026',
+    }))
   })
 
   it('a teacher cannot update a mark from a previous academic year', async () => {

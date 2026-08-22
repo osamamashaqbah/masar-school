@@ -29,6 +29,7 @@ const { importStudents } = useBulkImport()
   const [importFile, setImportFile] = useState(null)
   const [importError, setImportError] = useState('')
   const [importResults, setImportResults] = useState(null)
+  const [credentialsHidden, setCredentialsHidden] = useState(false)
   const [importLoading, setImportLoading] = useState(false)
 
   useEffect(() => {
@@ -57,12 +58,11 @@ function exportResultsToExcel() {
         'الاسم': r.name,
         'الحساب': r.role === 'parent' ? 'ولي أمر' : 'طالب',
         'البريد الإلكتروني': r.status === 'linked' ? '(حساب موجود مسبقاً)' : r.email,
-        'كلمة السر': r.status === 'linked' ? '—' : r.password,
         'ملاحظة': r.status === 'linked' ? r.note : '',
       }))
 
     const worksheet = XLSX.utils.json_to_sheet(rows)
-    worksheet['!cols'] = [{ wch: 22 }, { wch: 12 }, { wch: 34 }, { wch: 16 }, { wch: 40 }]
+    worksheet['!cols'] = [{ wch: 22 }, { wch: 12 }, { wch: 34 }, { wch: 40 }]
 
     const workbook = XLSX.utils.book_new()
     XLSX.utils.book_append_sheet(workbook, worksheet, 'بيانات الدخول')
@@ -78,6 +78,7 @@ function exportResultsToExcel() {
 
     setImportLoading(true)
     setImportResults(null)
+    setCredentialsHidden(false)
 
     try {
       const rows = await parseStudentsExcel(importFile)
@@ -121,6 +122,11 @@ function exportResultsToExcel() {
       setImportLoading(false)
       setImportFile(null)
     }
+  }
+
+  function hideImportedCredentials() {
+    setImportResults((rows) => rows?.map((row) => ({ ...row, password: null })))
+    setCredentialsHidden(true)
   }
 
   async function handleAddSection(e) {
@@ -269,9 +275,16 @@ function exportResultsToExcel() {
             {importCreatedCount > 0 && ` — أُنشئ ${importCreatedCount} صف/شعبة تلقائيًا`}
           </p>
           <div className="import-results-table">
-            <button type="button" className="btn btn-accent" onClick={exportResultsToExcel} style={{ marginBottom: '12px' }}>
-            <i className="ti ti-file-spreadsheet" /> تحميل كملف Excel
-          </button>
+            <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap', marginBottom: '12px' }}>
+              <button type="button" className="btn btn-accent" onClick={exportResultsToExcel}>
+                <i className="ti ti-file-spreadsheet" /> تحميل تقرير آمن
+              </button>
+              {!credentialsHidden && importResults.some((r) => r.status === 'ok' && r.password) && (
+                <button type="button" className="btn" onClick={hideImportedCredentials}>
+                  <i className="ti ti-eye-off" /> أخفي بيانات الدخول
+                </button>
+              )}
+            </div>
             {importResults.map((r, i) => (
               <div className="import-result-row" key={i}>
                 <span>
@@ -280,7 +293,7 @@ function exportResultsToExcel() {
                 </span>
                 {r.status === 'ok' ? (
                   <span style={{ fontSize: '11px', color: 'var(--ink-soft)' }}>
-                    {r.email} / {r.password}
+                    {credentialsHidden ? `${r.email} / تم إخفاؤها` : `${r.email} / ${r.password}`}
                   </span>
                 ) : r.status === 'linked' ? (
                   <span style={{ fontSize: '11px', color: 'var(--pine)' }}>
@@ -297,7 +310,7 @@ function exportResultsToExcel() {
             ))}
           </div>
           <p style={{ fontSize: '11.5px', color: 'var(--ink-faint)', marginTop: '10px' }}>
-            ⚠️ احفظ هاي القائمة بمكان آمن — كلمات السر ما رح تظهر مرة ثانية بعد ما تسكر الصفحة.
+            ⚠️ كلمات السر مؤقتة ويجب تغييرها عند أول دخول. التقرير الآمن لا يحتوي كلمات السر؛ أخفِ بيانات الدخول بعد تسليمها.
           </p>
         </div>
       )}

@@ -142,6 +142,9 @@ export default function Layout() {
   }
 
   if (!session) return <Navigate to="/" replace />
+  if (session.mustChangePassword && location.pathname !== '/app/settings') {
+    return <Navigate to="/app/settings" replace state={{ mustChangePassword: true }} />
+  }
 
   const myAvatar = getAvatar(session.avatarId)
   const adminToolLinks = session.role === 'admin' ? buildAdminToolLinks(features) : []

@@ -6,7 +6,14 @@ service cloud.firestore {
 
     // ===================== Helpers =====================
 
-    function isSignedIn() { return request.auth != null; }
+    function isSignedIn() {
+      return request.auth != null
+        && (
+          (exists(/databases/$(database)/documents/users/$(request.auth.uid))
+            && get(/databases/$(database)/documents/users/$(request.auth.uid)).data.get('status', 'active') != 'inactive')
+          || exists(/databases/$(database)/documents/platformAdmins/$(request.auth.uid))
+        );
+    }
 
     function myData() {
       return get(/databases/$(database)/documents/users/$(request.auth.uid)).data;
@@ -35,6 +42,10 @@ service cloud.firestore {
     // السنة الدراسية الحالية لمدرسة الكاتب — تُستخدم لمنع الكتابة بسنة مقفولة/غير نشطة
     function currentYear() {
       return get(/databases/$(database)/documents/schools/$(mySchoolId())).data.currentAcademicYear;
+    }
+
+    function isGradebookLocked(area) {
+      return get(/databases/$(database)/documents/schools/$(mySchoolId())).data.get('gradebookLocks', {}).get(area, false) == true;
     }
 
     function isParentOf(uid) {
@@ -95,13 +106,14 @@ service cloud.firestore {
       allow read: if isSignedIn() && mySchoolId() == schoolId;
       // الحقول يلي الإدارة تقدر تعدّلها من المتصفح — السنة الدراسية، فيتشر فلاغز، دوام رمضان، العملة
       allow update: if isAdmin() && sameSchool(schoolId)
-        && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['currentAcademicYear', 'features', 'ramadanSchedule', 'currency', 'paymentInfo', 'branding'])
+        && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['currentAcademicYear', 'features', 'ramadanSchedule', 'currency', 'paymentInfo', 'branding', 'gradebookLocks'])
         && (!('currentAcademicYear' in request.resource.data.diff(resource.data).affectedKeys()) || request.resource.data.currentAcademicYear is string)
         && (!('features' in request.resource.data.diff(resource.data).affectedKeys()) || request.resource.data.features is map)
         && (!('ramadanSchedule' in request.resource.data.diff(resource.data).affectedKeys()) || request.resource.data.ramadanSchedule is map)
         && (!('currency' in request.resource.data.diff(resource.data).affectedKeys()) || request.resource.data.currency is string)
         && (!('paymentInfo' in request.resource.data.diff(resource.data).affectedKeys()) || request.resource.data.paymentInfo is map)
-        && (!('branding' in request.resource.data.diff(resource.data).affectedKeys()) || request.resource.data.branding is map);
+        && (!('branding' in request.resource.data.diff(resource.data).affectedKeys()) || request.resource.data.branding is map)
+        && (!('gradebookLocks' in request.resource.data.diff(resource.data).affectedKeys()) || request.resource.data.gradebookLocks is map);
       // صاحب المنصة يقدر يعدّل حقل branding بس لأي مدرسة (مش بقية الحقول)
       allow update: if isPlatformAdmin()
         && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['branding'])
@@ -141,8 +153,9 @@ service cloud.firestore {
         && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['name', 'avatarId', 'consentGivenAt', 'taughtSectionIds', 'parentUids', 'childUids', 'messageContactUids', 'sectionId'])
       ) || (
         isSignedIn() && request.auth.uid == uid
-        && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['name', 'avatarId', 'consentGivenAt'])
+        && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['name', 'avatarId', 'consentGivenAt', 'mustChangePassword'])
         && request.resource.data.name is string && request.resource.data.name.size() > 0 && request.resource.data.name.size() <= 60
+        && (!('mustChangePassword' in request.resource.data.diff(resource.data).affectedKeys()) || request.resource.data.mustChangePassword is bool)
       );
       allow delete: if isAdmin() && sameSchool(resource.data.schoolId);
     }
@@ -360,7 +373,8 @@ service cloud.firestore {
         || isPlatformAdmin()
       );
       // لازم يكون معلّم المادة نفسها، وكمان الطالب فعلاً بشعبة هالمادة (مو أي طالب بالمدرسة)
-      allow create: if teachesStudentInSubject(request.resource.data.subjectId, request.resource.data.studentUid)
+      allow create: if !isGradebookLocked('marks')
+        && teachesStudentInSubject(request.resource.data.subjectId, request.resource.data.studentUid)
         && request.resource.data.teacherUid == request.auth.uid
         && request.resource.data.schoolId == mySchoolId()
         && request.resource.data.academicYear == currentYear()
@@ -372,7 +386,8 @@ service cloud.firestore {
         && request.resource.data.score <= request.resource.data.maxScore;
       // بالتحديث: ممنوع تغيير هوية الطالب أو المادة أو صاحب العلامة الأصلي (يمنع "سرقة"/نقل علامة طالب لطالب تاني)
       // وممنوع تعديل علامة بسنة مقفولة (مش السنة الحالية) — يحمي التاريخ من التعديل بعد الترفيع
-      allow update: if teachesStudentInSubject(request.resource.data.subjectId, request.resource.data.studentUid)
+      allow update: if !isGradebookLocked('marks')
+        && teachesStudentInSubject(request.resource.data.subjectId, request.resource.data.studentUid)
         && request.resource.data.teacherUid == request.auth.uid
         && resource.data.teacherUid == request.auth.uid
         && resource.data.academicYear == currentYear()
@@ -570,13 +585,15 @@ service cloud.firestore {
         || (isAdmin() && sameSchool(resource.data.get('schoolId', '')))
         || isPlatformAdmin()
       ));
-      allow create: if isInstructor()
+      allow create: if !isGradebookLocked('attendance')
+        && isInstructor()
         && request.resource.data.teacherUid == request.auth.uid
         && request.resource.data.schoolId == mySchoolId()
         && request.resource.data.academicYear == currentYear()
         && request.resource.data.sectionId in myTaughtSectionIds()
         && studentInSection(request.resource.data.studentUid, request.resource.data.sectionId);
-      allow update: if isInstructor()
+      allow update: if !isGradebookLocked('attendance')
+        && isInstructor()
         && teachesSection(resource.data.sectionId)
         && resource.data.schoolId == mySchoolId()
         && request.resource.data.schoolId == resource.data.schoolId
@@ -587,7 +604,8 @@ service cloud.firestore {
         && request.resource.data.teacherUid == resource.data.teacherUid
         && request.resource.data.excused is bool
         && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['excused', 'updatedByUid', 'updatedAt', 'excuseRequestId']);
-      allow delete: if isInstructor()
+      allow delete: if !isGradebookLocked('attendance')
+        && isInstructor()
         && teachesSection(resource.data.sectionId)
         && resource.data.schoolId == mySchoolId()
         && resource.data.sectionId in myTaughtSectionIds();

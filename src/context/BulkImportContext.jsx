@@ -1,9 +1,10 @@
-import { createContext, useContext } from 'react'
+import { createContext, useContext, useRef } from 'react'
 import { initializeApp, deleteApp } from 'firebase/app'
 import { getAuth, createUserWithEmailAndPassword, deleteUser, signOut } from 'firebase/auth'
-import { doc, setDoc, deleteDoc, writeBatch, arrayUnion } from 'firebase/firestore'
+import { collection, doc, setDoc, deleteDoc, writeBatch, arrayUnion, query, where, getDocs } from 'firebase/firestore'
 import { db, firebaseConfig } from '../firebase'
 import { useSession } from './SessionContext'
+import { useSchoolStructure } from './SchoolStructureContext'
 
 const BulkImportContext = createContext(null)
 
@@ -33,71 +34,111 @@ function slugify(name) {
 
 export function BulkImportProvider({ children }) {
   const { session } = useSession()
-  // students: [{ name, sectionId, parentPhone?, parentName? }, ...]
-  // لكل طالب بننشئ حساب الطالب نفسه + حساب ولي أمر مرتبط فيه تلقائيًا (childUids).
-  // إذا أكثر من طالب عندهم نفس "جوال ولي الأمر" (إخوان)، بنربطهم كلهم بنفس حساب ولي الأمر
-  // بدل ما ننشئ حساب جديد لكل وحد.
-  async function importStudents(students, onProgress) {
-    const results = []
-    // جوال ولي الأمر -> { uid, email, password, name }
-    const parentByPhone = new Map()
+  const { allUsers } = useSchoolStructure()
+  const knownUsersRef = useRef(new Map())
 
+  async function findExistingUser(email, role) {
+    const cacheKey = `${role}:${email}`
+    const cached = knownUsersRef.current.get(cacheKey)
+    if (cached) return cached
+
+    const cachedProfile = allUsers.find((user) => user.email === email && user.role === role)
+    if (cachedProfile) {
+      const profile = { uid: cachedProfile.id, ...cachedProfile }
+      knownUsersRef.current.set(cacheKey, profile)
+      return profile
+    }
+
+    // allUsers مستمع المدرسة الكامل؛ إذا وصل ولم نجد الحساب فلا حاجة لقراءة إضافية لكل صف.
+    // الاستعلام الاحتياطي يعمل فقط أثناء لحظة التحميل الأولى بعد فتح الصفحة.
+    if (allUsers.length > 0) return null
+
+    const snap = await getDocs(query(
+      collection(db, 'users'),
+      where('schoolId', '==', session.schoolId),
+      where('email', '==', email),
+    ))
+    const existing = snap.docs
+      .map((item) => ({ uid: item.id, ...item.data() }))
+      .find((user) => user.role === role)
+    if (existing) knownUsersRef.current.set(cacheKey, existing)
+    return existing || null
+  }
+
+  // students: [{ name, sectionId, parentPhone?, parentName? }, ...]
+  // كل عملية تعيد rowIndex حتى نعيد الصفوف الفاشلة فقط بدون فقدان نتائج المحاولة الأولى.
+  async function importStudents(students, onProgress, { onlyIndices } = {}) {
+    const results = []
+    const parentByPhone = new Map()
+    const selected = onlyIndices ? new Set(onlyIndices) : null
+    const work = students
+      .map((student, rowIndex) => ({ student, rowIndex }))
+      .filter(({ rowIndex }) => !selected || selected.has(rowIndex))
     let completed = 0
 
-    async function processStudent({ student, index }) {
+    async function processStudent({ student, rowIndex }) {
       const { name, sectionId, parentPhone, parentName: customParentName } = student
       const slug = slugify(name).toLowerCase()
-      // مفتاح ثابت (مدرسة+شعبة+اسم) بدل Date.now() — لو الاستيراد انقطع بالمنتصف، إعادة رفع
-      // نفس الملف بترجع تصادف auth/email-already-in-use على الصفوف يلي خلصت فعلاً بدل ما
-      // تنشئلها حسابات مكررة بأسماء بريد عشوائية (Bug 2.2، MASAR_CRITICAL_BUGS_DETAILED_AR.md)
+      // مفتاح ثابت (مدرسة+شعبة+اسم) يجعل إعادة المحاولة idempotent بدل إنشاء حسابات مكررة.
       const studentEmail = `${session.schoolId}-${sectionId}-${slug}@masar-school.local`
       const studentPassword = `Student${Math.floor(1000 + Math.random() * 9000)}`
-      const existingParent = parentPhone ? parentByPhone.get(parentPhone) : null
-
-      const secondaryApp = initializeApp(firebaseConfig, `bulk-${Date.now()}-${index}`)
+      const secondaryApp = initializeApp(firebaseConfig, `bulk-${Date.now()}-${rowIndex}`)
       const secondaryAuth = getAuth(secondaryApp)
 
       try {
-        const studentCredential = await createUserWithEmailAndPassword(secondaryAuth, studentEmail, studentPassword)
-        const studentUid = studentCredential.user.uid
-        try {
-          await setDoc(doc(db, 'users', studentUid), {
-            name,
-            role: 'student',
-            email: studentEmail,
-            sectionId,
-            schoolId: session.schoolId,
-            mustChangePassword: true,
-          })
-        } catch (profileErr) {
-          // فشل كتابة الملف الشخصي بعد نجاح إنشاء حساب Auth — نتراجع فورًا بدل ترك حساب
-          // يتيم بلا ملف تعريف وبريد محجوز للأبد (Bug 2.1، MASAR_CRITICAL_BUGS_DETAILED_AR.md)
-          await deleteUser(studentCredential.user).catch(() => {})
-          throw profileErr
+        const existingStudent = await findExistingUser(studentEmail, 'student')
+        let studentUid
+        let studentStatus = 'resumed'
+        let studentNote = 'تم استكمال حساب الطالب الموجود من محاولة سابقة'
+
+        if (existingStudent) {
+          studentUid = existingStudent.uid
+        } else {
+          const studentCredential = await createUserWithEmailAndPassword(secondaryAuth, studentEmail, studentPassword)
+          studentUid = studentCredential.user.uid
+          try {
+            await setDoc(doc(db, 'users', studentUid), {
+              name, role: 'student', email: studentEmail, sectionId,
+              schoolId: session.schoolId, mustChangePassword: true,
+            })
+          } catch (profileErr) {
+            // فشل كتابة الملف الشخصي بعد نجاح Auth — تراجع فوري لمنع حساب يتيم.
+            await deleteUser(studentCredential.user).catch(() => {})
+            throw profileErr
+          }
+          studentStatus = 'ok'
+          studentNote = ''
         }
-        results.push({ name, email: studentEmail, password: studentPassword, status: 'ok', role: 'student' })
+
+        knownUsersRef.current.set(`student:${studentEmail}`, {
+          uid: studentUid, name, role: 'student', email: studentEmail, sectionId, schoolId: session.schoolId,
+        })
+        results.push({ rowIndex, name, email: studentEmail, password: studentStatus === 'ok' ? studentPassword : null, status: studentStatus, role: 'student', note: studentNote })
         await signOut(secondaryAuth)
 
+        const parentSlug = parentPhone ? parentPhone.replace(/\D/g, '') : `${sectionId}-${slug}`
+        const parentEmail = `wali-${session.schoolId}-${parentSlug}@masar-school.local`
+        const parentPassword = `Parent${Math.floor(1000 + Math.random() * 9000)}`
+        const parentName = customParentName || `ولي أمر ${name}`
+        const existingParent = parentPhone
+          ? parentByPhone.get(parentPhone) || await findExistingUser(parentEmail, 'parent')
+          : await findExistingUser(parentEmail, 'parent')
+
         if (existingParent) {
-          // أخ/أخت لطالب سابق بنفس جوال ولي الأمر: نربط بنفس الحساب بدون ما ننشئ حساب جديد.
           try {
             const linkBatch = writeBatch(db)
             linkBatch.update(doc(db, 'users', existingParent.uid), { childUids: arrayUnion(studentUid) })
             linkBatch.update(doc(db, 'users', studentUid), { parentUids: arrayUnion(existingParent.uid) })
             await linkBatch.commit()
             results.push({
-              name: existingParent.name, email: existingParent.email, password: null,
-              status: 'linked', role: 'parent', note: `مرتبط بحساب ولي الأمر الموجود (إخوان مع ${name})`,
+              rowIndex, name: existingParent.name || parentName, email: existingParent.email || parentEmail,
+              password: null, status: 'linked', role: 'parent', note: `تم ربط حساب ولي الأمر الموجود مع ${name}`,
             })
+            if (parentPhone) parentByPhone.set(parentPhone, existingParent)
           } catch (linkErr) {
-            results.push({ name: existingParent.name, email: existingParent.email, password: null, status: 'error', error: linkErr.message, role: 'parent' })
+            results.push({ rowIndex, name: existingParent.name || parentName, email: existingParent.email || parentEmail, password: null, status: 'error', error: linkErr.message, role: 'parent' })
           }
         } else {
-          const parentSlug = parentPhone ? parentPhone.replace(/\D/g, '') : `${sectionId}-${slug}`
-          const parentEmail = `wali-${session.schoolId}-${parentSlug}@masar-school.local`
-          const parentPassword = `Parent${Math.floor(1000 + Math.random() * 9000)}`
-          const parentName = customParentName || `ولي أمر ${name}`
-
           try {
             const parentCredential = await createUserWithEmailAndPassword(secondaryAuth, parentEmail, parentPassword)
             const parentRef = doc(db, 'users', parentCredential.user.uid)
@@ -105,15 +146,9 @@ export function BulkImportProvider({ children }) {
             try {
               const profileBatch = writeBatch(db)
               profileBatch.set(parentRef, {
-                name: parentName,
-                role: 'parent',
-                email: parentEmail,
-                childUids: [studentUid],
-                schoolId: session.schoolId,
-                mustChangePassword: true,
+                name: parentName, role: 'parent', email: parentEmail, childUids: [studentUid],
+                schoolId: session.schoolId, mustChangePassword: true,
               })
-              // منعكسة على وثيقة الطالب نفسه (parentUids) حتى يقدر المعلّم يعرف مين أهل الطالب
-              // ويبعتلهم إشعار (حضور/علامة) بدون ما يحتاج صلاحية جديدة يقرا فيها كل حسابات أولياء الأمور.
               profileBatch.update(studentRef, { parentUids: arrayUnion(parentCredential.user.uid) })
               await profileBatch.commit()
             } catch (profileErr) {
@@ -121,44 +156,41 @@ export function BulkImportProvider({ children }) {
               await deleteUser(parentCredential.user).catch(() => {})
               throw profileErr
             }
-            results.push({ name: parentName, email: parentEmail, password: parentPassword, status: 'ok', role: 'parent' })
-            if (parentPhone) {
-              parentByPhone.set(parentPhone, { uid: parentCredential.user.uid, email: parentEmail, password: parentPassword, name: parentName })
-            }
+            const parentProfile = { uid: parentCredential.user.uid, name: parentName, role: 'parent', email: parentEmail, childUids: [studentUid], schoolId: session.schoolId }
+            knownUsersRef.current.set(`parent:${parentEmail}`, parentProfile)
+            results.push({ rowIndex, name: parentName, email: parentEmail, password: parentPassword, status: 'ok', role: 'parent' })
+            if (parentPhone) parentByPhone.set(parentPhone, parentProfile)
             await signOut(secondaryAuth)
           } catch (parentErr) {
-            if (parentErr.code === 'auth/email-already-in-use') {
-              results.push({
-                name: parentName, email: parentEmail, password: null, status: 'duplicate', role: 'parent',
-                note: 'حساب ولي الأمر موجود مسبقًا من محاولة استيراد سابقة — راجع الربط يدويًا لو لزم',
-              })
-            } else {
-              results.push({ name: parentName, email: parentEmail, password: null, status: 'error', error: parentErr.message, role: 'parent' })
-            }
+            results.push({
+              rowIndex, name: parentName, email: parentEmail, password: null, status: 'error', role: 'parent',
+              error: parentErr.code === 'auth/email-already-in-use'
+                ? 'حساب ولي الأمر موجود لكن ملفه لم يُقرأ بعد — أعد المحاولة لاستكمال الربط'
+                : parentErr.message,
+            })
           }
         }
       } catch (err) {
-        // ملاحظة: طالب مكرر بيتخطى بالكامل (بدون محاولة ربط ولي أمر) — تبسيط مقصود، لو
-        // الصف قبله انحفظ الطالب بس فشل ولي الأمر، لازم مراجعة يدوية من صفحة إدارة المستخدمين.
-        if (err.code === 'auth/email-already-in-use') {
-          results.push({ name, email: studentEmail, password: null, status: 'duplicate', role: 'student', note: 'هذا الطالب مستورد مسبقًا (نفس الاسم والشعبة) — تم تخطيه' })
-        } else {
-          results.push({ name, email: studentEmail, password: null, status: 'error', error: err.message, role: 'student' })
-        }
+        results.push({
+          rowIndex, name, email: studentEmail, password: null, status: 'error', role: 'student',
+          error: err.code === 'auth/email-already-in-use'
+            ? 'حساب الطالب موجود لكن ملفه لم يُقرأ بعد — أعد المحاولة لاستكماله'
+            : err.message,
+        })
       } finally {
         await deleteApp(secondaryApp)
         completed += 1
-        onProgress?.({ completed, total: students.length })
+        onProgress?.({ completed, total: work.length })
       }
     }
 
-    // الطلاب ذوو رقم ولي الأمر نفسه يبقون بالتسلسل حتى يُعاد استخدام حساب واحد،
-    // بينما العائلات المختلفة تُعالج على دفعات صغيرة لتسريع الاستيراد دون ضغط Auth.
+    // العائلة الواحدة تبقى متسلسلة لإعادة استخدام حساب ولي الأمر، والعائلات المختلفة
+    // تعمل على دفعات صغيرة حتى لا نضغط Firebase Auth.
     const groupsByParent = new Map()
-    students.forEach((student, index) => {
-      const key = student.parentPhone || `row-${index}`
+    work.forEach(({ student, rowIndex }) => {
+      const key = student.parentPhone || `row-${rowIndex}`
       if (!groupsByParent.has(key)) groupsByParent.set(key, [])
-      groupsByParent.get(key).push({ student, index })
+      groupsByParent.get(key).push({ student, rowIndex })
     })
     const groups = [...groupsByParent.values()]
     for (let i = 0; i < groups.length; i += 5) {

@@ -6,6 +6,7 @@ import { useSession } from '../context/SessionContext'
 import { useSchoolStructure } from '../context/SchoolStructureContext'
 import { useBulkImport } from '../context/BulkImportContext'
 import { parseStudentsExcel } from '../utils/parseStudentsExcel'
+import { isSuccessfulImportResult, mergeImportResults, retryableImportRowIndices } from '../utils/bulkImport'
 import * as XLSX from 'xlsx'
 
 
@@ -29,6 +30,7 @@ const { importStudents } = useBulkImport()
   const [importFile, setImportFile] = useState(null)
   const [importError, setImportError] = useState('')
   const [importResults, setImportResults] = useState(null)
+  const [importRows, setImportRows] = useState([])
   const [credentialsHidden, setCredentialsHidden] = useState(false)
   const [importLoading, setImportLoading] = useState(false)
   const [importProgress, setImportProgress] = useState(null)
@@ -54,12 +56,12 @@ function exportResultsToExcel() {
     if (!importResults) return
 
     const rows = importResults
-      .filter((r) => r.status === 'ok' || r.status === 'linked')
+      .filter((r) => isSuccessfulImportResult(r))
       .map((r) => ({
         'الاسم': r.name,
         'الحساب': r.role === 'parent' ? 'ولي أمر' : 'طالب',
         'البريد الإلكتروني': r.status === 'linked' ? '(حساب موجود مسبقاً)' : r.email,
-        'ملاحظة': r.status === 'linked' ? r.note : '',
+        'ملاحظة': r.status === 'linked' || r.status === 'resumed' ? r.note : '',
       }))
 
     const worksheet = XLSX.utils.json_to_sheet(rows)
@@ -79,6 +81,7 @@ function exportResultsToExcel() {
 
     setImportLoading(true)
     setImportResults(null)
+    setImportRows([])
     setCredentialsHidden(false)
     setImportProgress(null)
 
@@ -113,6 +116,7 @@ function exportResultsToExcel() {
         matched.push({ name: row.name, sectionId, parentPhone: row.parentPhone, parentName: row.parentName })
       }
       setImportCreatedCount(createdCount)
+      setImportRows(matched)
 
       if (matched.length > 0) {
         setImportProgress({ completed: 0, total: matched.length })
@@ -124,6 +128,22 @@ function exportResultsToExcel() {
     } finally {
       setImportLoading(false)
       setImportFile(null)
+    }
+  }
+
+  async function handleRetryImport() {
+    const retryIndices = retryableImportRowIndices(importResults)
+    if (!retryIndices.length || !importRows.length) return
+    setImportError('')
+    setImportLoading(true)
+    setImportProgress({ completed: 0, total: retryIndices.length })
+    try {
+      const retryResults = await importStudents(importRows, setImportProgress, { onlyIndices: retryIndices })
+      setImportResults((current) => mergeImportResults(current, retryResults))
+    } catch (err) {
+      setImportError(err.message)
+    } finally {
+      setImportLoading(false)
     }
   }
 
@@ -157,6 +177,10 @@ function exportResultsToExcel() {
     await archiveSubject(subjectId)
     setConfirmArchiveId('')
   }
+
+  const studentResults = importResults?.filter((result) => result.role === 'student') || []
+  const successfulStudents = studentResults.filter(isSuccessfulImportResult).length
+  const retryableCount = retryableImportRowIndices(importResults || []).length
 
   return (
     <div>
@@ -273,7 +297,7 @@ function exportResultsToExcel() {
       {importResults && (
         <div className="panel" style={{ maxWidth: '520px', marginTop: '16px' }}>
           <p style={{ fontSize: '13px', fontWeight: 700, marginBottom: '10px' }}>
-            نتيجة الاستيراد: {importResults.filter((r) => r.role === 'student' && r.status === 'ok').length} من {importResults.filter((r) => r.role === 'student').length} طالب نجحوا
+            نتيجة الاستيراد: {successfulStudents} من {studentResults.length} طالب نجحوا
             (حساب ولي أمر جديد لكل عيلة، أو ربط بحساب موجود لو الإخوان بنفس الجوال)
             {importCreatedCount > 0 && ` — أُنشئ ${importCreatedCount} صف/شعبة تلقائيًا`}
           </p>
@@ -282,6 +306,11 @@ function exportResultsToExcel() {
               <button type="button" className="btn btn-accent" onClick={exportResultsToExcel}>
                 <i className="ti ti-file-spreadsheet" /> تحميل تقرير آمن
               </button>
+              {retryableCount > 0 && (
+                <button type="button" className="btn" onClick={handleRetryImport} disabled={importLoading}>
+                  {importLoading ? <i className="ti ti-loader-2 spin" /> : <i className="ti ti-refresh" />} إعادة محاولة {retryableCount} صف
+                </button>
+              )}
               {!credentialsHidden && importResults.some((r) => r.status === 'ok' && r.password) && (
                 <button type="button" className="btn" onClick={hideImportedCredentials}>
                   <i className="ti ti-eye-off" /> أخفي بيانات الدخول
@@ -289,7 +318,7 @@ function exportResultsToExcel() {
               )}
             </div>
             {importResults.map((r, i) => (
-              <div className="import-result-row" key={i}>
+              <div className="import-result-row" key={`${r.rowIndex}-${r.role}-${i}`}>
                 <span>
                   <span className={`import-role-tag${r.role === 'parent' ? ' parent' : ''}`}>{r.role === 'parent' ? 'ولي أمر' : 'طالب'}</span>
                   {' '}{r.name}
@@ -297,6 +326,10 @@ function exportResultsToExcel() {
                 {r.status === 'ok' ? (
                   <span style={{ fontSize: '11px', color: 'var(--ink-soft)' }}>
                     {credentialsHidden ? `${r.email} / تم إخفاؤها` : `${r.email} / ${r.password}`}
+                  </span>
+                ) : r.status === 'resumed' ? (
+                  <span style={{ fontSize: '11px', color: 'var(--pine)' }}>
+                    <i className="ti ti-refresh" /> {r.note}
                   </span>
                 ) : r.status === 'linked' ? (
                   <span style={{ fontSize: '11px', color: 'var(--pine)' }}>
@@ -313,7 +346,7 @@ function exportResultsToExcel() {
             ))}
           </div>
           <p style={{ fontSize: '11.5px', color: 'var(--ink-faint)', marginTop: '10px' }}>
-            ⚠️ كلمات السر مؤقتة ويجب تغييرها عند أول دخول. التقرير الآمن لا يحتوي كلمات السر؛ أخفِ بيانات الدخول بعد تسليمها.
+            ⚠️ كلمات السر مؤقتة ويجب تغييرها عند أول دخول. التقرير الآمن لا يحتوي كلمات السر؛ أخفِ بيانات الدخول بعد تسليمها. إعادة المحاولة تعالج الصفوف الفاشلة فقط ولا تعيد إنشاء الحسابات الموجودة.
           </p>
         </div>
       )}

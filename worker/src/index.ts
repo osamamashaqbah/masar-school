@@ -61,6 +61,8 @@ const FEEDBACK_AUDIT_ACTIONS = new Set([
   'reopen_feedback', 'close_feedback', 'update_feedback_status',
 ])
 
+const MAX_REQUEST_BODY_BYTES = 32 * 1024
+
 function corsHeaders(origin: string): HeadersInit {
   return {
     'Access-Control-Allow-Origin': origin,
@@ -102,6 +104,9 @@ export default {
       return json({ error: 'not_found' }, 404, origin)
     }
 
+    const edgeLimitResponse = await enforceEdgeLimit(request, env, url.pathname, origin)
+    if (edgeLimitResponse) return edgeLimitResponse
+
     try {
       if (url.pathname === '/create-school-user') return await handleCreateSchoolUser(request, env, origin)
       if (url.pathname === '/update-school-user') return await handleUpdateSchoolUser(request, env, origin)
@@ -126,6 +131,8 @@ async function handleCreateSchoolUser(request: Request, env: Env, origin: string
     console.error('[create-school-user] توكن غير صالح:', err)
     return json({ error: 'unauthenticated' }, 401, origin)
   }
+  const actorLimitResponse = await enforceActorLimit(env, '/create-school-user', callerUid, origin)
+  if (actorLimitResponse) return actorLimitResponse
 
   const serviceAccount = JSON.parse(env.FIREBASE_SERVICE_ACCOUNT_KEY) as ServiceAccount
   const accessToken = await getAccessToken(serviceAccount, [
@@ -222,6 +229,26 @@ async function handleCreateSchoolUser(request: Request, env: Env, origin: string
   return json({ uid: created.localId }, 200, origin)
 }
 
+function rateLimited(origin: string): Response {
+  return new Response(JSON.stringify({ error: 'rate_limited', message: 'طلبات كثيرة خلال وقت قصير. حاول بعد قليل.' }), {
+    status: 429,
+    headers: { 'Content-Type': 'application/json', 'Retry-After': '60', ...corsHeaders(origin) },
+  })
+}
+
+async function enforceEdgeLimit(request: Request, env: Env, pathname: string, origin: string): Promise<Response | null> {
+  const contentLength = Number(request.headers.get('Content-Length') || 0)
+  if (contentLength > MAX_REQUEST_BODY_BYTES) return json({ error: 'payload_too_large' }, 413, origin)
+  const ip = request.headers.get('CF-Connecting-IP') || 'unknown'
+  const { success } = await env.EDGE_REQUEST_LIMITER.limit({ key: `${pathname}:${ip}` })
+  return success ? null : rateLimited(origin)
+}
+
+async function enforceActorLimit(env: Env, pathname: string, callerUid: string, origin: string): Promise<Response | null> {
+  const { success } = await env.ACTOR_OPERATION_LIMITER.limit({ key: `${pathname}:${callerUid}` })
+  return success ? null : rateLimited(origin)
+}
+
 function validateAuditInput(body: AuditBody): string | null {
   if (typeof body.action !== 'string' || !VALID_AUDIT_ACTIONS.has(body.action)) return 'إجراء التدقيق غير صالح'
   if (typeof body.targetType !== 'string' || !body.targetType.trim() || body.targetType.length > 80) return 'نوع الهدف غير صالح'
@@ -251,6 +278,8 @@ async function handleWriteAuditLog(request: Request, env: Env, origin: string): 
   } catch {
     return json({ error: 'unauthenticated' }, 401, origin)
   }
+  const actorLimitResponse = await enforceActorLimit(env, '/audit-log', callerUid, origin)
+  if (actorLimitResponse) return actorLimitResponse
 
   const body = (await request.json().catch(() => ({}))) as AuditBody
   const validationError = validateAuditInput(body)
@@ -303,6 +332,8 @@ async function handleUpdateSchoolUser(request: Request, env: Env, origin: string
     console.error('[update-school-user] توكن غير صالح:', err)
     return json({ error: 'unauthenticated' }, 401, origin)
   }
+  const actorLimitResponse = await enforceActorLimit(env, '/update-school-user', callerUid, origin)
+  if (actorLimitResponse) return actorLimitResponse
 
   const body = (await request.json().catch(() => ({}))) as UpdateUserBody
   if (typeof body.uid !== 'string' || !body.uid.trim()) return json({ error: 'invalid_input', message: 'uid مطلوب' }, 400, origin)

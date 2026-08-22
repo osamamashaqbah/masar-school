@@ -8,7 +8,19 @@
     "FIREBASE_PROJECT_ID": "masar-school-demo",
     // دومين الواجهة المسموح تنادي هالـ Worker منه — عدّله إذا تغيّر دومين الاستضافة
     "ALLOWED_ORIGIN": "https://masar-school-demo.web.app"
-  }
+  },
+  "ratelimits": [
+    {
+      "name": "EDGE_REQUEST_LIMITER",
+      "namespace_id": "26082301",
+      "simple": { "limit": 300, "period": 60 }
+    },
+    {
+      "name": "ACTOR_OPERATION_LIMITER",
+      "namespace_id": "26082302",
+      "simple": { "limit": 180, "period": 60 }
+    }
+  ],
   // الأسرار (ما تنحط هون): FIREBASE_SERVICE_ACCOUNT_KEY — عبر:
   //   npx wrangler secret put FIREBASE_SERVICE_ACCOUNT_KEY
 }

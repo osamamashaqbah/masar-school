@@ -279,12 +279,14 @@ function ExamScheduleViewer() {
 
 export default function ExamCenterPage() {
   const { session } = useSession()
+  const { error } = useExamCenter()
   return (
     <div>
       <div className="eyebrow">مركز الاختبارات</div>
       <h2 className="page-title" style={{ marginBottom: '20px' }}>
         {session.role === 'admin' ? 'جدول الاختبارات والقاعات' : 'جدول الاختبارات'}
       </h2>
+      {error && <p className="auth-error">{error}</p>}
       {session.role === 'admin' ? <AdminExamCenter /> : <ExamScheduleViewer />}
     </div>
   )

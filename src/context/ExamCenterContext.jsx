@@ -19,11 +19,13 @@ export function ExamCenterProvider({ children }) {
   const [periods, setPeriods] = useState([])
   const [slotsByPeriod, setSlotsByPeriod] = useState({})
   const [scanning, setScanning] = useState(false)
+  const [error, setError] = useState('')
 
   // Firestore ما بيفلتر النتائج حسب القواعد: الاستعلام نفسه لازم يثبت إن غير الإدارة
   // ما رح يطلب فترات draft، وإلا القاعدة بترفض الاستعلام كاملًا.
   useEffect(() => {
-    if (!session || !examCenterEnabled) { setPeriods([]); setSlotsByPeriod({}); return }
+    if (!session || !examCenterEnabled) { setPeriods([]); setSlotsByPeriod({}); setError(''); return }
+    setError('')
     const constraints = [where('schoolId', '==', session.schoolId)]
     if (session.role !== 'admin') constraints.push(where('status', 'in', ['published', 'locked']))
     const q = query(collection(db, 'examPeriods'), ...constraints)
@@ -31,7 +33,7 @@ export function ExamCenterProvider({ children }) {
       const list = snap.docs.map((d) => ({ id: d.id, ...d.data() }))
       list.sort((a, b) => (a.startDate < b.startDate ? 1 : -1))
       setPeriods(list)
-    }, (err) => console.error('[مركز الاختبارات] فشل تحميل الفترات:', err))
+    }, (err) => { console.error('[مركز الاختبارات] فشل تحميل الفترات:', err); setError('تعذّر تحميل فترات الاختبارات. حاول تحديث الصفحة.') })
     return () => unsub()
   }, [session, examCenterEnabled])
 
@@ -42,7 +44,7 @@ export function ExamCenterProvider({ children }) {
     return onSnapshot(q, (snap) => {
       const list = snap.docs.map((d) => ({ id: d.id, ...d.data() }))
       setSlotsByPeriod((prev) => ({ ...prev, [periodId]: list }))
-    }, (err) => console.error('[مركز الاختبارات] فشل تحميل حصص الفترة:', err))
+    }, (err) => { console.error('[مركز الاختبارات] فشل تحميل حصص الفترة:', err); setError('تعذّر تحميل حصص فترة الاختبارات.') })
   }, [session, examCenterEnabled])
 
   function getSlots(periodId) {
@@ -81,6 +83,7 @@ export function ExamCenterProvider({ children }) {
   // فحص تعارض كامل: نفس الشعبة بامتحانين بنفس الوقت، نفس القاعة، أو نفس المراقب
   async function scanConflicts(periodId) {
     setScanning(true)
+    setError('')
     try {
       const snap = await getDocs(query(collection(db, 'examSlots'), where('schoolId', '==', session.schoolId), where('periodId', '==', periodId)))
       const slots = snap.docs.map((d) => ({ id: d.id, ...d.data() }))
@@ -95,6 +98,10 @@ export function ExamCenterProvider({ children }) {
         }
       }
       return { sectionConflicts, roomConflicts, proctorConflicts }
+    } catch (err) {
+      console.error('[مركز الاختبارات] فشل فحص التعارضات:', err)
+      setError('تعذّر فحص تعارضات الاختبارات. حاول مرة ثانية.')
+      return null
     } finally {
       setScanning(false)
     }
@@ -102,7 +109,7 @@ export function ExamCenterProvider({ children }) {
 
   return (
     <ExamCenterContext.Provider value={{
-      periods, scanning, loadSlotsForPeriod, getSlots,
+      periods, scanning, error, loadSlotsForPeriod, getSlots,
       createPeriod, setPeriodStatus, addSlot, deleteSlot, scanConflicts,
     }}>
       {children}

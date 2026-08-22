@@ -150,7 +150,7 @@ function GenerateQuizTool({ mySubjects }) {
 export default function InstructorQuestionBankPage() {
   const { session } = useSession()
   const { subjects } = useSchoolStructure()
-  const { questions, duplicateQuestion, deleteQuestion } = useQuestionBank()
+  const { questions, error: questionBankError, duplicateQuestion, deleteQuestion } = useQuestionBank()
 
   const mySubjects = session.role === 'admin' ? subjects : subjects.filter((s) => s.teacherUid === session.uid)
   const mySubjectIds = mySubjects.map((s) => s.id)
@@ -169,6 +169,7 @@ export default function InstructorQuestionBankPage() {
     <div>
       <div className="eyebrow">بنك الأسئلة</div>
       <h2 className="page-title" style={{ marginBottom: '16px' }}>أسئلة قابلة لإعادة الاستخدام</h2>
+      {questionBankError && <p className="auth-error">{questionBankError}</p>}
 
       <AddQuestionForm mySubjects={mySubjects} />
       <GenerateQuizTool mySubjects={mySubjects} />

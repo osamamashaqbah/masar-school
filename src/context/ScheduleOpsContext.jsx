@@ -17,14 +17,17 @@ export function ScheduleOpsProvider({ children }) {
   const [availabilityByTeacher, setAvailabilityByTeacher] = useState({})
   const [absences, setAbsences] = useState([])
   const [coverageLog, setCoverageLog] = useState([])
+  const [error, setError] = useState('')
 
   const instructors = allUsers.filter((u) => u.role === 'instructor')
 
   // سجل الغياب وسجل التغطية — قراءة مرة وحدة (schoolId فقط) عشان الإدارة تشوف تاريخها بدون listener دائم
   useEffect(() => {
     if (!session || session.role !== 'admin') { setAbsences([]); setCoverageLog([]); return }
-    const unsub1 = getDocsOnce(query(collection(db, 'teacherAbsences'), where('schoolId', '==', session.schoolId)), setAbsences)
-    const unsub2 = getDocsOnce(query(collection(db, 'substituteCoverage'), where('schoolId', '==', session.schoolId)), setCoverageLog)
+    setError('')
+    const onLoadError = (err) => { console.error('[الجدول] فشل تحميل السجل:', err); setError('تعذّر تحميل سجلات الغياب والتغطية. حاول تحديث الصفحة.') }
+    const unsub1 = getDocsOnce(query(collection(db, 'teacherAbsences'), where('schoolId', '==', session.schoolId)), setAbsences, onLoadError)
+    const unsub2 = getDocsOnce(query(collection(db, 'substituteCoverage'), where('schoolId', '==', session.schoolId)), setCoverageLog, onLoadError)
     return () => { unsub1(); unsub2() }
   }, [session])
 
@@ -32,6 +35,7 @@ export function ScheduleOpsProvider({ children }) {
   // بمادته (subjects.teacherUid) بالمتصفح — بدون أي تعديل على شكل وثيقة timetables نفسها
   const scanConflicts = useCallback(async () => {
     setScanning(true)
+    setError('')
     try {
       const ttSnap = await getDocs(query(collection(db, 'timetables'), where('schoolId', '==', session.schoolId)))
       const availSnap = await getDocs(query(collection(db, 'teacherAvailability'), where('schoolId', '==', session.schoolId)))
@@ -87,6 +91,10 @@ export function ScheduleOpsProvider({ children }) {
       const result = { conflicts, availabilityViolations, weeklyMismatches, teacherSlotMap, slotsByTeacher }
       setScanResult(result)
       return result
+    } catch (err) {
+      console.error('[الجدول] فشل فحص التعارضات:', err)
+      setError('تعذّر فحص التعارضات. تأكد من الاتصال والصلاحيات ثم حاول مرة ثانية.')
+      return null
     } finally {
       setScanning(false)
     }
@@ -153,7 +161,7 @@ export function ScheduleOpsProvider({ children }) {
 
   return (
     <ScheduleOpsContext.Provider value={{
-      scanning, scanResult, scanConflicts, availabilityByTeacher, instructors, absences, coverageLog,
+      scanning, scanResult, scanConflicts, availabilityByTeacher, instructors, absences, coverageLog, error,
       getTeacherSlotsForDay, suggestSubstitutes, setTeacherAvailability, setSubjectWeeklyPeriods,
       reportAbsence, assignSubstitute, markAbsenceCovered,
     }}>
@@ -163,14 +171,14 @@ export function ScheduleOpsProvider({ children }) {
 }
 
 // تحميل مرة وحدة (مو onSnapshot) — سجلات غياب/تغطية ما بتحتاج تفاعل لحظي، وبتوفّر قراءات يوميًا
-function getDocsOnce(q, setList) {
+function getDocsOnce(q, setList, onError) {
   let cancelled = false
   getDocs(q).then((snap) => {
     if (cancelled) return
     const list = snap.docs.map((d) => ({ id: d.id, ...d.data() }))
     list.sort((a, b) => (b.createdAt?.toMillis?.() ?? 0) - (a.createdAt?.toMillis?.() ?? 0))
     setList(list.slice(0, 100))
-  }).catch((err) => console.error('[الجدول] فشل تحميل السجل:', err))
+  }).catch(onError)
   return () => { cancelled = true }
 }
 

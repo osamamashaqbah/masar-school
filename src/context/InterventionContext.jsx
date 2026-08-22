@@ -11,10 +11,12 @@ export function InterventionProvider({ children }) {
   const { session } = useSession()
   const [byStudent, setByStudent] = useState({}) // studentUid -> interventions[]
   const [watchedUid, setWatchedUid] = useState(null)
+  const [error, setError] = useState('')
 
   // نافذة واحدة مفتوحة بكل مرة (صفحة الملف الشخصي لطالب واحد) — نفس فكرة activeCaseId بـ FeedbackContext
   useEffect(() => {
-    if (!session || session.role !== 'admin' || !watchedUid) return
+    if (!session || session.role !== 'admin' || !watchedUid) { setError(''); return }
+    setError('')
     const q = query(
       collection(db, 'studentInterventions'),
       where('schoolId', '==', session.schoolId), where('studentUid', '==', watchedUid)
@@ -23,7 +25,7 @@ export function InterventionProvider({ children }) {
       const list = snap.docs.map((d) => ({ id: d.id, ...d.data() }))
       list.sort((a, b) => (b.createdAt?.toMillis?.() ?? 0) - (a.createdAt?.toMillis?.() ?? 0))
       setByStudent((prev) => ({ ...prev, [watchedUid]: list }))
-    }, (err) => console.error('[التدخلات] فشل تحميل تدخلات الطالب:', err))
+    }, (err) => { console.error('[التدخلات] فشل تحميل تدخلات الطالب:', err); setError('تعذّر تحميل خطط التدخل لهذا الطالب.') })
     return () => unsub()
   }, [session, watchedUid])
 
@@ -87,7 +89,7 @@ export function InterventionProvider({ children }) {
 
   return (
     <InterventionContext.Provider value={{
-      watchStudent, interventionsFor, createIntervention, addNote, changeStatus, reassign,
+      watchStudent, interventionsFor, createIntervention, addNote, changeStatus, reassign, error,
     }}>
       {children}
     </InterventionContext.Provider>

@@ -17,20 +17,23 @@ export function QuestionBankProvider({ children }) {
   const { session } = useSession()
   const { subjects } = useSchoolStructure()
   const [questions, setQuestions] = useState([])
+  const [error, setError] = useState('')
 
   // بنك الأسئلة كله للمدرسة — للإدارة والمعلمين بس (القواعد بتمنع الطلاب). عدد معقول لمدرسة
   // وحدة (مئات لآلاف بحد أقصى)، فـ listener وحدة مقبولة هون بدون حاجة لـ pagination الآن
   useEffect(() => {
-    if (!session || (session.role !== 'admin' && session.role !== 'instructor')) { setQuestions([]); return }
+    if (!session || (session.role !== 'admin' && session.role !== 'instructor')) { setQuestions([]); setError(''); return }
+    setError('')
     const subjectIds = session.role === 'instructor'
       ? subjects.filter((subject) => subject.teacherUid === session.uid).map((subject) => subject.id)
       : null
-    if (subjectIds && subjectIds.length === 0) { setQuestions([]); return }
+    if (subjectIds && subjectIds.length === 0) { setQuestions([]); setError(''); return }
 
     const chunks = subjectIds ? chunkArray(subjectIds) : [null]
     const rowsByChunk = chunks.map(() => [])
     const handleError = (err) => {
       console.error('[بنك الأسئلة] فشل التحميل:', err)
+      setError('تعذّر تحميل بنك الأسئلة. حاول تحديث الصفحة.')
       setQuestions([])
     }
     const unsubs = chunks.map((chunk, index) => {
@@ -96,7 +99,7 @@ export function QuestionBankProvider({ children }) {
 
   return (
     <QuestionBankContext.Provider value={{
-      questions, addQuestion, duplicateQuestion, updateQuestion, deleteQuestion,
+      questions, error, addQuestion, duplicateQuestion, updateQuestion, deleteQuestion,
       recordUsage, questionsForSubject, pickRandom,
     }}>
       {children}

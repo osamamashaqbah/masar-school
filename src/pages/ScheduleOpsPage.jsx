@@ -324,11 +324,13 @@ function AbsenceTab() {
 
 export default function ScheduleOpsPage() {
   const [tab, setTab] = useState('conflicts')
+  const { error } = useScheduleOps()
 
   return (
     <div>
       <div className="eyebrow">الجدول الأسبوعي</div>
       <h2 className="page-title" style={{ marginBottom: '16px' }}>التعارضات والتغطية</h2>
+      {error && <p className="auth-error">{error}</p>}
 
       <div style={{ display: 'flex', gap: '8px', marginBottom: '20px', flexWrap: 'wrap' }}>
         {TABS.map((t) => (

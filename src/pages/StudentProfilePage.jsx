@@ -143,7 +143,7 @@ export default function StudentProfilePage() {
   const { getAbsenceCounts } = useAttendance()
   const { getMarksForStudentSubject } = useMarks()
   const { homework } = useHomework()
-  const { watchStudent, interventionsFor } = useIntervention()
+  const { watchStudent, interventionsFor, error: interventionError } = useIntervention()
 
   const [earlyWarning, setEarlyWarning] = useState(null)
   const [submissions, setSubmissions] = useState([])
@@ -202,6 +202,7 @@ export default function StudentProfilePage() {
       <p style={{ color: 'var(--ink-faint)', fontSize: '13px', marginBottom: '20px' }}>
         {grade?.name} — {section?.name}
       </p>
+      {interventionError && <p className="auth-error">{interventionError}</p>}
 
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))', gap: '12px', marginBottom: '20px' }}>
         <div className="panel">

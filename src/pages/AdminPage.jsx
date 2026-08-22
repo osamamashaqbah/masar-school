@@ -130,6 +130,7 @@ export default function AdminPage() {
 
   async function handleAccountAction(user, action) {
     if (action === 'deactivate' && !window.confirm(`تعطيل حساب ${user.name}؟ لن يستطيع الدخول حتى تفعّله من جديد.`)) return
+    if (action === 'delete' && !window.confirm(`حذف حساب ${user.name} نهائيًا؟ سيتم حذف تسجيل الدخول وبيانات الحساب ولا يمكن التراجع.`)) return
     setError('')
     setSuccess('')
     setTemporaryCredential(null)
@@ -150,7 +151,7 @@ export default function AdminPage() {
         setTemporaryCredential({ email: user.email, password: data.temporaryPassword })
         setSuccess('تم إصدار كلمة سر مؤقتة. سلّمها للمستخدم بأمان وسيُطلب منه تغييرها عند الدخول.')
       } else {
-        setSuccess(action === 'deactivate' ? 'تم تعطيل الحساب.' : 'تم تفعيل الحساب.')
+        setSuccess(action === 'delete' ? 'تم حذف الحساب نهائيًا.' : action === 'deactivate' ? 'تم تعطيل الحساب.' : 'تم تفعيل الحساب.')
       }
     } catch (err) {
       console.error('[إدارة الحساب] خطأ غير متوقع:', err)
@@ -350,6 +351,9 @@ export default function AdminPage() {
                       <i className="ti ti-key" /> إعادة كلمة السر
                     </button>
                   )}
+                  <button type="button" className="btn" style={{ width: 'auto', padding: '5px 8px', fontSize: '11px', color: 'var(--berry)' }} disabled={accountActionUid === u.id} onClick={() => handleAccountAction(u, 'delete')}>
+                    <i className="ti ti-trash" /> حذف نهائي
+                  </button>
                 </>
               )}
             </div>

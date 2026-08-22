@@ -137,6 +137,13 @@ describe('tenant isolation', () => {
     await assertFails(updateDoc(doc(adminCtx.firestore(), 'users', 'teacherA'), { role: 'admin' }))
   })
 
+  it('an admin cannot delete a user profile directly from the client', async () => {
+    await seedSchoolWithAdmin('schoolA', 'adminA')
+    await seedUser('schoolA', 'studentA', { name: 'Student A', role: 'student', email: 's@a.com' })
+    const adminCtx = testEnv.authenticatedContext('adminA')
+    await assertFails(deleteDoc(doc(adminCtx.firestore(), 'users', 'studentA')))
+  })
+
   it('an admin cannot invite a user into another school', async () => {
     await seedSchoolWithAdmin('schoolA', 'adminA')
     await seedSchoolWithAdmin('schoolB', 'adminB')

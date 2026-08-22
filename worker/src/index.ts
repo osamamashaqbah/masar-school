@@ -39,7 +39,7 @@ const VALID_AUDIT_ACTIONS = new Set([
   'note_intervention', 'reopen_intervention', 'progress_intervention', 'resolve_intervention',
   'close_intervention', 'reassign_intervention', 'create_exam_period', 'set_exam_period_status',
   'add_exam_slot', 'delete_exam_slot', 'create_user', 'user_deactivate', 'user_activate',
-  'user_reset-password', 'platform_admin_full_access',
+  'user_reset-password', 'user_delete', 'platform_admin_full_access',
 ])
 
 const ADMIN_ONLY_AUDIT_ACTIONS = new Set([
@@ -49,7 +49,7 @@ const ADMIN_ONLY_AUDIT_ACTIONS = new Set([
   'create_intervention', 'note_intervention', 'reopen_intervention', 'progress_intervention',
   'resolve_intervention', 'close_intervention', 'reassign_intervention', 'create_exam_period',
   'set_exam_period_status', 'add_exam_slot', 'delete_exam_slot', 'create_user', 'user_deactivate',
-  'user_activate', 'user_reset-password',
+  'user_activate', 'user_reset-password', 'user_delete',
 ])
 
 const INSTRUCTOR_AUDIT_ACTIONS = new Set([
@@ -384,7 +384,7 @@ async function handleUpdateSchoolUser(request: Request, env: Env, origin: string
 
   const body = (await request.json().catch(() => ({}))) as UpdateUserBody
   if (typeof body.uid !== 'string' || !body.uid.trim()) return json({ error: 'invalid_input', message: 'uid مطلوب' }, 400, origin)
-  if (!['deactivate', 'activate', 'reset-password'].includes(String(body.action))) {
+  if (!['deactivate', 'activate', 'reset-password', 'delete'].includes(String(body.action))) {
     return json({ error: 'invalid_input', message: 'إجراء الحساب غير صالح' }, 400, origin)
   }
 
@@ -406,6 +406,54 @@ async function handleUpdateSchoolUser(request: Request, env: Env, origin: string
   }
 
   const action = String(body.action)
+  if (action === 'delete') {
+    const patchedChildren: Array<{ path: string; parentUids: string[] }> = []
+    try {
+      const childUids = target.role === 'parent' && Array.isArray(target.childUids) ? target.childUids : []
+      for (const childUid of childUids) {
+        if (typeof childUid !== 'string') continue
+        const childPath = `users/${childUid}`
+        const child = await firestoreGetDoc(accessToken, projectId, childPath)
+        if (!child || child.schoolId !== callerProfile.schoolId) continue
+        const parentUids = Array.isArray(child.parentUids) ? child.parentUids.filter((parentUid) => parentUid !== uid) : []
+        const originalParentUids = Array.isArray(child.parentUids) ? child.parentUids : []
+        patchedChildren.push({ path: childPath, parentUids: originalParentUids })
+        await firestorePatchDoc(accessToken, projectId, childPath, { parentUids })
+      }
+
+      await firestoreDeleteDoc(accessToken, projectId, `users/${uid}`)
+      try {
+        await deleteIdentityUser(accessToken, projectId, uid)
+      } catch (err) {
+        await firestoreUpsertDoc(accessToken, projectId, `users/${uid}`, target).catch((rollbackErr) => {
+          console.error('[update-school-user] فشل استعادة ملف الحساب بعد فشل حذف Auth:', rollbackErr)
+        })
+        throw err
+      }
+    } catch (err) {
+      await Promise.all(patchedChildren.map(({ path, parentUids }) =>
+        firestorePatchDoc(accessToken, projectId, path, { parentUids }).catch((rollbackErr) => {
+          console.error('[update-school-user] فشل استعادة رابط ولي الأمر:', path, rollbackErr)
+        })
+      ))
+      console.error('[update-school-user] فشل حذف الحساب:', uid, err)
+      return json({ error: 'delete_failed', message: 'تعذّر حذف الحساب بالكامل. لم نكمل العملية.' }, 500, origin)
+    }
+
+    await firestoreCreateDoc(accessToken, projectId, 'auditLog', crypto.randomUUID(), {
+      schoolId: callerProfile.schoolId,
+      actorUid: callerUid,
+      actorName: typeof callerProfile.name === 'string' ? callerProfile.name : '',
+      action: 'user_delete',
+      targetType: target.role,
+      targetId: uid,
+      details: typeof target.email === 'string' ? target.email : uid,
+      createdAt: new Date().toISOString(),
+    }).catch((err) => console.error('[audit] فشل تسجيل حذف الحساب:', err))
+
+    return json({ uid, deleted: true }, 200, origin)
+  }
+
   const previousStatus = target.status === 'inactive' ? 'inactive' : 'active'
   const previousMustChangePassword = target.mustChangePassword === true
   const temporaryPassword = action === 'reset-password' ? `Temp-${crypto.randomUUID().replaceAll('-', '').slice(0, 12)}` : undefined

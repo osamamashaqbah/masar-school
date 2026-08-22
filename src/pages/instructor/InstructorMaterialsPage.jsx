@@ -48,12 +48,13 @@ export default function InstructorMaterialsPage() {
       return
     }
 
-    const newMaterials = existingMaterials
-      .filter((m) => m.url.trim() !== '')
-      .map((m) => {
-        const parsed = parseMaterialUrl(m.url)
-        return { label: m.label.trim() || 'مرفق', url: m.url.trim(), type: parsed.type, embedUrl: parsed.embedUrl }
-      })
+    const newMaterials = []
+    for (const [index, material] of existingMaterials.entries()) {
+      if (!material.url.trim()) continue
+      const parsed = parseMaterialUrl(material.url)
+      if (parsed.type === 'invalid') { setExistingError(`رابط المرفق رقم ${index + 1} غير صالح. استخدم رابط http أو https.`); return }
+      newMaterials.push({ label: material.label.trim() || 'مرفق', url: material.url.trim(), type: parsed.type, embedUrl: parsed.embedUrl })
+    }
 
     if (newMaterials.length === 0) {
       setExistingError('لازم تضيف رابط واحد على الأقل.')

@@ -1,6 +1,17 @@
+export function safeHttpUrl(rawUrl) {
+  if (typeof rawUrl !== 'string') return null
+  try {
+    const url = new URL(rawUrl.trim())
+    return url.protocol === 'http:' || url.protocol === 'https:' ? url.href : null
+  } catch {
+    return null
+  }
+}
+
 // يفحص أي رابط ويحدد نوعه، ويحوّله لرابط "عرض مدمج" مناسب
 export function parseMaterialUrl(rawUrl) {
-  const url = rawUrl.trim()
+  const url = safeHttpUrl(rawUrl)
+  if (!url) return { type: 'invalid', embedUrl: null }
 
   // فيديو يوتيوب (بأي صيغة رابط: watch, youtu.be, embed)
   const ytMatch = url.match(/(?:youtube\.com\/(?:watch\?v=|embed\/)|youtu\.be\/)([a-zA-Z0-9_-]{6,})/)

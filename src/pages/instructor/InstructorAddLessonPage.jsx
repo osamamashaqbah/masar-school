@@ -47,12 +47,13 @@ export default function InstructorAddLessonPage() {
       cleanQuestions.push({ q: item.q.trim(), options: cleanOptions, correct: Math.min(item.correct, cleanOptions.length - 1) })
     }
 
-    const cleanMaterials = lessonMaterials
-      .filter((m) => m.url.trim() !== '')
-      .map((m) => {
-        const parsed = parseMaterialUrl(m.url)
-        return { label: m.label.trim() || 'مرفق', url: m.url.trim(), type: parsed.type, embedUrl: parsed.embedUrl }
-      })
+    const cleanMaterials = []
+    for (const [index, material] of lessonMaterials.entries()) {
+      if (!material.url.trim()) continue
+      const parsed = parseMaterialUrl(material.url)
+      if (parsed.type === 'invalid') { setLessonError(`رابط المرفق رقم ${index + 1} غير صالح. استخدم رابط http أو https.`); return }
+      cleanMaterials.push({ label: material.label.trim() || 'مرفق', url: material.url.trim(), type: parsed.type, embedUrl: parsed.embedUrl })
+    }
 
     try {
       await addLessonToSubject(subjectId, {

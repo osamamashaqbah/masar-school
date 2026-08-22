@@ -5,6 +5,7 @@ import { useSession } from './SessionContext'
 import { useSchoolStructure } from './SchoolStructureContext'
 import { computeProcrastinationPattern } from '../utils/procrastination'
 import { chunkArray } from '../utils/chunk'
+import { safeHttpUrl } from '../utils/parseMaterialUrl'
 
 const HomeworkContext = createContext(null)
 
@@ -89,6 +90,7 @@ export function HomeworkProvider({ children }) {
   }
 
   async function submitHomework(homeworkId, url) {
+    if (!safeHttpUrl(url)) throw new Error('رابط الإجابة غير صالح')
     const docId = `${session.uid}_${homeworkId}`
     await setDoc(doc(db, 'submissions', docId), {
       studentUid: session.uid,
@@ -108,6 +110,7 @@ export function HomeworkProvider({ children }) {
   // الطالب بيقدر يعيد التسليم بس لما المعلّم يرجّعها له صراحة (status == 'returned') —
   // مفروضة كمان على مستوى قواعد Firestore، هون تكرار دفاعي بالواجهة
   async function resubmitHomework(homeworkId, url) {
+    if (!safeHttpUrl(url)) throw new Error('رابط الإجابة غير صالح')
     const docId = `${session.uid}_${homeworkId}`
     await updateDoc(doc(db, 'submissions', docId), {
       url,

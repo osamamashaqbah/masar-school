@@ -6,6 +6,7 @@ import { useSchoolStructure } from '../../context/SchoolStructureContext'
 import { useHomework } from '../../context/HomeworkContext'
 import { useMarks } from '../../context/MarksContext'
 import { firestoreErrorMessage } from '../../utils/firestoreErrors'
+import { safeHttpUrl } from '../../utils/parseMaterialUrl'
 
 const STATUS_LABELS = {
   submitted: 'بانتظار المراجعة',
@@ -117,7 +118,7 @@ export default function InstructorGradeHomeworkPage() {
                   </p>
                 )}
                 <p style={{ fontSize: '13px', margin: '4px 0' }}>
-                  <a href={sub.url} target="_blank" rel="noopener noreferrer">شوف الإجابة المسلّمة</a>
+                  {safeHttpUrl(sub.url) ? <a href={safeHttpUrl(sub.url)} target="_blank" rel="noopener noreferrer">شوف الإجابة المسلّمة</a> : <span style={{ color: 'var(--ink-faint)' }}>رابط الإجابة غير صالح</span>}
                 </p>
                 {graded ? (
                   <span className="tag tag-pine">تم التقييم</span>

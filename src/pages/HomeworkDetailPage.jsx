@@ -85,10 +85,11 @@ export default function HomeworkDetailPage() {
             )}
             {materialParsed.type === 'image' && <img src={materialParsed.embedUrl} alt="ملف الواجب" className="material-image" />}
             {materialParsed.type === 'link' && (
-              <a href={hw.materialUrl} target="_blank" rel="noopener noreferrer" className="btn btn-accent">
+              <a href={materialParsed.embedUrl} target="_blank" rel="noopener noreferrer" className="btn btn-accent">
                 <i className="ti ti-external-link" /> فتح الملف
               </a>
             )}
+            {materialParsed.type === 'invalid' && <span style={{ color: 'var(--ink-faint)', fontSize: '12px' }}>رابط الملف غير صالح</span>}
           </div>
         </div>
       )}
@@ -105,9 +106,11 @@ export default function HomeworkDetailPage() {
             {submission.attemptCount > 1 && (
               <p style={{ fontSize: '11.5px', color: 'var(--ink-faint)', margin: '0 0 10px' }}>المحاولة رقم {submission.attemptCount}</p>
             )}
-            <a href={submission.url} target="_blank" rel="noopener noreferrer" className="btn">
-              <i className="ti ti-external-link" /> شوف إجابتك المسلّمة
-            </a>
+            {parseMaterialUrl(submission.url).type !== 'invalid' ? (
+              <a href={parseMaterialUrl(submission.url).embedUrl} target="_blank" rel="noopener noreferrer" className="btn">
+                <i className="ti ti-external-link" /> شوف إجابتك المسلّمة
+              </a>
+            ) : <span style={{ color: 'var(--ink-faint)', fontSize: '12px' }}>رابط الإجابة غير صالح</span>}
           </div>
         ) : canResubmit ? (
           <div>

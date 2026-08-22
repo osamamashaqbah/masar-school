@@ -2,6 +2,7 @@ import { useEffect } from 'react'
 import { useParams, useNavigate } from 'react-router-dom'
 import { useSchoolStructure } from '../context/SchoolStructureContext'
 import { useNotes } from '../context/NotesContext'
+import { parseMaterialUrl } from '../utils/parseMaterialUrl'
 
 export default function LessonPage() {
   const { subjectId, lessonIndex } = useParams()
@@ -38,18 +39,20 @@ export default function LessonPage() {
       {lesson.materials?.length > 0 && (
         <div className="materials-section animate-stagger" style={{ animationDelay: '120ms' }}>
           <div className="materials-heading"><i className="ti ti-paperclip" /> مرفقات الدرس</div>
-          {lesson.materials.map((m, i) => (
-            <div className="material-card" key={i}>
+          {lesson.materials.map((m, i) => {
+            const parsed = parseMaterialUrl(m.url)
+            return <div className="material-card" key={i}>
               <div className="material-label">{m.label}</div>
-              {(m.type === 'youtube' || m.type === 'drive') && (
-                <iframe src={m.embedUrl} className="material-embed" allow="autoplay; encrypted-media" allowFullScreen title={m.label} />
+              {(parsed.type === 'youtube' || parsed.type === 'drive') && (
+                <iframe src={parsed.embedUrl} className="material-embed" allow="autoplay; encrypted-media" allowFullScreen title={m.label} />
               )}
-              {m.type === 'image' && <img src={m.embedUrl} alt={m.label} className="material-image" />}
-              {m.type === 'link' && (
-                <a href={m.url} target="_blank" rel="noopener noreferrer" className="btn btn-accent"><i className="ti ti-external-link" /> فتح الرابط</a>
+              {parsed.type === 'image' && <img src={parsed.embedUrl} alt={m.label} className="material-image" />}
+              {parsed.type === 'link' && (
+                <a href={parsed.embedUrl} target="_blank" rel="noopener noreferrer" className="btn btn-accent"><i className="ti ti-external-link" /> فتح الرابط</a>
               )}
+              {parsed.type === 'invalid' && <span style={{ color: 'var(--ink-faint)', fontSize: '12px' }}>الرابط غير صالح</span>}
             </div>
-          ))}
+          })}
         </div>
       )}
 

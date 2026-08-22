@@ -7,7 +7,7 @@ import { useSchoolStructure } from '../context/SchoolStructureContext'
 import { useMarks } from '../context/MarksContext'
 import { useQuizStats } from '../context/QuizStatsContext'
 import { useAttendance } from '../context/AttendanceContext'
-import { computeSubjectTotal, computeStudentAverage, hasCoreExamsEntered } from '../utils/gradeCategories'
+import { aggregateMark, computeSubjectTotal, computeStudentAverage, hasCoreExamsEntered } from '../utils/gradeCategories'
 import { evaluateEarlyWarning, rankTop } from '../utils/earlyWarningRules'
 
 export default function AdminInsightsPage() {
@@ -33,10 +33,8 @@ export default function AdminInsightsPage() {
       const [freshMarks, freshAbsences] = await Promise.all([refreshAdminMarks(), refreshSchoolAbsences()])
 
       function localGetMark(uid, subjectId, categoryId) {
-        const found = freshMarks.find((m) => m.studentUid === uid && m.subjectId === subjectId && m.categoryId === categoryId
-          && (!m.academicYear || m.academicYear === currentAcademicYear))
-        if (!found || typeof found.score !== 'number' || typeof found.maxScore !== 'number') return null
-        return { score: found.score, maxScore: found.maxScore }
+        return aggregateMark(freshMarks.filter((m) => m.studentUid === uid && m.subjectId === subjectId
+          && (!m.academicYear || m.academicYear === currentAcademicYear)), categoryId)
       }
       function localGetAbsenceCounts(uid) {
         const rows = freshAbsences.filter((a) => a.studentUid === uid && (!a.academicYear || a.academicYear === currentAcademicYear))

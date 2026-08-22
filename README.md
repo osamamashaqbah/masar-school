@@ -48,6 +48,7 @@ VITE_FIREBASE_PROJECT_ID=
 VITE_FIREBASE_STORAGE_BUCKET=
 VITE_FIREBASE_MESSAGING_SENDER_ID=
 VITE_FIREBASE_APP_ID=
+VITE_ADMIN_OPS_WORKER_URL=
 ```
 
 ## السكربتات
@@ -58,7 +59,7 @@ VITE_FIREBASE_APP_ID=
 | `npm run build` | بناء نسخة الإنتاج بمجلد `dist/` |
 | `npm run lint` | فحص الكود بـ oxlint |
 | `npm test` | اختبارات الوحدة (utils) |
-| `npm run test:rules` | اختبارات عزل المدارس بقواعد Firestore، تحتاج Firestore emulator شغال (`firebase emulators:exec --only firestore "npm run test:rules"`) |
+| `npm run test:rules` | اختبارات عزل المدارس بقواعد Firestore عبر المحاكي |
 | `npm run preview` | معاينة نسخة الإنتاج المبنية محليًا |
 
 ## النشر (Deploy)
@@ -67,6 +68,9 @@ VITE_FIREBASE_APP_ID=
 npm run build
 npx firebase deploy --only hosting,firestore:rules
 ```
+
+انشر Worker العمليات الإدارية من مجلد `worker/` بعد ضبط سر
+`FIREBASE_SERVICE_ACCOUNT_KEY`، ثم ضع رابطه في `VITE_ADMIN_OPS_WORKER_URL` قبل بناء الواجهة.
 
 ## النسخ الاحتياطي
 

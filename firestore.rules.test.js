@@ -878,10 +878,10 @@ describe('platformAdmins / platformStats (super-admin)', () => {
     await assertSucceeds(getDoc(doc(ownerCtx.firestore(), 'users', 'studentA')))
   })
 
-  it('a school admin can write their own platformStats (aggregate only)', async () => {
+  it('a school admin cannot write platformStats from the client', async () => {
     await seedSchoolWithAdmin('schoolA', 'adminA')
     const adminCtx = testEnv.authenticatedContext('adminA')
-    await assertSucceeds(
+    await assertFails(
       setDoc(doc(adminCtx.firestore(), 'platformStats', 'schoolA'), {
         schoolName: 'schoolA', studentCount: 10, instructorCount: 2, parentCount: 8, updatedAt: Date.now(),
       })

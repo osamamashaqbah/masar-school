@@ -789,12 +789,11 @@ service cloud.firestore {
     }
 
     // ===================== platformStats (لوحة صاحب المنصة) =====================
-    // بيانات مجمّعة/إحصائية بس (عدد مستخدمين، آخر نشاط) — كل مدرسة بتكتب سجلها هي (admin trigger)،
-    // صاحب المنصة يقرأها كلها. ما في أي بيانات طالب فردية هون إطلاقًا.
+    // بيانات مجمّعة/إحصائية بس (عدد مستخدمين، آخر نشاط) — تُكتب عبر Worker موثوق فقط،
+    // وصاحب المنصة يقرأها كلها. ما في أي بيانات طالب فردية هون إطلاقًا.
     match /platformStats/{schoolId} {
       allow read: if isPlatformAdmin() || (isAdmin() && sameSchool(schoolId));
-      allow create, update: if isAdmin() && sameSchool(schoolId)
-        && request.resource.data.keys().hasAll(['schoolName', 'studentCount', 'instructorCount', 'parentCount', 'updatedAt']);
+      allow create, update: if false;
       allow delete: if false;
     }
 

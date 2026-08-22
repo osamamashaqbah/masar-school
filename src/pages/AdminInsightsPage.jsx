@@ -1,7 +1,7 @@
 import { useState } from 'react'
 import { Link } from 'react-router-dom'
 import { doc, setDoc } from 'firebase/firestore'
-import { db } from '../firebase'
+import { auth, db } from '../firebase'
 import { useSession } from '../context/SessionContext'
 import { useSchoolStructure } from '../context/SchoolStructureContext'
 import { useMarks } from '../context/MarksContext'
@@ -12,7 +12,7 @@ import { evaluateEarlyWarning, rankTop } from '../utils/earlyWarningRules'
 
 export default function AdminInsightsPage() {
   const { session } = useSession()
-  const { grades, sections, subjects, allUsers, schoolName, currentAcademicYear } = useSchoolStructure()
+  const { grades, sections, subjects, allUsers, currentAcademicYear } = useSchoolStructure()
   const { refreshAdminMarks } = useMarks()
   const { getStudentStats } = useQuizStats()
   const { refreshSchoolAbsences } = useAttendance()
@@ -31,6 +31,15 @@ export default function AdminInsightsPage() {
       // منستخدم الصفوف المرجعة هون مباشرة (مش state تبع الـ context) لأنه setState بعد await
       // ما بينعكس بنفس التشغيلة الحالية — الاعتماد عليه كان رح يحسب على بيانات قديمة
       const [freshMarks, freshAbsences] = await Promise.all([refreshAdminMarks(), refreshSchoolAbsences()])
+
+      const workerUrl = import.meta.env.VITE_ADMIN_OPS_WORKER_URL?.replace(/\/$/, '')
+      const idToken = await auth.currentUser?.getIdToken()
+      if (!workerUrl || !idToken) throw new Error('خدمة المؤشرات الموثوقة غير مضبوطة')
+      const statsResponse = await fetch(`${workerUrl}/refresh-platform-stats`, {
+        method: 'POST',
+        headers: { Authorization: `Bearer ${idToken}` },
+      })
+      if (!statsResponse.ok) throw new Error(`refresh-platform-stats ${statsResponse.status}`)
 
       function localGetMark(uid, subjectId, categoryId) {
         return aggregateMark(freshMarks.filter((m) => m.studentUid === uid && m.subjectId === subjectId
@@ -116,17 +125,6 @@ export default function AdminInsightsPage() {
         5
       )
       await setDoc(doc(db, 'honorBoards', `${session.schoolId}_top_sections`), { schoolId: session.schoolId, top: schoolSectionsBoard, updatedAt: Date.now() })
-
-      // مؤشر لصاحب المنصة — بيانات مجمّعة بس (بدون أي بيانات طالب فردية)
-      await setDoc(doc(db, 'platformStats', session.schoolId), {
-        schoolName,
-        studentCount: students.length,
-        instructorCount: allUsers.filter((u) => u.role === 'instructor').length,
-        parentCount: allUsers.filter((u) => u.role === 'parent').length,
-        currentAcademicYear: currentAcademicYear || null,
-        lastActivityAt: Date.now(),
-        updatedAt: Date.now(),
-      })
 
       setResult({
         flaggedCount: perStudent.filter((p) => p.attendanceAlert || p.subjectAlerts.length > 0).length,

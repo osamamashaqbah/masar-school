@@ -1,5 +1,5 @@
 import { getAccessToken, verifyFirebaseIdToken, createIdentityUser, updateIdentityUser, deleteIdentityUser, type ServiceAccount } from './google'
-import { firestoreGetDoc, firestoreCreateDoc, firestorePatchDoc, firestoreDeleteDoc } from './firestore'
+import { firestoreGetDoc, firestoreCreateDoc, firestorePatchDoc, firestoreDeleteDoc, firestoreRunQuery, firestoreUpsertDoc } from './firestore'
 
 interface Env extends Cloudflare.Env {
   FIREBASE_SERVICE_ACCOUNT_KEY: string
@@ -100,7 +100,7 @@ export default {
     }
 
     const url = new URL(request.url)
-    if (request.method !== 'POST' || !['/create-school-user', '/update-school-user', '/audit-log'].includes(url.pathname)) {
+    if (request.method !== 'POST' || !['/create-school-user', '/update-school-user', '/audit-log', '/refresh-platform-stats'].includes(url.pathname)) {
       return json({ error: 'not_found' }, 404, origin)
     }
 
@@ -110,6 +110,7 @@ export default {
     try {
       if (url.pathname === '/create-school-user') return await handleCreateSchoolUser(request, env, origin)
       if (url.pathname === '/update-school-user') return await handleUpdateSchoolUser(request, env, origin)
+      if (url.pathname === '/refresh-platform-stats') return await handleRefreshPlatformStats(request, env, origin)
       return await handleWriteAuditLog(request, env, origin)
     } catch (err) {
       console.error('[admin-ops] خطأ غير متوقع:', err)
@@ -117,6 +118,52 @@ export default {
     }
   },
 } satisfies ExportedHandler<Env>
+
+async function handleRefreshPlatformStats(request: Request, env: Env, origin: string): Promise<Response> {
+  const authHeader = request.headers.get('Authorization') || ''
+  const idToken = authHeader.startsWith('Bearer ') ? authHeader.slice('Bearer '.length) : ''
+  if (!idToken) return json({ error: 'unauthenticated' }, 401, origin)
+
+  const projectId = env.FIREBASE_PROJECT_ID
+  let callerUid: string
+  try {
+    callerUid = (await verifyFirebaseIdToken(idToken, projectId)).uid
+  } catch {
+    return json({ error: 'unauthenticated' }, 401, origin)
+  }
+  const actorLimitResponse = await enforceActorLimit(env, '/refresh-platform-stats', callerUid, origin)
+  if (actorLimitResponse) return actorLimitResponse
+
+  const serviceAccount = JSON.parse(env.FIREBASE_SERVICE_ACCOUNT_KEY) as ServiceAccount
+  const accessToken = await getAccessToken(serviceAccount, ['https://www.googleapis.com/auth/datastore'])
+  const callerProfile = await firestoreGetDoc(accessToken, projectId, `users/${callerUid}`)
+  if (!callerProfile || callerProfile.role !== 'admin' || typeof callerProfile.schoolId !== 'string') {
+    return json({ error: 'permission_denied' }, 403, origin)
+  }
+
+  const schoolId = callerProfile.schoolId
+  const [users, school] = await Promise.all([
+    firestoreRunQuery(accessToken, projectId, 'users', 'schoolId', schoolId, ['role']),
+    firestoreGetDoc(accessToken, projectId, `schools/${schoolId}`),
+  ])
+  const counts = {
+    studentCount: users.filter((user) => user.role === 'student').length,
+    instructorCount: users.filter((user) => user.role === 'instructor').length,
+    parentCount: users.filter((user) => user.role === 'parent').length,
+  }
+  const now = new Date().toISOString()
+  await firestoreUpsertDoc(accessToken, projectId, `platformStats/${schoolId}`, {
+    schoolName: typeof school?.name === 'string' ? school.name : schoolId,
+    ...counts,
+    currentAcademicYear: typeof school?.currentAcademicYear === 'string' ? school.currentAcademicYear : null,
+    lastActivityAt: now,
+    updatedAt: now,
+    source: 'worker',
+    sourceVersion: 1,
+  })
+
+  return json({ ok: true, ...counts }, 200, origin)
+}
 
 async function handleCreateSchoolUser(request: Request, env: Env, origin: string): Promise<Response> {
   const authHeader = request.headers.get('Authorization') || ''

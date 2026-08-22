@@ -85,6 +85,47 @@ export async function firestorePatchDoc(
   if (!res.ok) throw new Error(`فشل تحديث ${path}: ${res.status} ${await res.text()}`)
 }
 
+export async function firestoreRunQuery(
+  accessToken: string,
+  projectId: string,
+  collectionId: string,
+  fieldPath: string,
+  fieldValue: string,
+  selectFields: string[] = [],
+): Promise<Record<string, unknown>[]> {
+  const structuredQuery: Record<string, unknown> = {
+    from: [{ collectionId }],
+    where: { fieldFilter: { field: { fieldPath }, op: 'EQUAL', value: { stringValue: fieldValue } } },
+  }
+  if (selectFields.length > 0) structuredQuery.select = { fields: selectFields.map((fieldPath) => ({ fieldPath })) }
+
+  const res = await fetch(`${BASE(projectId)}:runQuery`, {
+    method: 'POST',
+    headers: { Authorization: `Bearer ${accessToken}`, 'Content-Type': 'application/json' },
+    body: JSON.stringify({ structuredQuery }),
+  })
+  if (!res.ok) throw new Error(`فشل الاستعلام عن ${collectionId}: ${res.status} ${await res.text()}`)
+  const rows = (await res.json()) as Array<{ document?: { fields?: Record<string, FirestoreValue> } }>
+  return rows.filter((row) => row.document).map((row) => fromFirestoreFields(row.document?.fields || {}))
+}
+
+export async function firestoreUpsertDoc(
+  accessToken: string, projectId: string, path: string, data: Record<string, unknown>
+): Promise<void> {
+  const res = await fetch(`${BASE(projectId)}/${path}`, {
+    method: 'PATCH',
+    headers: { Authorization: `Bearer ${accessToken}`, 'Content-Type': 'application/json' },
+    body: JSON.stringify({ fields: toFirestoreFields(data) }),
+  })
+  if (res.ok) return
+  if (res.status === 404) {
+    const slash = path.lastIndexOf('/')
+    await firestoreCreateDoc(accessToken, projectId, path.slice(0, slash), path.slice(slash + 1), data)
+    return
+  }
+  throw new Error(`فشل حفظ ${path}: ${res.status} ${await res.text()}`)
+}
+
 export async function firestoreDeleteDoc(accessToken: string, projectId: string, path: string): Promise<void> {
   const res = await fetch(`${BASE(projectId)}/${path}`, {
     method: 'DELETE',

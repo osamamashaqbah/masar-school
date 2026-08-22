@@ -1,3 +1,4 @@
+import { lazy, Suspense } from 'react'
 import { BrowserRouter, Routes, Route } from 'react-router-dom'
 import { SessionProvider } from './context/SessionContext'
 import { ProgressProvider } from './context/ProgressContext'
@@ -9,55 +10,55 @@ import { NotificationProvider } from './context/NotificationContext'
 import { SchoolStructureProvider } from './context/SchoolStructureContext'
 import { BulkImportProvider } from './context/BulkImportContext'
 import Layout from './components/Layout'
-import Login from './pages/Login'
-import SuperAdminPage from './pages/SuperAdminPage'
-import Dashboard from './pages/Dashboard'
-import SubjectPage from './pages/SubjectPage'
-import LessonPage from './pages/LessonPage'
-import QuizPage from './pages/QuizPage'
-import InstructorPage from './pages/InstructorPage'
-import AdminPage from './pages/AdminPage'
-import SettingsPage from './pages/SettingsPage'
-import HomeworkPage from './pages/HomeworkPage'
-import HomeworkDetailPage from './pages/HomeworkDetailPage'
-import SchoolStructurePage from './pages/SchoolStructurePage'
-import ParentDashboardPage from './pages/ParentDashboardPage'
-import InstructorAddLessonPage from './pages/instructor/InstructorAddLessonPage'
-import InstructorMaterialsPage from './pages/instructor/InstructorMaterialsPage'
-import InstructorHomeworkPage from './pages/instructor/InstructorHomeworkPage'
-import InstructorNotesPage from './pages/instructor/InstructorNotesPage'
-import InstructorAnalyticsPage from './pages/instructor/InstructorAnalyticsPage'
+const Login = lazy(() => import('./pages/Login'))
+const SuperAdminPage = lazy(() => import('./pages/SuperAdminPage'))
+const Dashboard = lazy(() => import('./pages/Dashboard'))
+const SubjectPage = lazy(() => import('./pages/SubjectPage'))
+const LessonPage = lazy(() => import('./pages/LessonPage'))
+const QuizPage = lazy(() => import('./pages/QuizPage'))
+const InstructorPage = lazy(() => import('./pages/InstructorPage'))
+const AdminPage = lazy(() => import('./pages/AdminPage'))
+const SettingsPage = lazy(() => import('./pages/SettingsPage'))
+const HomeworkPage = lazy(() => import('./pages/HomeworkPage'))
+const HomeworkDetailPage = lazy(() => import('./pages/HomeworkDetailPage'))
+const SchoolStructurePage = lazy(() => import('./pages/SchoolStructurePage'))
+const ParentDashboardPage = lazy(() => import('./pages/ParentDashboardPage'))
+const InstructorAddLessonPage = lazy(() => import('./pages/instructor/InstructorAddLessonPage'))
+const InstructorMaterialsPage = lazy(() => import('./pages/instructor/InstructorMaterialsPage'))
+const InstructorHomeworkPage = lazy(() => import('./pages/instructor/InstructorHomeworkPage'))
+const InstructorNotesPage = lazy(() => import('./pages/instructor/InstructorNotesPage'))
+const InstructorAnalyticsPage = lazy(() => import('./pages/instructor/InstructorAnalyticsPage'))
 
 import { QuestionsProvider } from './context/QuestionsContext'
 import { MarksProvider } from './context/MarksContext'
 import { AttendanceProvider } from './context/AttendanceContext'
-import InstructorQuestionsPage from './pages/instructor/InstructorQuestionsPage'
-import InstructorGradeHomeworkPage from './pages/instructor/InstructorGradeHomeworkPage'
-import InstructorManualGradesPage from './pages/instructor/InstructorManualGradesPage'
-import InstructorAttendancePage from './pages/instructor/InstructorAttendancePage'
-import StudentGradesPage from './pages/StudentGradesPage'
+const InstructorQuestionsPage = lazy(() => import('./pages/instructor/InstructorQuestionsPage'))
+const InstructorGradeHomeworkPage = lazy(() => import('./pages/instructor/InstructorGradeHomeworkPage'))
+const InstructorManualGradesPage = lazy(() => import('./pages/instructor/InstructorManualGradesPage'))
+const InstructorAttendancePage = lazy(() => import('./pages/instructor/InstructorAttendancePage'))
+const StudentGradesPage = lazy(() => import('./pages/StudentGradesPage'))
 import { MessagesProvider } from './context/MessagesContext'
-import MessagesPage from './pages/MessagesPage'
-import AdminInsightsPage from './pages/AdminInsightsPage'
-import AdminRolloverPage from './pages/AdminRolloverPage'
+const MessagesPage = lazy(() => import('./pages/MessagesPage'))
+const AdminInsightsPage = lazy(() => import('./pages/AdminInsightsPage'))
+const AdminRolloverPage = lazy(() => import('./pages/AdminRolloverPage'))
 import { AnnouncementsProvider } from './context/AnnouncementsContext'
-import AnnouncementsPage from './pages/AnnouncementsPage'
+const AnnouncementsPage = lazy(() => import('./pages/AnnouncementsPage'))
 import { ExcuseRequestProvider } from './context/ExcuseRequestContext'
-import AdminAuditLogPage from './pages/AdminAuditLogPage'
-import AdminExportPage from './pages/AdminExportPage'
+const AdminAuditLogPage = lazy(() => import('./pages/AdminAuditLogPage'))
+const AdminExportPage = lazy(() => import('./pages/AdminExportPage'))
 import { TimetableProvider } from './context/TimetableContext'
-import TimetablePage from './pages/TimetablePage'
+const TimetablePage = lazy(() => import('./pages/TimetablePage'))
 import { FeedbackProvider } from './context/FeedbackContext'
-import FeedbackPage from './pages/FeedbackPage'
-import AdminFeedbackPage from './pages/AdminFeedbackPage'
+const FeedbackPage = lazy(() => import('./pages/FeedbackPage'))
+const AdminFeedbackPage = lazy(() => import('./pages/AdminFeedbackPage'))
 import { ScheduleOpsProvider } from './context/ScheduleOpsContext'
-import ScheduleOpsPage from './pages/ScheduleOpsPage'
+const ScheduleOpsPage = lazy(() => import('./pages/ScheduleOpsPage'))
 import { InterventionProvider } from './context/InterventionContext'
-import StudentProfilePage from './pages/StudentProfilePage'
+const StudentProfilePage = lazy(() => import('./pages/StudentProfilePage'))
 import { ExamCenterProvider } from './context/ExamCenterContext'
-import ExamCenterPage from './pages/ExamCenterPage'
+const ExamCenterPage = lazy(() => import('./pages/ExamCenterPage'))
 import { QuestionBankProvider } from './context/QuestionBankContext'
-import InstructorQuestionBankPage from './pages/instructor/InstructorQuestionBankPage'
+const InstructorQuestionBankPage = lazy(() => import('./pages/instructor/InstructorQuestionBankPage'))
 
 export default function App() {
   return (
@@ -83,6 +84,7 @@ export default function App() {
                         <InterventionProvider>
                         <ExamCenterProvider>
                         <QuestionBankProvider>
+                        <Suspense fallback={<div className="auth-loading-screen"><i className="ti ti-loader-2 spin" /></div>}>
                         <Routes>
                           <Route path="/" element={<Login />} />
                           <Route path="/superadmin" element={<SuperAdminPage />} />
@@ -124,6 +126,7 @@ export default function App() {
                             <Route path="instructor/question-bank" element={<InstructorQuestionBankPage />} />
                           </Route>
                         </Routes>
+                        </Suspense>
                         </QuestionBankProvider>
                         </ExamCenterProvider>
                         </InterventionProvider>

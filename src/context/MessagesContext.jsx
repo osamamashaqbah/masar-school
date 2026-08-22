@@ -2,6 +2,7 @@ import { createContext, useContext, useState, useEffect } from 'react'
 import { collection, addDoc, setDoc, getDoc, doc, updateDoc, query, where, onSnapshot, serverTimestamp, arrayUnion } from 'firebase/firestore'
 import { db } from '../firebase'
 import { useSession } from './SessionContext'
+import { useSchoolStructure } from './SchoolStructureContext'
 import { sendNotification } from '../utils/notify'
 
 const MessagesContext = createContext(null)
@@ -12,12 +13,14 @@ function threadIdFor(uidA, uidB) {
 
 export function MessagesProvider({ children }) {
   const { session } = useSession()
+  const { features } = useSchoolStructure()
+  const messagingEnabled = features.messaging !== false
   const [threads, setThreads] = useState([])
   const [activeThreadId, setActiveThreadId] = useState(null)
   const [messages, setMessages] = useState([])
 
   useEffect(() => {
-    if (!session) { setThreads([]); return }
+    if (!session || !messagingEnabled) { setThreads([]); setActiveThreadId(null); return }
     const q = query(collection(db, 'threads'), where('participantUids', 'array-contains', session.uid))
     const unsub = onSnapshot(q, (snap) => {
       const list = snap.docs.map((d) => ({ id: d.id, ...d.data() }))
@@ -25,13 +28,13 @@ export function MessagesProvider({ children }) {
       setThreads(list)
     })
     return () => unsub()
-  }, [session])
+  }, [session, messagingEnabled])
 
   // منفصلة لصادر/وارد بدل استعلام وحدة بـ threadId بس — قاعدة Firestore الأمنية بتتحقق من
   // senderUid/recipientUid، وقواعد الـ list queries بتتطلب إنه الحقول يلي الرول بتفحصها تكون
   // ضمن فلاتر الاستعلام نفسه، وإلا بترجع permission-denied (تأكدنا منها بتجربة فعلية على الإنتاج)
   useEffect(() => {
-    if (!activeThreadId || !session) { setMessages([]); return }
+    if (!activeThreadId || !session || !messagingEnabled) { setMessages([]); return }
     const sentQ = query(collection(db, 'messages'), where('threadId', '==', activeThreadId), where('senderUid', '==', session.uid))
     const receivedQ = query(collection(db, 'messages'), where('threadId', '==', activeThreadId), where('recipientUid', '==', session.uid))
     let sent = [], received = []
@@ -43,7 +46,7 @@ export function MessagesProvider({ children }) {
     const unsub1 = onSnapshot(sentQ, (snap) => { sent = snap.docs.map((d) => ({ id: d.id, ...d.data() })); mergeAndSet() })
     const unsub2 = onSnapshot(receivedQ, (snap) => { received = snap.docs.map((d) => ({ id: d.id, ...d.data() })); mergeAndSet() })
     return () => { unsub1(); unsub2() }
-  }, [activeThreadId, session])
+  }, [activeThreadId, session, messagingEnabled])
 
   // بيفتح محادثة مع طرف تاني (تنشئها لو أول مرة)، وبيرجع threadId
   async function openThreadWith(otherUid) {

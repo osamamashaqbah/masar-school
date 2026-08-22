@@ -6,6 +6,7 @@ import { useSchoolStructure } from '../context/SchoolStructureContext'
 import { useConnectionStatus } from '../utils/useConnectionStatus'
 import { getAvatar } from '../utils/avatars'
 import { isRamadan } from '../utils/hijriDate'
+import { canAccessRoute, roleHome } from '../utils/routePolicy'
 import ConsentGate from './ConsentGate'
 
 function roleLabel(role) {
@@ -144,6 +145,9 @@ export default function Layout() {
   if (!session) return <Navigate to="/" replace />
   if (session.mustChangePassword && location.pathname !== '/app/settings') {
     return <Navigate to="/app/settings" replace state={{ mustChangePassword: true }} />
+  }
+  if (!canAccessRoute(location.pathname, session.role, features)) {
+    return <Navigate to={roleHome(session.role)} replace state={{ deniedRoute: location.pathname }} />
   }
 
   const myAvatar = getAvatar(session.avatarId)

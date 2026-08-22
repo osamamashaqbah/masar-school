@@ -2,6 +2,7 @@ import { createContext, useContext, useState, useEffect, useCallback } from 'rea
 import { collection, addDoc, updateDoc, deleteDoc, doc, getDocs, onSnapshot, query, where, serverTimestamp } from 'firebase/firestore'
 import { db } from '../firebase'
 import { useSession } from './SessionContext'
+import { useSchoolStructure } from './SchoolStructureContext'
 import { logAudit } from '../utils/audit'
 
 const ExamCenterContext = createContext(null)
@@ -13,6 +14,8 @@ function timesOverlap(aStart, aEnd, bStart, bEnd) {
 
 export function ExamCenterProvider({ children }) {
   const { session } = useSession()
+  const { features } = useSchoolStructure()
+  const examCenterEnabled = features.examCenter !== false
   const [periods, setPeriods] = useState([])
   const [slotsByPeriod, setSlotsByPeriod] = useState({})
   const [scanning, setScanning] = useState(false)
@@ -20,7 +23,7 @@ export function ExamCenterProvider({ children }) {
   // Firestore ما بيفلتر النتائج حسب القواعد: الاستعلام نفسه لازم يثبت إن غير الإدارة
   // ما رح يطلب فترات draft، وإلا القاعدة بترفض الاستعلام كاملًا.
   useEffect(() => {
-    if (!session) { setPeriods([]); return }
+    if (!session || !examCenterEnabled) { setPeriods([]); setSlotsByPeriod({}); return }
     const constraints = [where('schoolId', '==', session.schoolId)]
     if (session.role !== 'admin') constraints.push(where('status', 'in', ['published', 'locked']))
     const q = query(collection(db, 'examPeriods'), ...constraints)
@@ -30,17 +33,17 @@ export function ExamCenterProvider({ children }) {
       setPeriods(list)
     }, (err) => console.error('[مركز الاختبارات] فشل تحميل الفترات:', err))
     return () => unsub()
-  }, [session])
+  }, [session, examCenterEnabled])
 
   // حصص فترة معيّنة — تحميل كسول أول ما حدا يطلبها، متل TimetableContext
   const loadSlotsForPeriod = useCallback((periodId) => {
-    if (!periodId || !session) return
+    if (!periodId || !session || !examCenterEnabled) return
     const q = query(collection(db, 'examSlots'), where('schoolId', '==', session.schoolId), where('periodId', '==', periodId))
     return onSnapshot(q, (snap) => {
       const list = snap.docs.map((d) => ({ id: d.id, ...d.data() }))
       setSlotsByPeriod((prev) => ({ ...prev, [periodId]: list }))
     }, (err) => console.error('[مركز الاختبارات] فشل تحميل حصص الفترة:', err))
-  }, [session])
+  }, [session, examCenterEnabled])
 
   function getSlots(periodId) {
     return slotsByPeriod[periodId] || []

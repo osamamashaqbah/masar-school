@@ -24,7 +24,7 @@ function ringSvg(pct) {
 }
 
 export default function Dashboard() {
-  const { subjects } = useSchoolStructure()
+  const { subjects, features } = useSchoolStructure()
   const { progress } = useProgress()
   const { session } = useSession()
   const navigate = useNavigate()
@@ -32,6 +32,7 @@ export default function Dashboard() {
   const { getUpcomingDeadlines } = useHomework()
   const { notifications, unreadCount } = useNotifications()
   const mySubjects = subjects.filter((s) => s.sectionId === session.sectionId)
+  const honorBoardsEnabled = features.honorBoards !== false
   const upcoming = getUpcomingDeadlines(mySubjects.map((s) => s.id))
   const dashboardTasks = [
     ...upcoming.map((h) => {
@@ -63,32 +64,34 @@ export default function Dashboard() {
   const [topSections, setTopSections] = useState(null)
 
   useEffect(() => {
-    if (!session.sectionId) { setSectionBoard(null); return }
+    if (!honorBoardsEnabled || !session.sectionId) { setSectionBoard(null); return }
     const unsub = onSnapshot(
       doc(db, 'honorBoards', `${session.schoolId}_section_${session.sectionId}`),
       (snap) => setSectionBoard(snap.data() || null),
       (err) => { console.error('[لوحة الشرف] فشل تحميل لوحة الشعبة:', err); setSectionBoard(null) }
     )
     return () => unsub()
-  }, [session.schoolId, session.sectionId])
+  }, [honorBoardsEnabled, session.schoolId, session.sectionId])
 
   useEffect(() => {
+    if (!honorBoardsEnabled) { setTopStudents(null); return }
     const unsub = onSnapshot(
       doc(db, 'honorBoards', `${session.schoolId}_top_students`),
       (snap) => setTopStudents(snap.data() || null),
       (err) => { console.error('[لوحة الشرف] فشل تحميل لوحة أفضل الطلاب:', err); setTopStudents(null) }
     )
     return () => unsub()
-  }, [session.schoolId])
+  }, [honorBoardsEnabled, session.schoolId])
 
   useEffect(() => {
+    if (!honorBoardsEnabled) { setTopSections(null); return }
     const unsub = onSnapshot(
       doc(db, 'honorBoards', `${session.schoolId}_top_sections`),
       (snap) => setTopSections(snap.data() || null),
       (err) => { console.error('[لوحة الشرف] فشل تحميل لوحة أفضل الشعب:', err); setTopSections(null) }
     )
     return () => unsub()
-  }, [session.schoolId])
+  }, [honorBoardsEnabled, session.schoolId])
 
   return (
     <div>

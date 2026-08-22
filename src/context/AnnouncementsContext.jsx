@@ -2,15 +2,18 @@ import { createContext, useContext, useState, useEffect } from 'react'
 import { collection, addDoc, doc, updateDoc, arrayUnion, onSnapshot, serverTimestamp, query, where } from 'firebase/firestore'
 import { db } from '../firebase'
 import { useSession } from './SessionContext'
+import { useSchoolStructure } from './SchoolStructureContext'
 
 const AnnouncementsContext = createContext(null)
 
 export function AnnouncementsProvider({ children }) {
   const { session } = useSession()
+  const { features } = useSchoolStructure()
+  const announcementsEnabled = features.announcements !== false
   const [announcements, setAnnouncements] = useState([])
 
   useEffect(() => {
-    if (!session) { setAnnouncements([]); return }
+    if (!session || !announcementsEnabled) { setAnnouncements([]); return }
     const q = query(collection(db, 'announcements'), where('schoolId', '==', session.schoolId))
     const unsub = onSnapshot(q, (snap) => {
       const list = snap.docs.map((d) => ({ id: d.id, ...d.data() }))
@@ -18,7 +21,7 @@ export function AnnouncementsProvider({ children }) {
       setAnnouncements(list)
     })
     return () => unsub()
-  }, [session])
+  }, [session, announcementsEnabled])
 
   async function postAnnouncement(title, body) {
     await addDoc(collection(db, 'announcements'), {

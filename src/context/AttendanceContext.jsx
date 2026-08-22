@@ -109,9 +109,9 @@ export function AttendanceProvider({ children }) {
         if (!student.parentUids || student.parentUids.length === 0) {
           console.warn(`[إشعارات] الطالب ${student.name} (${studentUid}) ما إله parentUids — ما رح يوصل إشعار لولي أمره.`)
         }
-        for (const parentUid of student.parentUids || []) {
-          await sendNotification(parentUid, `غاب/ت ${student.name} (${excuseText}) بتاريخ ${date}.`, 'attendance', session.schoolId)
-        }
+        await Promise.all((student.parentUids || []).map((parentUid) =>
+          sendNotification(parentUid, `غاب/ت ${student.name} (${excuseText}) بتاريخ ${date}.`, 'attendance', session.schoolId)
+        ))
       } else {
         console.warn('[إشعارات] ما لقينا وثيقة الطالب', studentUid)
       }

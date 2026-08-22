@@ -815,23 +815,23 @@ describe('announcements / excuseRequests / auditLog', () => {
     await assertFails(updateDoc(requestRef, { status: 'rejected', decidedAt: Date.now(), decidedByUid: 'teacherA' }))
   })
 
-  it('a user can write their own auditLog entry', async () => {
+  it('a client cannot write an auditLog entry', async () => {
     await seedSchoolWithAdmin('schoolA', 'adminA')
 
     const adminCtx = testEnv.authenticatedContext('adminA')
-    await assertSucceeds(
+    await assertFails(
       addDoc(collection(adminCtx.firestore(), 'auditLog'), {
         schoolId: 'schoolA', actorUid: 'adminA', action: 'create_user', targetType: 'student', createdAt: Date.now(),
       })
     )
   })
 
-  it('a platform admin can write an audit entry for a school they support', async () => {
+  it('a platform admin client cannot write an audit entry either', async () => {
     await testEnv.withSecurityRulesDisabled(async (ctx) => {
       await setDoc(doc(ctx.firestore(), 'platformAdmins', 'ownerA'), { name: 'Owner' })
     })
     const ownerCtx = testEnv.authenticatedContext('ownerA')
-    await assertSucceeds(addDoc(collection(ownerCtx.firestore(), 'auditLog'), {
+    await assertFails(addDoc(collection(ownerCtx.firestore(), 'auditLog'), {
       schoolId: 'schoolA', actorUid: 'ownerA', action: 'support_access', targetType: 'school', createdAt: Date.now(),
     }))
   })

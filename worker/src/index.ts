@@ -18,8 +18,48 @@ interface UpdateUserBody {
   action?: unknown
 }
 
+interface AuditBody {
+  schoolId?: unknown
+  action?: unknown
+  targetType?: unknown
+  targetId?: unknown
+  details?: unknown
+}
+
 const VALID_ROLES = ['student', 'instructor', 'parent'] as const
 type ValidRole = (typeof VALID_ROLES)[number]
+
+const VALID_AUDIT_ACTIONS = new Set([
+  'set_mark', 'set_attendance', 'update_attendance_excuse', 'remove_attendance',
+  'archive_subject', 'restore_subject', 'set_feature', 'set_ramadan_schedule', 'set_currency',
+  'set_payment_info', 'set_branding', 'lock_gradebook', 'unlock_gradebook', 'export_school_data',
+  'create_feedback', 'reply_feedback', 'escalate_feedback', 'assign_feedback', 'resolve_feedback',
+  'reopen_feedback', 'close_feedback', 'update_feedback_status', 'set_teacher_availability',
+  'report_teacher_absence', 'assign_substitute', 'cover_teacher_absence', 'create_intervention',
+  'note_intervention', 'reopen_intervention', 'progress_intervention', 'resolve_intervention',
+  'close_intervention', 'reassign_intervention', 'create_exam_period', 'set_exam_period_status',
+  'add_exam_slot', 'delete_exam_slot', 'create_user', 'user_deactivate', 'user_activate',
+  'user_reset-password', 'platform_admin_full_access',
+])
+
+const ADMIN_ONLY_AUDIT_ACTIONS = new Set([
+  'archive_subject', 'restore_subject', 'set_feature', 'set_ramadan_schedule', 'set_currency',
+  'set_payment_info', 'set_branding', 'lock_gradebook', 'unlock_gradebook', 'export_school_data',
+  'set_teacher_availability', 'report_teacher_absence', 'assign_substitute', 'cover_teacher_absence',
+  'create_intervention', 'note_intervention', 'reopen_intervention', 'progress_intervention',
+  'resolve_intervention', 'close_intervention', 'reassign_intervention', 'create_exam_period',
+  'set_exam_period_status', 'add_exam_slot', 'delete_exam_slot', 'create_user', 'user_deactivate',
+  'user_activate', 'user_reset-password',
+])
+
+const INSTRUCTOR_AUDIT_ACTIONS = new Set([
+  'set_mark', 'set_attendance', 'update_attendance_excuse', 'remove_attendance',
+])
+
+const FEEDBACK_AUDIT_ACTIONS = new Set([
+  'create_feedback', 'reply_feedback', 'escalate_feedback', 'assign_feedback', 'resolve_feedback',
+  'reopen_feedback', 'close_feedback', 'update_feedback_status',
+])
 
 function corsHeaders(origin: string): HeadersInit {
   return {
@@ -58,14 +98,14 @@ export default {
     }
 
     const url = new URL(request.url)
-    if (request.method !== 'POST' || !['/create-school-user', '/update-school-user'].includes(url.pathname)) {
+    if (request.method !== 'POST' || !['/create-school-user', '/update-school-user', '/audit-log'].includes(url.pathname)) {
       return json({ error: 'not_found' }, 404, origin)
     }
 
     try {
-      return url.pathname === '/create-school-user'
-        ? await handleCreateSchoolUser(request, env, origin)
-        : await handleUpdateSchoolUser(request, env, origin)
+      if (url.pathname === '/create-school-user') return await handleCreateSchoolUser(request, env, origin)
+      if (url.pathname === '/update-school-user') return await handleUpdateSchoolUser(request, env, origin)
+      return await handleWriteAuditLog(request, env, origin)
     } catch (err) {
       console.error('[admin-ops] خطأ غير متوقع:', err)
       return json({ error: 'internal', message: 'حدث خطأ داخلي. حاول مرة ثانية.' }, 500, origin)
@@ -180,6 +220,74 @@ async function handleCreateSchoolUser(request: Request, env: Env, origin: string
   }).catch((err) => console.error('[audit] فشل التسجيل:', err))
 
   return json({ uid: created.localId }, 200, origin)
+}
+
+function validateAuditInput(body: AuditBody): string | null {
+  if (typeof body.action !== 'string' || !VALID_AUDIT_ACTIONS.has(body.action)) return 'إجراء التدقيق غير صالح'
+  if (typeof body.targetType !== 'string' || !body.targetType.trim() || body.targetType.length > 80) return 'نوع الهدف غير صالح'
+  if (body.targetId !== undefined && body.targetId !== null && (typeof body.targetId !== 'string' || body.targetId.length > 200)) return 'معرّف الهدف غير صالح'
+  if (body.details !== undefined && (typeof body.details !== 'string' || body.details.length > 500)) return 'تفاصيل التدقيق طويلة أو غير صالحة'
+  if (body.schoolId !== undefined && (typeof body.schoolId !== 'string' || !body.schoolId.trim() || body.schoolId.length > 120)) return 'المدرسة غير صالحة'
+  return null
+}
+
+function canWriteAuditAction(role: string, action: string, isPlatformAdmin: boolean): boolean {
+  if (isPlatformAdmin) return action === 'platform_admin_full_access' || action === 'set_branding'
+  if (ADMIN_ONLY_AUDIT_ACTIONS.has(action)) return role === 'admin'
+  if (INSTRUCTOR_AUDIT_ACTIONS.has(action)) return role === 'admin' || role === 'instructor'
+  if (FEEDBACK_AUDIT_ACTIONS.has(action)) return ['admin', 'instructor', 'parent'].includes(role)
+  return false
+}
+
+async function handleWriteAuditLog(request: Request, env: Env, origin: string): Promise<Response> {
+  const authHeader = request.headers.get('Authorization') || ''
+  const idToken = authHeader.startsWith('Bearer ') ? authHeader.slice('Bearer '.length) : ''
+  if (!idToken) return json({ error: 'unauthenticated' }, 401, origin)
+
+  const projectId = env.FIREBASE_PROJECT_ID
+  let callerUid: string
+  try {
+    callerUid = (await verifyFirebaseIdToken(idToken, projectId)).uid
+  } catch {
+    return json({ error: 'unauthenticated' }, 401, origin)
+  }
+
+  const body = (await request.json().catch(() => ({}))) as AuditBody
+  const validationError = validateAuditInput(body)
+  if (validationError) return json({ error: 'invalid_input', message: validationError }, 400, origin)
+
+  const serviceAccount = JSON.parse(env.FIREBASE_SERVICE_ACCOUNT_KEY) as ServiceAccount
+  const accessToken = await getAccessToken(serviceAccount, ['https://www.googleapis.com/auth/datastore'])
+  const callerProfile = await firestoreGetDoc(accessToken, projectId, `users/${callerUid}`)
+  const platformProfile = callerProfile ? null : await firestoreGetDoc(accessToken, projectId, `platformAdmins/${callerUid}`)
+  const isPlatformAdmin = Boolean(platformProfile)
+  const role = typeof callerProfile?.role === 'string' ? callerProfile.role : ''
+  if (!callerProfile && !platformProfile) return json({ error: 'permission_denied' }, 403, origin)
+  if (!canWriteAuditAction(role, body.action as string, isPlatformAdmin)) return json({ error: 'permission_denied' }, 403, origin)
+
+  const profileSchoolId = typeof callerProfile?.schoolId === 'string' ? callerProfile.schoolId : ''
+  const schoolId = isPlatformAdmin ? String(body.schoolId || '') : profileSchoolId
+  if (!schoolId || (!isPlatformAdmin && body.schoolId !== undefined && body.schoolId !== schoolId)) {
+    return json({ error: 'permission_denied' }, 403, origin)
+  }
+  if (isPlatformAdmin && !(await firestoreGetDoc(accessToken, projectId, `schools/${schoolId}`))) {
+    return json({ error: 'invalid_input', message: 'المدرسة غير موجودة' }, 400, origin)
+  }
+
+  await firestoreCreateDoc(accessToken, projectId, 'auditLog', crypto.randomUUID(), {
+    schoolId,
+    actorUid: callerUid,
+    actorName: typeof callerProfile?.name === 'string' ? callerProfile.name : (typeof platformProfile?.name === 'string' ? platformProfile.name : ''),
+    actorRole: isPlatformAdmin ? 'platformAdmin' : role,
+    action: body.action,
+    targetType: body.targetType,
+    targetId: body.targetId || null,
+    details: typeof body.details === 'string' ? body.details : '',
+    source: 'worker',
+    createdAt: new Date().toISOString(),
+  })
+
+  return json({ ok: true }, 200, origin)
 }
 
 async function handleUpdateSchoolUser(request: Request, env: Env, origin: string): Promise<Response> {

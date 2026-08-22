@@ -614,9 +614,9 @@ service cloud.firestore {
     // ===================== auditLog (سجل تدقيق) =====================
     match /auditLog/{id} {
       allow read: if isAdmin() && sameSchool(resource.data.schoolId);
-      allow create: if isSignedIn() && request.resource.data.actorUid == request.auth.uid
-        && request.resource.data.keys().hasAll(['schoolId', 'actorUid', 'action', 'targetType', 'createdAt'])
-        && (isPlatformAdmin() || request.resource.data.schoolId == mySchoolId());
+      // الكتابة تتم فقط من Worker/Admin SDK بعد التحقق من التوكن والدور؛ لا نثق ببيانات العميل
+      // لأن actor/action/details المرسلة من المتصفح قابلة للتزييف حتى لو كان actorUid صحيحًا.
+      allow create: if false;
       allow update, delete: if false;
     }
 

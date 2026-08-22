@@ -30,6 +30,17 @@ const ACTION_LABELS = {
   set_exam_period_status: 'تغيير حالة فترة اختبارات',
   add_exam_slot: 'إضافة حصة اختبار',
   delete_exam_slot: 'حذف حصة اختبار',
+  set_attendance: 'تسجيل حضور أو غياب',
+  update_attendance_excuse: 'تعديل عذر حضور',
+  remove_attendance: 'حذف سجل حضور',
+  set_feature: 'تغيير ميزة',
+  set_ramadan_schedule: 'تغيير دوام رمضان',
+  set_currency: 'تغيير العملة',
+  set_payment_info: 'تعديل معلومات الدفع',
+  set_branding: 'تعديل الهوية',
+  lock_gradebook: 'قفل السجل الدراسي',
+  unlock_gradebook: 'فتح السجل الدراسي',
+  export_school_data: 'تصدير بيانات المدرسة',
 }
 
 export default function AdminAuditLogPage() {
@@ -63,7 +74,7 @@ export default function AdminAuditLogPage() {
                 {e.details ? ` — ${e.details}` : ''}
               </span>
               <span>{e.actorName}</span>
-              <span>{e.createdAt?.toDate ? e.createdAt.toDate().toLocaleString('ar-EG') : ''}</span>
+              <span>{e.createdAt?.toDate ? e.createdAt.toDate().toLocaleString('ar-EG') : typeof e.createdAt === 'string' ? new Date(e.createdAt).toLocaleString('ar-EG') : ''}</span>
             </div>
           ))}
         </div>

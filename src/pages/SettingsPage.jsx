@@ -6,6 +6,7 @@ import { useSession } from '../context/SessionContext'
 import { useTheme } from '../context/ThemeContext'
 import { useSchoolStructure } from '../context/SchoolStructureContext'
 import { AVATAR_OPTIONS, getAvatar } from '../utils/avatars'
+import { safeHttpUrl } from '../utils/parseMaterialUrl'
 
 const FEATURE_KEYS = [
   { key: 'messaging', label: 'الرسائل (معلّم ↔ ولي أمر)' },
@@ -122,6 +123,12 @@ function GulfReadinessSection() {
     }
   }
 
+  async function saveBranding(next) {
+    if (next.logoUrl && !safeHttpUrl(next.logoUrl)) { setUploadError('رابط الشعار لازم يبدأ بـ http أو https.'); return }
+    setUploadError('')
+    try { await updateBranding(next) } catch { setUploadError('تعذّر حفظ الهوية. تأكد من الرابط وحاول مرة ثانية.') }
+  }
+
   return (
     <div className="settings-section">
       <div className="settings-section-head">
@@ -188,7 +195,7 @@ function GulfReadinessSection() {
       <div className="panel card-hover-lift" style={{ maxWidth: '480px' }}>
         <div className="field">
           <label htmlFor="brand-platform-name">اسم المنصة</label>
-          <input id="brand-platform-name" value={brand.platformName || ''} onChange={(e) => setBrand({ ...brand, platformName: e.target.value })} onBlur={() => updateBranding(brand)} placeholder="مسار" />
+          <input id="brand-platform-name" value={brand.platformName || ''} onChange={(e) => setBrand({ ...brand, platformName: e.target.value })} onBlur={() => saveBranding(brand)} placeholder="مسار" />
         </div>
         <div className="field" style={{ marginTop: '10px' }}>
           <label htmlFor="brand-logo-file">ارفع شعار المدرسة (من الجهاز)</label>
@@ -198,13 +205,13 @@ function GulfReadinessSection() {
         </div>
         <div className="field" style={{ marginTop: '10px' }}>
           <label htmlFor="brand-logo">أو رابط شعار المدرسة (URL لصورة)</label>
-          <input id="brand-logo" value={brand.logoUrl} onChange={(e) => setBrand({ ...brand, logoUrl: e.target.value })} onBlur={() => updateBranding(brand)} placeholder="https://..." />
+          <input id="brand-logo" value={brand.logoUrl} onChange={(e) => setBrand({ ...brand, logoUrl: e.target.value })} onBlur={() => saveBranding(brand)} placeholder="https://..." />
         </div>
         <div className="field" style={{ marginTop: '10px' }}>
           <label htmlFor="brand-color">اللون الأساسي</label>
-          <input id="brand-color" type="color" style={{ width: '60px', height: '32px', padding: '2px' }} value={brand.primaryColor} onChange={(e) => { const next = { ...brand, primaryColor: e.target.value }; setBrand(next); updateBranding(next) }} />
+          <input id="brand-color" type="color" style={{ width: '60px', height: '32px', padding: '2px' }} value={brand.primaryColor} onChange={(e) => { const next = { ...brand, primaryColor: e.target.value }; setBrand(next); saveBranding(next) }} />
         </div>
-        {brand.logoUrl && <img src={brand.logoUrl} alt="شعار المدرسة" style={{ maxHeight: '48px', marginTop: '10px' }} />}
+        {safeHttpUrl(brand.logoUrl) && <img src={safeHttpUrl(brand.logoUrl)} alt="شعار المدرسة" style={{ maxHeight: '48px', marginTop: '10px' }} />}
       </div>
     </div>
   )

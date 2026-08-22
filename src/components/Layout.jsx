@@ -7,6 +7,7 @@ import { useConnectionStatus } from '../utils/useConnectionStatus'
 import { getAvatar } from '../utils/avatars'
 import { isRamadan } from '../utils/hijriDate'
 import { canAccessRoute, roleHome } from '../utils/routePolicy'
+import { safeHttpUrl } from '../utils/parseMaterialUrl'
 import ConsentGate from './ConsentGate'
 
 function roleLabel(role) {
@@ -107,15 +108,16 @@ export default function Layout() {
   const [notifOpen, setNotifOpen] = useState(false)
   const [sheetOpen, setSheetOpen] = useState(false)
   const navRef = useRef(null)
+  const safeLogoUrl = safeHttpUrl(branding?.logoUrl)
 
   useEffect(() => {
     document.title = branding?.platformName || schoolName || 'مسار'
-    if (branding?.logoUrl) {
+    if (safeLogoUrl) {
       let link = document.querySelector("link[rel~='icon']")
       if (!link) { link = document.createElement('link'); link.rel = 'icon'; document.head.appendChild(link) }
-      link.href = branding.logoUrl
+      link.href = safeLogoUrl
     }
-  }, [branding, schoolName])
+  }, [branding, safeLogoUrl, schoolName])
 
   // إغلاق أي قائمة منسدلة عند تغيير الصفحة
   useEffect(() => {
@@ -252,7 +254,7 @@ export default function Layout() {
       <header className="topnav" ref={navRef}>
         <div className="brand">
           <div className="brand-mark">
-            {branding?.logoUrl ? <img src={branding.logoUrl} alt="" style={{ width: '100%', height: '100%', objectFit: 'cover', borderRadius: 'inherit' }} /> : <i className="ti ti-school" />}
+            {safeLogoUrl ? <img src={safeLogoUrl} alt="" style={{ width: '100%', height: '100%', objectFit: 'cover', borderRadius: 'inherit' }} /> : <i className="ti ti-school" />}
           </div>
           <div className="brand-text">
             <div className="brand-name">{branding?.platformName || 'مسار'}</div>

@@ -4,6 +4,7 @@ import { db } from '../firebase'
 import { useSession } from './SessionContext'
 import { logAudit } from '../utils/audit'
 import { rolloverSectionDocId } from '../utils/rollover'
+import { safeHttpUrl } from '../utils/parseMaterialUrl'
 
 const SchoolStructureContext = createContext(null)
 
@@ -258,6 +259,7 @@ export function SchoolStructureProvider({ children }) {
     logAudit(session.schoolId, session.uid, session.name, 'set_payment_info', 'school', session.schoolId, JSON.stringify(info))
   }
   async function updateBranding(info) {
+    if (info.logoUrl && !safeHttpUrl(info.logoUrl)) throw new Error('رابط الشعار غير صالح')
     await updateDoc(doc(db, 'schools', session.schoolId), { branding: info })
     logAudit(session.schoolId, session.uid, session.name, 'set_branding', 'school', session.schoolId, JSON.stringify(info))
   }

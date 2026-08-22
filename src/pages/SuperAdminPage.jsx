@@ -4,6 +4,7 @@ import { collection, doc, getDoc, getDocs, query, where, onSnapshot, updateDoc }
 import { ref, uploadBytes, getDownloadURL } from 'firebase/storage'
 import { auth, db, storage } from '../firebase'
 import { logAudit } from '../utils/audit'
+import { safeHttpUrl } from '../utils/parseMaterialUrl'
 
 // صفحة مستقلة تمامًا عن /app — ما بتعتمد على SessionContext لأنه حساب صاحب المنصة
 // مش مرتبط بأي مدرسة أصلاً (ما إله وثيقة users/schoolId متل باقي الأدوار)
@@ -65,6 +66,10 @@ export default function SuperAdminPage() {
 
   async function saveBranding(school) {
     const info = brandFor(school)
+    if (info.logoUrl && !safeHttpUrl(info.logoUrl)) {
+      setBrandSaveState((p) => ({ ...p, [school.id]: 'error' }))
+      return
+    }
     setBrandSaveState((p) => ({ ...p, [school.id]: 'saving' }))
     try {
       await updateDoc(doc(db, 'schools', school.id), { branding: info })

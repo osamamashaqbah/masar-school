@@ -1,5 +1,6 @@
 // كشف علامات رسمي للطباعة/الحفظ كـ PDF (عبر window.print) — مرئي بس وقت الطباعة، شوف index.css
 import { computeAverageFromSubjectTotals } from '../utils/gradeCategories'
+import { safeHttpUrl } from '../utils/parseMaterialUrl'
 
 export default function ReportCardPrint({ schoolName, studentName, rows, absentDays, generatedAt, bilingual = false, branding = null }) {
   const grandScore = rows.reduce((sum, r) => sum + r.totalScore, 0)
@@ -7,11 +8,12 @@ export default function ReportCardPrint({ schoolName, studentName, rows, absentD
   const overallAverage = computeAverageFromSubjectTotals(rows)
   const overallPct = overallAverage === null ? null : Math.round(overallAverage)
   const accentColor = branding?.primaryColor || null
+  const logoUrl = safeHttpUrl(branding?.logoUrl)
 
   return (
     <div className="report-card-print" dir={bilingual ? 'auto' : 'rtl'} style={accentColor ? { '--report-accent': accentColor } : undefined}>
       <div className="report-card-header">
-        {branding?.logoUrl && <img src={branding.logoUrl} alt="" className="report-card-logo" />}
+        {logoUrl && <img src={logoUrl} alt="" className="report-card-logo" />}
         <div className="report-card-school">{schoolName || 'المدرسة'}</div>
         <div className="report-card-title">{bilingual ? 'كشف علامات — Report Card' : 'كشف علامات'}</div>
       </div>

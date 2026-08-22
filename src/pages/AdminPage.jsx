@@ -1,7 +1,6 @@
-import { useState, useEffect } from 'react'
+import { useState } from 'react'
 import { Navigate, Link } from 'react-router-dom'
-import { collection, onSnapshot, query, where } from 'firebase/firestore'
-import { db, auth } from '../firebase'
+import { auth } from '../firebase'
 import { useSession } from '../context/SessionContext'
 import { useSchoolStructure } from '../context/SchoolStructureContext'
 import { useNotifications } from '../context/NotificationContext'
@@ -9,10 +8,9 @@ import TaskCenter from '../components/TaskCenter'
 
 export default function AdminPage() {
   const { session } = useSession()
-  const { subjects, grades, sections, currentAcademicYear } = useSchoolStructure()
+  const { subjects, grades, sections, currentAcademicYear, allUsers } = useSchoolStructure()
   const { notifications, unreadCount } = useNotifications()
 
-  const [users, setUsers] = useState([])
   const [name, setName] = useState('')
   const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')
@@ -24,24 +22,15 @@ export default function AdminPage() {
   const [accountActionUid, setAccountActionUid] = useState(null)
   const [temporaryCredential, setTemporaryCredential] = useState(null)
 
-  useEffect(() => {
-    if (session?.role !== 'admin') return
-    const q = query(collection(db, 'users'), where('schoolId', '==', session.schoolId))
-    const unsubscribe = onSnapshot(q, (snapshot) => {
-      setUsers(snapshot.docs.map((d) => ({ id: d.id, ...d.data() })))
-    })
-    return () => unsubscribe()
-  }, [session])
-
   if (session?.role !== 'admin') return <Navigate to="/app/dashboard" replace />
 
-  const instructorCount = users.filter((u) => u.role === 'instructor').length
-  const studentCount = users.filter((u) => u.role === 'student').length
-  const parentCount = users.filter((u) => u.role === 'parent').length
-  const students = users.filter((u) => u.role === 'student')
+  const instructorCount = allUsers.filter((u) => u.role === 'instructor').length
+  const studentCount = allUsers.filter((u) => u.role === 'student').length
+  const parentCount = allUsers.filter((u) => u.role === 'parent').length
+  const students = allUsers.filter((u) => u.role === 'student')
   const studentsWithoutSection = students.filter((u) => !u.sectionId)
   const subjectsWithoutTeacher = subjects.filter((s) => !s.teacherUid)
-  const instructorsWithoutSubjects = users.filter((u) => u.role === 'instructor' && !subjects.some((s) => s.teacherUid === u.id))
+  const instructorsWithoutSubjects = allUsers.filter((u) => u.role === 'instructor' && !subjects.some((s) => s.teacherUid === u.id))
   const adminTasks = [
     ...(!currentAcademicYear ? [{
       id: 'academic-year', icon: 'ti-calendar-event', title: 'حدّد السنة الدراسية الحالية', meta: 'السجلات الجديدة تحتاج سنة نشطة', badge: 'إعداد', tone: 'urgent', to: '/app/settings',
@@ -310,7 +299,7 @@ export default function AdminPage() {
       <h2 className="page-title" style={{ marginBottom: '16px', fontSize: '20px' }}>قائمة الحسابات المسجّلة</h2>
 
       <div className="users-list">
-        {users.map((u) => (
+        {allUsers.map((u) => (
           <div className="users-row" key={u.id}>
             <div className="avatar-mini" style={{ background: roleColor(u.role) }}>
               {u.name?.trim().charAt(0) || '؟'}
@@ -320,13 +309,13 @@ export default function AdminPage() {
               <div className="users-email">{u.email}</div>
               {u.role === 'parent' && u.childUids?.length > 0 && (
                 <div style={{ fontSize: '11px', color: 'var(--ink-faint)', marginTop: '2px' }}>
-                  الأبناء: {u.childUids.map((cid) => users.find((x) => x.id === cid)?.name || '؟').join('، ')}
+                  الأبناء: {u.childUids.map((cid) => allUsers.find((x) => x.id === cid)?.name || '؟').join('، ')}
                 </div>
               )}
               {u.role === 'student' && (
                 <div style={{ fontSize: '11px', marginTop: '2px', color: u.parentUids?.length > 0 ? 'var(--ink-faint)' : 'var(--berry)' }}>
                   {u.parentUids?.length > 0
-                    ? `ولي الأمر: ${u.parentUids.map((pid) => users.find((x) => x.id === pid)?.name || '؟').join('، ')}`
+                    ? `ولي الأمر: ${u.parentUids.map((pid) => allUsers.find((x) => x.id === pid)?.name || '؟').join('، ')}`
                     : 'ما في ولي أمر مرتبط — ما رح توصله إشعارات'}
                   {' · '}
                   <Link to={`/app/admin/students/${u.id}`}>عرض الملف</Link>

@@ -1,7 +1,5 @@
-import { useState, useEffect } from 'react'
+import { useState } from 'react'
 import { Navigate } from 'react-router-dom'
-import { collection, onSnapshot, query, where } from 'firebase/firestore'
-import { db } from '../firebase'
 import { useSession } from '../context/SessionContext'
 import { useSchoolStructure } from '../context/SchoolStructureContext'
 import { useBulkImport } from '../context/BulkImportContext'
@@ -13,13 +11,12 @@ import * as XLSX from 'xlsx'
 export default function SchoolStructurePage() {
   const { session } = useSession()
   const {
-    grades, addGrade, addSection, addSubject, getSectionsForGrade, getSubjectsForSection,
+    grades, allUsers, addGrade, addSection, addSubject, getSectionsForGrade, getSubjectsForSection,
     archivedSubjects, archiveSubject, restoreSubject,
   } = useSchoolStructure()
   const [importCreatedCount, setImportCreatedCount] = useState(0)
   const [confirmArchiveId, setConfirmArchiveId] = useState('')
 
-  const [instructors, setInstructors] = useState([])
   const [gradeName, setGradeName] = useState('')
   const [sectionGradeId, setSectionGradeId] = useState('')
   const [sectionName, setSectionName] = useState('')
@@ -35,16 +32,9 @@ const { importStudents } = useBulkImport()
   const [importLoading, setImportLoading] = useState(false)
   const [importProgress, setImportProgress] = useState(null)
 
-  useEffect(() => {
-    if (session?.role !== 'admin') return
-    const q = query(collection(db, 'users'), where('schoolId', '==', session.schoolId))
-    const unsub = onSnapshot(q, (snap) => {
-      setInstructors(snap.docs.map((d) => ({ id: d.id, ...d.data() })).filter((u) => u.role === 'instructor'))
-    })
-    return () => unsub()
-  }, [session])
-
   if (session?.role !== 'admin') return <Navigate to="/app/dashboard" replace />
+
+  const instructors = allUsers.filter((user) => user.role === 'instructor')
 
   async function handleAddGrade(e) {
     e.preventDefault()

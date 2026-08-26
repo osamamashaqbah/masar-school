@@ -37,6 +37,10 @@ export default function SuperAdminPage() {
 
   useEffect(() => {
     const unsub = onAuthStateChanged(auth, async (user) => {
+      // لا نُبقي صلاحية أو بيانات حساب المنصة السابقين أثناء التحقق من الحساب الجديد.
+      setIsPlatformAdmin(false)
+      setSchools([])
+      setDrilldown(null)
       setAuthUser(user)
       setCreatedSchoolCredential(null)
       setReauthPassword('')
@@ -44,10 +48,12 @@ export default function SuperAdminPage() {
       setCredentialsCopied(false)
       setCreateSchoolError('')
       if (user) {
-        const snap = await getDoc(doc(db, 'platformAdmins', user.uid))
-        setIsPlatformAdmin(snap.exists())
-      } else {
-        setIsPlatformAdmin(false)
+        try {
+          const snap = await getDoc(doc(db, 'platformAdmins', user.uid))
+          setIsPlatformAdmin(snap.exists())
+        } catch {
+          setIsPlatformAdmin(false)
+        }
       }
     })
     return () => unsub()

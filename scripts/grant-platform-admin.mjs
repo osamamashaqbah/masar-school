@@ -21,7 +21,7 @@ function parseArgs() {
   return args
 }
 
-const { email, password } = parseArgs()
+const { email, password, 'allow-school-user': allowSchoolUser } = parseArgs()
 if (!email) {
   console.error('الاستخدام: node scripts/grant-platform-admin.mjs --email someone@example.com [--password "كلمة سر قوية"]')
   process.exit(1)
@@ -44,6 +44,12 @@ try {
   }
   user = await auth.createUser({ email, password })
   console.log(`أنشأنا حساب جديد: ${email} (${user.uid})`)
+}
+
+const schoolProfile = await db.collection('users').doc(user.uid).get()
+if (schoolProfile.exists && allowSchoolUser !== 'yes') {
+  console.error('مرفوض: الحساب مرتبط بمدرسة. استخدم حساب منصة مستقلًا؛ لا تسمح بـ --allow-school-user=yes إلا بعد قرار تشغيلي صريح.')
+  process.exit(1)
 }
 
 await db.collection('platformAdmins').doc(user.uid).set({

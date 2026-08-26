@@ -1,18 +1,19 @@
 // حسابات Firebase Auth بلا ملف تعريف Firestore مطابق (users/{uid}) — تصير لما تفشل كتابة
 // الملف الشخصي بعد نجاح إنشاء حساب Auth (AdminPage.jsx / BulkImportContext.jsx) قبل إضافة
 // آلية التراجع التلقائي. حساب يتيم كهيك بريده محجوز للأبد وما تقدر الواجهة تديره.
-// وضع افتراضي: عرض فقط (dry-run). --yes يحذف الحسابات اليتيمة فعليًا.
+// وضع افتراضي: عرض فقط (dry-run). لا يحذف حسابات platformAdmins أو محاولات provisioning.
 //
 // التشغيل:
 //   node scripts/cleanup-orphaned-auth.mjs
-//   node scripts/cleanup-orphaned-auth.mjs --yes
+//   node scripts/cleanup-orphaned-auth.mjs --delete-orphans --confirm=DELETE_ORPHANED_AUTH
 
 import { readFileSync } from 'fs'
 import { initializeApp, cert } from 'firebase-admin/app'
 import { getAuth } from 'firebase-admin/auth'
 import { getFirestore } from 'firebase-admin/firestore'
 
-const yes = process.argv.includes('--yes')
+const deleteRequested = process.argv.includes('--delete-orphans')
+const confirmed = process.argv.includes('--confirm=DELETE_ORPHANED_AUTH')
 
 const serviceAccount = JSON.parse(readFileSync(new URL('../serviceAccountKey.json', import.meta.url)))
 initializeApp({ credential: cert(serviceAccount) })
@@ -34,10 +35,34 @@ const authUsers = await listAllAuthUsers()
 console.log(`إجمالي حسابات Auth: ${authUsers.length}`)
 
 const orphaned = []
+const protectedPlatformAdmins = []
+const protectedProvisioningAccounts = []
+const [platformAdminSnap, provisioningSnap] = await Promise.all([
+  db.collection('platformAdmins').get(),
+  db.collection('schoolProvisioningRequests').get(),
+])
+const platformAdminUids = new Set(platformAdminSnap.docs.map((doc) => doc.id))
+const provisioningEmails = new Set(
+  provisioningSnap.docs
+    .map((doc) => doc.get('adminEmail'))
+    .filter((email) => typeof email === 'string')
+    .map((email) => email.toLowerCase()),
+)
 for (let i = 0; i < authUsers.length; i += 300) {
   const chunk = authUsers.slice(i, i + 300)
   const snaps = await db.getAll(...chunk.map((u) => db.collection('users').doc(u.uid)))
-  chunk.forEach((u, idx) => { if (!snaps[idx].exists) orphaned.push(u) })
+  chunk.forEach((u, idx) => {
+    if (snaps[idx].exists) return
+    if (platformAdminUids.has(u.uid)) {
+      protectedPlatformAdmins.push(u)
+      return
+    }
+    if (u.email && provisioningEmails.has(u.email.toLowerCase())) {
+      protectedProvisioningAccounts.push(u)
+      return
+    }
+    orphaned.push(u)
+  })
 }
 
 if (orphaned.length === 0) {
@@ -47,9 +72,11 @@ if (orphaned.length === 0) {
 
 console.log(`\nحسابات يتيمة (بلا ملف Firestore): ${orphaned.length}`)
 orphaned.forEach((u) => console.log(`  ${u.uid}  ${u.email || '(بدون بريد)'}  أُنشئ: ${u.metadata.creationTime}`))
+console.log(`حسابات Platform Admin المحمية: ${protectedPlatformAdmins.length}`)
+console.log(`حسابات provisioning المحمية: ${protectedProvisioningAccounts.length}`)
 
-if (!yes) {
-  console.log('\nهذا عرض فقط (dry-run). أضف --yes لحذف هالحسابات فعليًا.')
+if (!deleteRequested || !confirmed) {
+  console.log('\nهذا عرض فقط (dry-run). للحذف، أضف --delete-orphans --confirm=DELETE_ORPHANED_AUTH.')
   process.exit(0)
 }
 

@@ -1,11 +1,22 @@
 // سكربت داخلي: يمسح كل بيانات المنصة (كل المدارس) من Auth + Firestore،
 // وبعدين يبني مدرسة عرض تجريبي واحدة فيها 4 حسابات (إدارة/معلّم/طالب/ولي أمر) مربوطين ببعض.
 import { readFileSync } from 'fs'
+import { randomUUID } from 'crypto'
 import { initializeApp, cert } from 'firebase-admin/app'
 import { getAuth } from 'firebase-admin/auth'
 import { getFirestore, FieldValue } from 'firebase-admin/firestore'
 
 const serviceAccount = JSON.parse(readFileSync(new URL('../serviceAccountKey.json', import.meta.url)))
+const projectId = serviceAccount.project_id || ''
+const confirmation = process.argv.includes('--confirm=DESTROY_TEST_DATA')
+const usingEmulators = Boolean(process.env.FIRESTORE_EMULATOR_HOST && process.env.FIREBASE_AUTH_EMULATOR_HOST)
+const isTestProject = /(^|[-_])(test|dev)([-_]|$)/i.test(projectId)
+
+if (!confirmation || (!usingEmulators && !isTestProject) || projectId === 'masar-school-demo') {
+  console.error('مرفوض: full-reset يعمل فقط على Emulator أو مشروع test/dev مع --confirm=DESTROY_TEST_DATA، وليس على الإنتاج.')
+  process.exit(1)
+}
+
 initializeApp({ credential: cert(serviceAccount) })
 const auth = getAuth()
 const db = getFirestore()
@@ -58,10 +69,11 @@ async function createAccount(role, name, email, password, extra = {}) {
 }
 
 const currentAcademicYear = '2025-2026'
-const adminUid = await createAccount('admin', 'مدير العرض', 'admin@demo.masar', 'Demo@1234')
+const demoPassword = `Demo-${randomUUID()}`
+const adminUid = await createAccount('admin', 'مدير العرض', 'admin@demo.masar', demoPassword)
 await schoolRef.set({ name: 'مدرسة العرض التجريبي', adminUid, currentAcademicYear, createdAt: FieldValue.serverTimestamp() })
 
-const instructorUid = await createAccount('instructor', 'أ. سامي المعلّم', 'instructor@demo.masar', 'Demo@1234')
+const instructorUid = await createAccount('instructor', 'أ. سامي المعلّم', 'instructor@demo.masar', demoPassword)
 
 const gradeRef = await db.collection('grades').add({ name: 'الصف السابع', schoolId })
 const sectionRef = await db.collection('sections').add({ name: 'شعبة أ', gradeId: gradeRef.id, schoolId })
@@ -70,13 +82,13 @@ await db.collection('subjects').add({
   teacherUid: instructorUid, teacherName: 'أ. سامي المعلّم', lessons: [],
 })
 
-const studentUid = await createAccount('student', 'خالد الطالب', 'student@demo.masar', 'Demo@1234', { sectionId: sectionRef.id })
-const parentUid = await createAccount('parent', 'ولي أمر خالد الطالب', 'parent@demo.masar', 'Demo@1234', { childUids: [studentUid] })
+const studentUid = await createAccount('student', 'خالد الطالب', 'student@demo.masar', demoPassword, { sectionId: sectionRef.id })
+const parentUid = await createAccount('parent', 'ولي أمر خالد الطالب', 'parent@demo.masar', demoPassword, { childUids: [studentUid] })
 await db.collection('users').doc(studentUid).update({ parentUids: FieldValue.arrayUnion(parentUid) })
 
 console.log(`\nschoolId: ${schoolId}`)
 console.log('حسابات العرض:')
-console.log('  إدارة   : admin@demo.masar / Demo@1234')
-console.log('  معلّم   : instructor@demo.masar / Demo@1234')
-console.log('  طالب    : student@demo.masar / Demo@1234')
-console.log('  ولي أمر : parent@demo.masar / Demo@1234')
+console.log(`  إدارة   : admin@demo.masar / ${demoPassword}`)
+console.log(`  معلّم   : instructor@demo.masar / ${demoPassword}`)
+console.log(`  طالب    : student@demo.masar / ${demoPassword}`)
+console.log(`  ولي أمر : parent@demo.masar / ${demoPassword}`)

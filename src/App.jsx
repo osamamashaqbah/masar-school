@@ -60,9 +60,8 @@ const ExamCenterPage = lazy(() => import('./pages/ExamCenterPage'))
 import { QuestionBankProvider } from './context/QuestionBankContext'
 const InstructorQuestionBankPage = lazy(() => import('./pages/instructor/InstructorQuestionBankPage'))
 
-export default function App() {
+function SchoolApp() {
   return (
-    <ThemeProvider>
       <SessionProvider>
         <SchoolStructureProvider>
         <ProgressProvider>
@@ -73,7 +72,6 @@ export default function App() {
                   <AnnouncementsProvider>
                     <BulkImportProvider>
                     <TimetableProvider>
-                      <BrowserRouter>
                       <QuestionsProvider>
                         <MarksProvider>
                         <AttendanceProvider>
@@ -87,7 +85,6 @@ export default function App() {
                         <Suspense fallback={<div className="auth-loading-screen"><i className="ti ti-loader-2 spin" /></div>}>
                         <Routes>
                           <Route path="/" element={<Login />} />
-                          <Route path="/superadmin" element={<SuperAdminPage />} />
                           <Route path="/app" element={<Layout />}>
 
                           <Route path="instructor/questions" element={<InstructorQuestionsPage />} />
@@ -137,7 +134,6 @@ export default function App() {
                         </AttendanceProvider>
                         </MarksProvider>
                         </QuestionsProvider>
-                      </BrowserRouter>
                     </TimetableProvider>
                     </BulkImportProvider>
                   </AnnouncementsProvider>
@@ -148,6 +144,20 @@ export default function App() {
         </ProgressProvider>
         </SchoolStructureProvider>
       </SessionProvider>
+  )
+}
+
+export default function App() {
+  return (
+    <ThemeProvider>
+      <BrowserRouter>
+        <Suspense fallback={<div className="auth-loading-screen"><i className="ti ti-loader-2 spin" /></div>}>
+          <Routes>
+            <Route path="/superadmin" element={<SuperAdminPage />} />
+            <Route path="*" element={<SchoolApp />} />
+          </Routes>
+        </Suspense>
+      </BrowserRouter>
     </ThemeProvider>
   )
 }

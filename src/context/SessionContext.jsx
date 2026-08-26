@@ -90,7 +90,7 @@ export function SessionProvider({ children }) {
   }
 
   async function clearMustChangePassword() {
-    await updateDoc(doc(db, 'users', session.uid), { mustChangePassword: false })
+    // الحقل يُمسح من Worker بعد تغيير كلمة السر بنجاح؛ هنا نحدّث حالة الواجهة فقط.
     setSession((prev) => ({ ...prev, mustChangePassword: false }))
   }
 

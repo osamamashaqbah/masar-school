@@ -19,6 +19,10 @@ interface UpdateUserBody {
   action?: unknown
 }
 
+interface ChangePasswordBody {
+  newPassword?: unknown
+}
+
 interface AuditBody {
   schoolId?: unknown
   action?: unknown
@@ -101,7 +105,7 @@ export default {
     }
 
     const url = new URL(request.url)
-    if (request.method !== 'POST' || !['/create-school', '/create-school-user', '/update-school-user', '/audit-log', '/refresh-platform-stats'].includes(url.pathname)) {
+    if (request.method !== 'POST' || !['/create-school', '/create-school-user', '/update-school-user', '/change-password', '/audit-log', '/refresh-platform-stats'].includes(url.pathname)) {
       return json({ error: 'not_found' }, 404, origin)
     }
 
@@ -112,6 +116,7 @@ export default {
       if (url.pathname === '/create-school') return await handleCreateSchool(request, env, origin)
       if (url.pathname === '/create-school-user') return await handleCreateSchoolUser(request, env, origin)
       if (url.pathname === '/update-school-user') return await handleUpdateSchoolUser(request, env, origin)
+      if (url.pathname === '/change-password') return await handleChangePassword(request, env, origin)
       if (url.pathname === '/refresh-platform-stats') return await handleRefreshPlatformStats(request, env, origin)
       return await handleWriteAuditLog(request, env, origin)
     } catch (err) {
@@ -608,4 +613,46 @@ async function handleUpdateSchoolUser(request: Request, env: Env, origin: string
   }).catch((err) => console.error('[audit] فشل تسجيل إجراء الحساب:', err))
 
   return json({ uid, status: nextStatus, ...(temporaryPassword ? { temporaryPassword } : {}) }, 200, origin)
+}
+
+async function handleChangePassword(request: Request, env: Env, origin: string): Promise<Response> {
+  const authHeader = request.headers.get('Authorization') || ''
+  const idToken = authHeader.startsWith('Bearer ') ? authHeader.slice('Bearer '.length) : ''
+  if (!idToken) return json({ error: 'unauthenticated' }, 401, origin)
+
+  const projectId = env.FIREBASE_PROJECT_ID
+  let callerUid: string
+  let authTime: number | undefined
+  try {
+    const verified = await verifyFirebaseIdToken(idToken, projectId)
+    callerUid = verified.uid
+    authTime = verified.authTime
+  } catch {
+    return json({ error: 'unauthenticated' }, 401, origin)
+  }
+  if (!isRecentAuth(authTime)) {
+    return json({ error: 'recent_login_required', message: 'لأمان الحساب، أعد تسجيل الدخول ثم حاول مرة ثانية.' }, 403, origin)
+  }
+  const actorLimitResponse = await enforceActorLimit(env, '/change-password', callerUid, origin)
+  if (actorLimitResponse) return actorLimitResponse
+
+  const body = (await request.json().catch(() => ({}))) as ChangePasswordBody
+  if (typeof body.newPassword !== 'string' || body.newPassword.length < 6 || body.newPassword.length > 128) {
+    return json({ error: 'invalid_input', message: 'كلمة السر الجديدة لازم تكون بين 6 و128 حرفًا.' }, 400, origin)
+  }
+
+  const serviceAccount = JSON.parse(env.FIREBASE_SERVICE_ACCOUNT_KEY) as ServiceAccount
+  const accessToken = await getAccessToken(serviceAccount, [
+    'https://www.googleapis.com/auth/identitytoolkit',
+    'https://www.googleapis.com/auth/datastore',
+  ])
+  if (!(await hasActiveIdentity(accessToken, projectId, callerUid, authTime))) {
+    return json({ error: 'account_inactive' }, 403, origin)
+  }
+  const callerProfile = await firestoreGetDoc(accessToken, projectId, `users/${callerUid}`)
+  if (!callerProfile || callerProfile.status === 'inactive') return json({ error: 'permission_denied' }, 403, origin)
+
+  await updateIdentityUser(accessToken, projectId, callerUid, { password: body.newPassword })
+  await firestorePatchDoc(accessToken, projectId, `users/${callerUid}`, { mustChangePassword: false })
+  return json({ ok: true }, 200, origin)
 }

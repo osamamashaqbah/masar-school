@@ -153,9 +153,8 @@ service cloud.firestore {
         && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['name', 'avatarId', 'consentGivenAt', 'taughtSectionIds', 'parentUids', 'childUids', 'messageContactUids', 'sectionId'])
       ) || (
         isSignedIn() && request.auth.uid == uid
-        && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['name', 'avatarId', 'consentGivenAt', 'mustChangePassword'])
+        && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['name', 'avatarId', 'consentGivenAt'])
         && request.resource.data.name is string && request.resource.data.name.size() > 0 && request.resource.data.name.size() <= 60
-        && (!('mustChangePassword' in request.resource.data.diff(resource.data).affectedKeys()) || request.resource.data.mustChangePassword is bool)
       );
       // حذف الحساب يجب أن يمر عبر Worker حتى يُحذف Auth وملف Firestore مع تنظيف الروابط.
       allow delete: if false;

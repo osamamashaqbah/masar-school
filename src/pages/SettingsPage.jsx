@@ -1,5 +1,5 @@
 import { useState } from 'react'
-import { EmailAuthProvider, reauthenticateWithCredential, updatePassword } from 'firebase/auth'
+import { EmailAuthProvider, reauthenticateWithCredential } from 'firebase/auth'
 import { ref, uploadBytes, getDownloadURL } from 'firebase/storage'
 import { auth, storage } from '../firebase'
 import { useSession } from '../context/SessionContext'
@@ -407,7 +407,14 @@ export default function SettingsPage() {
     try {
       const credential = EmailAuthProvider.credential(session.email, currentPassword)
       await reauthenticateWithCredential(auth.currentUser, credential)
-      await updatePassword(auth.currentUser, newPassword)
+      const idToken = await auth.currentUser.getIdToken(true)
+      const res = await fetch(`${import.meta.env.VITE_ADMIN_OPS_WORKER_URL}/change-password`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${idToken}` },
+        body: JSON.stringify({ newPassword }),
+      })
+      const data = await res.json().catch(() => ({}))
+      if (!res.ok) throw Object.assign(new Error(data.message || data.error), { code: data.error })
       if (session.mustChangePassword) await clearMustChangePassword()
 
       setSuccess('تم تغيير كلمة السر بنجاح.')
@@ -489,6 +496,9 @@ function translateError(code) {
     'auth/wrong-password': 'كلمة السر الحالية غلط.',
     'auth/weak-password': 'كلمة السر الجديدة ضعيفة، لازم 6 أحرف على الأقل.',
     'auth/too-many-requests': 'محاولات كتير خاطئة. جرب بعد شوي.',
+    recent_login_required: 'أعد إدخال كلمة السر ثم حاول مرة ثانية.',
+    account_inactive: 'الحساب معطّل أو انتهت صلاحيته. راجع الإدارة.',
+    invalid_input: 'كلمة السر الجديدة غير صالحة.',
   }
   return map[code] || 'صار خطأ غير متوقع. جرب مرة ثانية.'
 }

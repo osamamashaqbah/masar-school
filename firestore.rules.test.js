@@ -175,6 +175,16 @@ describe('tenant isolation', () => {
     const studentCtx = testEnv.authenticatedContext('studentA')
     await assertFails(getDoc(doc(studentCtx.firestore(), 'users', 'studentA')))
   })
+
+  it('a user cannot clear mustChangePassword directly from the client', async () => {
+    await seedSchoolWithAdmin('schoolA', 'adminA')
+    await seedUser('schoolA', 'studentA', {
+      name: 'Student A', role: 'student', email: 'a@x.com', mustChangePassword: true,
+    })
+
+    const studentCtx = testEnv.authenticatedContext('studentA')
+    await assertFails(updateDoc(doc(studentCtx.firestore(), 'users', 'studentA'), { mustChangePassword: false }))
+  })
 })
 
 describe('marks and attendance tenant boundaries', () => {

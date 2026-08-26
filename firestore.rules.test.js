@@ -184,7 +184,7 @@ describe('marks and attendance tenant boundaries', () => {
     await testEnv.withSecurityRulesDisabled(async (ctx) => {
       await setDoc(doc(ctx.firestore(), 'schools', 'schoolA'), { currentAcademicYear: '2025-2026' }, { merge: true })
       await setDoc(doc(ctx.firestore(), 'subjects', 'subjA'), {
-        schoolId: 'schoolA', sectionId: 'sec1', teacherUid: 'teacherA', name: 'رياضيات', lessons: [],
+        schoolId: 'schoolA', sectionId: 'sec1', teacherUid: 'teacherA', name: 'رياضيات', lessons: [], academicYear: '2025-2026',
       })
     })
     await seedUser('schoolA', 'teacherA', { name: 'T', role: 'instructor', email: 't@a.com', taughtSectionIds: ['sec1'] })
@@ -251,6 +251,32 @@ describe('marks and attendance tenant boundaries', () => {
     await assertFails(updateDoc(doc(teacherCtx.firestore(), 'marks', 'old-year-mark'), {
       score: 45, academicYear: '2025-2026',
     }))
+  })
+
+  it('a teacher cannot update or delete attendance from a previous academic year', async () => {
+    await seedTeacherFixture()
+    await testEnv.withSecurityRulesDisabled(async (ctx) => {
+      await setDoc(doc(ctx.firestore(), 'attendance', 'old-year-attendance'), {
+        studentUid: 'studentA', sectionId: 'sec1', date: '2025-01-01', excused: false,
+        teacherUid: 'teacherA', schoolId: 'schoolA', academicYear: '2024-2025',
+      })
+    })
+
+    const teacherCtx = testEnv.authenticatedContext('teacherA')
+    const attendanceRef = doc(teacherCtx.firestore(), 'attendance', 'old-year-attendance')
+    await assertFails(updateDoc(attendanceRef, { excused: true }))
+    await assertFails(deleteDoc(attendanceRef))
+  })
+
+  it('a teacher can update lesson content but cannot alter subject ownership or lifecycle fields', async () => {
+    await seedTeacherFixture()
+    const teacherCtx = testEnv.authenticatedContext('teacherA')
+    const subjectRef = doc(teacherCtx.firestore(), 'subjects', 'subjA')
+
+    await assertSucceeds(updateDoc(subjectRef, { lessons: [{ title: 'الدرس الأول' }] }))
+    await assertFails(updateDoc(subjectRef, { name: 'اسم مزوّر' }))
+    await assertFails(updateDoc(subjectRef, { archived: true }))
+    await assertFails(updateDoc(subjectRef, { academicYear: '2026-2027' }))
   })
 
   it('a teacher cannot record attendance outside their assigned sections', async () => {

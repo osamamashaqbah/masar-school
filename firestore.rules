@@ -204,9 +204,12 @@ service cloud.firestore {
       allow delete: if isAdmin() && sameSchool(resource.data.schoolId);
       allow update: if (isAdmin() && sameSchool(resource.data.schoolId) && request.resource.data.schoolId == resource.data.schoolId) || (
         teachesSubject(id)
+        && resource.data.academicYear == currentYear()
         && request.resource.data.teacherUid == resource.data.teacherUid
         && request.resource.data.sectionId == resource.data.sectionId
         && request.resource.data.schoolId == resource.data.schoolId
+        && request.resource.data.academicYear == resource.data.academicYear
+        && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['lessons', 'gradeCategories'])
       );
     }
 
@@ -597,6 +600,7 @@ service cloud.firestore {
         && isInstructor()
         && teachesSection(resource.data.sectionId)
         && resource.data.schoolId == mySchoolId()
+        && resource.data.academicYear == currentYear()
         && request.resource.data.schoolId == resource.data.schoolId
         && request.resource.data.academicYear == resource.data.academicYear
         && request.resource.data.sectionId == resource.data.sectionId
@@ -609,6 +613,7 @@ service cloud.firestore {
         && isInstructor()
         && teachesSection(resource.data.sectionId)
         && resource.data.schoolId == mySchoolId()
+        && resource.data.academicYear == currentYear()
         && resource.data.sectionId in myTaughtSectionIds();
     }
 

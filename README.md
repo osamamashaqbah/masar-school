@@ -67,17 +67,27 @@ VITE_ADMIN_OPS_WORKER_URL=
 | `npm run lint` | فحص الكود بـ oxlint |
 | `npm test` | اختبارات الوحدة (utils) |
 | `npm run test:rules` | اختبارات عزل المدارس بقواعد Firestore عبر المحاكي |
+| `npm run test:storage-rules` | اختبارات صلاحيات Storage عبر المحاكي |
 | `npm run preview` | معاينة نسخة الإنتاج المبنية محليًا |
 
 ## النشر (Deploy)
 
 ```bash
 npm run build
-npx firebase deploy --only hosting,firestore:rules
+npx firebase deploy --only hosting,firestore:rules,firestore:indexes,storage
 ```
 
 انشر Worker العمليات الإدارية من مجلد `worker/` بعد ضبط سر
 `FIREBASE_SERVICE_ACCOUNT_KEY`، ثم ضع رابطه في `VITE_ADMIN_OPS_WORKER_URL` قبل بناء الواجهة.
+
+## تشغيل وصيانة آمنة
+
+- بيانات الواجهة تستخدم ذاكرة التبويب فقط؛ لا تعتمد على جهاز مشترك لحفظ جلسة مفتوحة.
+- العمليات الحساسة تحتاج تدقيقًا ناجحًا قبل التنفيذ.
+- شغّل `scripts/delete-school-data.mjs` بوضع العرض أولًا؛ الحذف يحتاج `--delete` وتأكيد اسم المدرسة، وهو قابل للاستئناف.
+- `scripts/full-reset.mjs` محصور بالمحاكي أو مشروع test/dev مع `--confirm=DESTROY_TEST_DATA` ومرفوض على الإنتاج.
+- شغّل `scripts/cleanup-provisioning-markers.mjs --days 7` دوريًا بوضع العرض، ثم استخدم تأكيده الصريح عند اعتماد الحذف.
+- بعد ترحيل بيانات قديمة، شغّل `scripts/migrate-legacy-data.mjs` مع `--academic-year YYYY-YYYY`.
 
 ## النسخ الاحتياطي
 

@@ -10,7 +10,8 @@
     "preview": "vite preview",
     "test": "vitest run src",
     "test:rules": "firebase emulators:exec --only firestore \"npm run test:rules:unit\"",
-    "test:rules:unit": "vitest run firestore.rules.test.js"
+    "test:rules:unit": "vitest run firestore.rules.test.js",
+    "test:storage-rules": "firebase emulators:exec --only firestore,storage \"vitest run storage.rules.test.js\""
   },
   "dependencies": {
     "firebase": "^12.16.0",

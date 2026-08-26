@@ -168,6 +168,15 @@ describe('tenant isolation', () => {
     await assertFails(getDoc(doc(teacherCtx.firestore(), 'users', 'parentB')))
   })
 
+  it('an instructor cannot read full user profiles from their own school', async () => {
+    await seedSchoolWithAdmin('schoolA', 'adminA')
+    await seedUser('schoolA', 'teacherA', { name: 'T', role: 'instructor', email: 't@a.com' })
+    await seedUser('schoolA', 'studentA', { name: 'Student A', role: 'student', email: 's@a.com', parentUids: ['parentA'] })
+
+    const teacherCtx = testEnv.authenticatedContext('teacherA')
+    await assertFails(getDoc(doc(teacherCtx.firestore(), 'users', 'studentA')))
+  })
+
   it('an inactive account cannot read its own profile', async () => {
     await seedSchoolWithAdmin('schoolA', 'adminA')
     await seedUser('schoolA', 'studentA', { name: 'Student A', role: 'student', email: 'a@x.com', status: 'inactive' })
@@ -650,6 +659,36 @@ describe('academicYear write gate', () => {
     )
   })
 
+  it('a student can only increment quizStats by one attempt at a time', async () => {
+    await seedSchoolWithYear('schoolA', 'adminA', '2025-2026')
+    await seedUser('schoolA', 'studentA', { name: 'St', role: 'student', email: 's@x.com', sectionId: 'sec1' })
+    await testEnv.withSecurityRulesDisabled(async (ctx) => {
+      await setDoc(doc(ctx.firestore(), 'subjects', 'subj1'), { schoolId: 'schoolA', sectionId: 'sec1', teacherUid: 'teacherA', lessons: [] })
+    })
+    const studentCtx = testEnv.authenticatedContext('studentA')
+    const statRef = doc(studentCtx.firestore(), 'quizStats', 'studentA_subj1_2025-2026')
+    await assertSucceeds(setDoc(statRef, {
+      uid: 'studentA', subjectId: 'subj1', schoolId: 'schoolA', academicYear: '2025-2026', attempts: 1, correct: 1,
+    }))
+    await assertSucceeds(updateDoc(statRef, { attempts: 2, correct: 1 }))
+    await assertFails(updateDoc(statRef, { attempts: 10, correct: 10 }))
+  })
+
+  it('progress cannot jump beyond the subject lesson count', async () => {
+    await seedSchoolWithYear('schoolA', 'adminA', '2025-2026')
+    await seedUser('schoolA', 'studentA', { name: 'St', role: 'student', email: 's@x.com', sectionId: 'sec1' })
+    await testEnv.withSecurityRulesDisabled(async (ctx) => {
+      await setDoc(doc(ctx.firestore(), 'subjects', 'subj1'), { schoolId: 'schoolA', sectionId: 'sec1', teacherUid: 'teacherA', lessons: [{}, {}] })
+    })
+    const studentCtx = testEnv.authenticatedContext('studentA')
+    const progressRef = doc(studentCtx.firestore(), 'progress', 'studentA_subj1_2025-2026')
+    await assertSucceeds(setDoc(progressRef, {
+      uid: 'studentA', subjectId: 'subj1', schoolId: 'schoolA', academicYear: '2025-2026', completedLessons: 1,
+    }))
+    await assertSucceeds(updateDoc(progressRef, { completedLessons: 2 }))
+    await assertFails(updateDoc(progressRef, { completedLessons: 3 }))
+  })
+
   it('a student cannot write academic records for a subject outside their section', async () => {
     await seedSchoolWithYear('schoolA', 'adminA', '2025-2026')
     await seedUser('schoolA', 'studentA', { name: 'St', role: 'student', email: 's@x.com', sectionId: 'sec1' })
@@ -912,13 +951,25 @@ describe('platformAdmins / platformStats (super-admin)', () => {
     await assertFails(getDoc(doc(attackerCtx.firestore(), 'platformAdmins', 'ownerA')))
   })
 
-  it('a platform admin can read any school\'s users (support access)', async () => {
+  it('a platform admin cannot bypass the audited Worker to read a school\'s users', async () => {
     await seedSchoolWithAdmin('schoolA', 'adminA')
     await seedUser('schoolA', 'studentA', { name: 'St', role: 'student', email: 's@x.com' })
     await seedPlatformAdmin('ownerA')
 
     const ownerCtx = testEnv.authenticatedContext('ownerA')
-    await assertSucceeds(getDoc(doc(ownerCtx.firestore(), 'users', 'studentA')))
+    await assertFails(getDoc(doc(ownerCtx.firestore(), 'users', 'studentA')))
+  })
+
+  it('an instructor can read only the limited directory for a taught section', async () => {
+    await seedSchoolWithAdmin('schoolA', 'adminA')
+    await seedUser('schoolA', 'teacherA', { name: 'Teacher', role: 'instructor', email: 't@x.com', taughtSectionIds: ['sec1'] })
+    await testEnv.withSecurityRulesDisabled(async (ctx) => {
+      await setDoc(doc(ctx.firestore(), 'userDirectory', 'studentA'), { name: 'Student', role: 'student', schoolId: 'schoolA', sectionId: 'sec1', status: 'active', contactUids: [] })
+      await setDoc(doc(ctx.firestore(), 'userDirectory', 'studentB'), { name: 'Other', role: 'student', schoolId: 'schoolA', sectionId: 'sec2', status: 'active', contactUids: [] })
+    })
+    const teacherCtx = testEnv.authenticatedContext('teacherA')
+    await assertSucceeds(getDoc(doc(teacherCtx.firestore(), 'userDirectory', 'studentA')))
+    await assertFails(getDoc(doc(teacherCtx.firestore(), 'userDirectory', 'studentB')))
   })
 
   it('a school admin cannot write platformStats from the client', async () => {

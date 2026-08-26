@@ -27,4 +27,4 @@ dist-ssr
 serviceAccountKey.json
 .claude/
 graphify-out/
-
+.firebase/

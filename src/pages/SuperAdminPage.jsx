@@ -1,9 +1,9 @@
 import { useState, useEffect } from 'react'
 import { EmailAuthProvider, reauthenticateWithCredential, signInWithEmailAndPassword, signOut, onAuthStateChanged } from 'firebase/auth'
-import { collection, doc, getDoc, getDocs, query, where, onSnapshot, updateDoc } from 'firebase/firestore'
+import { collection, doc, getDoc, onSnapshot, updateDoc } from 'firebase/firestore'
 import { ref, uploadBytes, getDownloadURL } from 'firebase/storage'
 import { auth, db, storage } from '../firebase'
-import { logAudit } from '../utils/audit'
+import { requireAudit } from '../utils/audit'
 import { safeHttpUrl } from '../utils/parseMaterialUrl'
 
 const workerUrl = (import.meta.env.VITE_ADMIN_OPS_WORKER_URL || '').replace(/\/$/, '')
@@ -146,8 +146,8 @@ export default function SuperAdminPage() {
     }
     setBrandSaveState((p) => ({ ...p, [school.id]: 'saving' }))
     try {
+      await requireAudit(school.id, authUser.uid, authUser.email, 'set_branding', 'school', school.id, JSON.stringify(info))
       await updateDoc(doc(db, 'schools', school.id), { branding: info })
-      await logAudit(school.id, authUser.uid, authUser.email, 'set_branding', 'school', school.id, JSON.stringify(info))
       setBrandSaveState((p) => ({ ...p, [school.id]: 'saved' }))
       setTimeout(() => setBrandSaveState((p) => ({ ...p, [school.id]: undefined })), 1800)
     } catch {
@@ -165,6 +165,7 @@ export default function SuperAdminPage() {
     if (file.size > 3 * 1024 * 1024) { setUploadError('حجم الصورة أكبر من 3 ميغا.'); return }
     setUploadingFor(school.id)
     try {
+      await requireAudit(school.id, authUser.uid, authUser.email, 'set_branding', 'school', school.id, 'رفع شعار المدرسة')
       const ext = file.name.split('.').pop()
       const path = `schools/${school.id}/branding/logo.${ext}`
       const fileRef = ref(storage, path)
@@ -173,7 +174,6 @@ export default function SuperAdminPage() {
       const next = { ...brandFor(school), logoUrl: url }
       setBrandEdits({ ...brandEdits, [school.id]: next })
       await updateDoc(doc(db, 'schools', school.id), { branding: next })
-      await logAudit(school.id, authUser.uid, authUser.email, 'set_branding', 'school', school.id, JSON.stringify(next))
     } catch {
       setUploadError('صار خطأ برفع الصورة، حاول مرة ثانية.')
     } finally {
@@ -186,34 +186,20 @@ export default function SuperAdminPage() {
     if (!reason.trim()) { setDrillError('لازم تكتب سبب الوصول قبل ما تفتح بيانات المدرسة كاملة.'); return }
     setDrillLoading(true)
     try {
-      await logAudit(school.id, authUser.uid, authUser.email, 'platform_admin_full_access', 'school', school.id, reason.trim())
-      const [usersSnap, marksSnap, attendanceSnap] = await Promise.all([
-        getDocs(query(collection(db, 'users'), where('schoolId', '==', school.id))),
-        getDocs(query(collection(db, 'marks'), where('schoolId', '==', school.id))),
-        getDocs(query(collection(db, 'attendance'), where('schoolId', '==', school.id))),
-      ])
-
-      const marks = marksSnap.docs.map((d) => d.data())
-      const scored = marks.filter((m) => typeof m.score === 'number' && typeof m.maxScore === 'number' && m.maxScore > 0)
-      const avgPct = scored.length
-        ? Math.round((scored.reduce((sum, m) => sum + m.score / m.maxScore, 0) / scored.length) * 100)
-        : null
-
-      const attendance = attendanceSnap.docs.map((d) => d.data())
-      const excusedCount = attendance.filter((a) => a.excused).length
-
-      setDrilldown({
-        schoolId: school.id,
-        schoolName: school.schoolName,
-        users: usersSnap.docs.map((d) => ({ id: d.id, ...d.data() })),
-        summary: {
-          marksCount: marks.length,
-          avgPct,
-          absencesCount: attendance.length,
-          excusedCount,
-          unexcusedCount: attendance.length - excusedCount,
-        },
+      const currentUser = auth.currentUser
+      if (!currentUser?.email) throw new Error('unauthenticated')
+      const supportPassword = window.prompt('أدخل كلمة سر صاحب المنصة لإعادة التحقق قبل الوصول:')
+      if (supportPassword === null) return
+      await reauthenticateWithCredential(currentUser, EmailAuthProvider.credential(currentUser.email, supportPassword))
+      const idToken = await currentUser.getIdToken(true)
+      const response = await fetch(`${workerUrl}/platform-school-drilldown`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${idToken}` },
+        body: JSON.stringify({ schoolId: school.id, reason: reason.trim() }),
       })
+      const data = await response.json().catch(() => ({}))
+      if (!response.ok) throw new Error(data.error || `HTTP_${response.status}`)
+      setDrilldown(data)
     } catch (err) {
       setDrillError(`صار خطأ: ${err.code || err.message}`)
     } finally {
@@ -374,15 +360,16 @@ export default function SuperAdminPage() {
           </div>
 
           <div className="gradebook-table">
-            <div className="gradebook-header"><span>الاسم</span><span>الدور</span><span>البريد</span></div>
-            {drilldown.users.map((u) => (
-              <div className="gradebook-row" key={u.id}>
-                <span className="gradebook-student"><i className="ti ti-user" /> {u.name}</span>
-                <span>{u.role}</span>
-                <span>{u.email}</span>
-              </div>
-            ))}
-          </div>
+           <div className="gradebook-header"><span>الاسم</span><span>الدور</span><span>الشعبة</span></div>
+             {drilldown.users.map((u) => (
+               <div className="gradebook-row" key={u.id}>
+                 <span className="gradebook-student"><i className="ti ti-user" /> {u.name}</span>
+                 <span>{u.role}</span>
+                 <span>{u.sectionId || '—'}</span>
+               </div>
+             ))}
+           </div>
+           {drilldown.truncatedUsers && <p style={{ color: 'var(--ink-soft)', fontSize: '12px' }}>تم عرض أول 500 مستخدم فقط.</p>}
         </div>
       )}
     </div>

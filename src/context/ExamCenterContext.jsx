@@ -14,7 +14,7 @@ function timesOverlap(aStart, aEnd, bStart, bEnd) {
 
 export function ExamCenterProvider({ children }) {
   const { session } = useSession()
-  const { features } = useSchoolStructure()
+  const { features, currentAcademicYear } = useSchoolStructure()
   const examCenterEnabled = features.examCenter !== false
   const [periods, setPeriods] = useState([])
   const [slotsByPeriod, setSlotsByPeriod] = useState({})
@@ -24,9 +24,9 @@ export function ExamCenterProvider({ children }) {
   // Firestore ما بيفلتر النتائج حسب القواعد: الاستعلام نفسه لازم يثبت إن غير الإدارة
   // ما رح يطلب فترات draft، وإلا القاعدة بترفض الاستعلام كاملًا.
   useEffect(() => {
-    if (!session || !examCenterEnabled) { setPeriods([]); setSlotsByPeriod({}); setError(''); return }
+    if (!session || !examCenterEnabled || !currentAcademicYear) { setPeriods([]); setSlotsByPeriod({}); setError(''); return }
     setError('')
-    const constraints = [where('schoolId', '==', session.schoolId)]
+    const constraints = [where('schoolId', '==', session.schoolId), where('academicYear', '==', currentAcademicYear)]
     if (session.role !== 'admin') constraints.push(where('status', 'in', ['published', 'locked']))
     const q = query(collection(db, 'examPeriods'), ...constraints)
     const unsub = onSnapshot(q, (snap) => {
@@ -35,17 +35,17 @@ export function ExamCenterProvider({ children }) {
       setPeriods(list)
     }, (err) => { console.error('[مركز الاختبارات] فشل تحميل الفترات:', err); setError('تعذّر تحميل فترات الاختبارات. حاول تحديث الصفحة.') })
     return () => unsub()
-  }, [session, examCenterEnabled])
+  }, [session, examCenterEnabled, currentAcademicYear])
 
   // حصص فترة معيّنة — تحميل كسول أول ما حدا يطلبها، متل TimetableContext
   const loadSlotsForPeriod = useCallback((periodId) => {
     if (!periodId || !session || !examCenterEnabled) return
-    const q = query(collection(db, 'examSlots'), where('schoolId', '==', session.schoolId), where('periodId', '==', periodId))
+    const q = query(collection(db, 'examSlots'), where('schoolId', '==', session.schoolId), where('periodId', '==', periodId), where('academicYear', '==', currentAcademicYear))
     return onSnapshot(q, (snap) => {
       const list = snap.docs.map((d) => ({ id: d.id, ...d.data() }))
       setSlotsByPeriod((prev) => ({ ...prev, [periodId]: list }))
     }, (err) => { console.error('[مركز الاختبارات] فشل تحميل حصص الفترة:', err); setError('تعذّر تحميل حصص فترة الاختبارات.') })
-  }, [session, examCenterEnabled])
+  }, [session, examCenterEnabled, currentAcademicYear])
 
   function getSlots(periodId) {
     return slotsByPeriod[periodId] || []
@@ -53,7 +53,7 @@ export function ExamCenterProvider({ children }) {
 
   async function createPeriod({ name, startDate, endDate }) {
     const ref = await addDoc(collection(db, 'examPeriods'), {
-      schoolId: session.schoolId, name, startDate, endDate, status: 'draft',
+      schoolId: session.schoolId, academicYear: currentAcademicYear, name, startDate, endDate, status: 'draft',
       createdByUid: session.uid, createdByName: session.name, createdAt: serverTimestamp(), updatedAt: serverTimestamp(),
     })
     logAudit(session.schoolId, session.uid, session.name, 'create_exam_period', 'examPeriod', ref.id, name)
@@ -67,7 +67,7 @@ export function ExamCenterProvider({ children }) {
 
   async function addSlot({ periodId, subjectId, subjectName, sectionId, sectionName, date, startTime, endTime, roomName, proctorUid, proctorName }) {
     const ref = await addDoc(collection(db, 'examSlots'), {
-      schoolId: session.schoolId, periodId, subjectId, subjectName, sectionId, sectionName,
+      schoolId: session.schoolId, academicYear: currentAcademicYear, periodId, subjectId, subjectName, sectionId, sectionName,
       date, startTime, endTime, roomName: roomName || null, proctorUid: proctorUid || null, proctorName: proctorName || null,
       createdByUid: session.uid, createdAt: serverTimestamp(),
     })
@@ -85,7 +85,7 @@ export function ExamCenterProvider({ children }) {
     setScanning(true)
     setError('')
     try {
-      const snap = await getDocs(query(collection(db, 'examSlots'), where('schoolId', '==', session.schoolId), where('periodId', '==', periodId)))
+      const snap = await getDocs(query(collection(db, 'examSlots'), where('schoolId', '==', session.schoolId), where('periodId', '==', periodId), where('academicYear', '==', currentAcademicYear)))
       const slots = snap.docs.map((d) => ({ id: d.id, ...d.data() }))
       const sectionConflicts = [], roomConflicts = [], proctorConflicts = []
       for (let i = 0; i < slots.length; i++) {

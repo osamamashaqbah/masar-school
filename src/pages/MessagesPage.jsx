@@ -33,7 +33,7 @@ export default function MessagesPage() {
         setContacts([...teacherMap.entries()].map(([uid, name]) => ({ uid, name })))
       }
       const unsubs = chunks.map((chunk, index) => {
-        const q = query(collection(db, 'users'), where('schoolId', '==', session.schoolId), where(documentId(), 'in', chunk))
+        const q = query(collection(db, 'userDirectory'), where('schoolId', '==', session.schoolId), where(documentId(), 'in', chunk))
         return onSnapshot(q, (snap) => {
           childrenByChunk[index] = snap.docs.map((d) => ({ id: d.id, ...d.data() }))
           updateContacts()
@@ -49,21 +49,21 @@ export default function MessagesPage() {
       const studentsByChunk = sectionChunks.map(() => [])
       async function updateContacts() {
         const students = studentsByChunk.flat()
-        const parentUids = [...new Set(students.flatMap((s) => s.parentUids || []))]
+        const parentUids = [...new Set(students.flatMap((s) => s.contactUids || []))]
         if (parentUids.length === 0) { setContacts([]); return }
         const parentChunks = chunkArray(parentUids)
         const chunkSnaps = await Promise.all(
-          parentChunks.map((chunk) => getDocs(query(collection(db, 'users'), where('schoolId', '==', session.schoolId), where(documentId(), 'in', chunk))))
+          parentChunks.map((chunk) => getDocs(query(collection(db, 'userDirectory'), where('schoolId', '==', session.schoolId), where(documentId(), 'in', chunk))))
         )
         const parents = chunkSnaps.flatMap((s) => s.docs.map((d) => ({ id: d.id, ...d.data() })))
         setContacts(parents.map((p) => ({
           uid: p.id,
           name: p.name,
-          sub: students.filter((s) => (s.parentUids || []).includes(p.id)).map((s) => s.name).join('، '),
+          sub: students.filter((s) => (s.contactUids || []).includes(p.id)).map((s) => s.name).join('، '),
         })))
       }
       const unsubs = sectionChunks.map((chunk, index) => {
-        const q = query(collection(db, 'users'), where('schoolId', '==', session.schoolId), where('role', '==', 'student'), where('sectionId', 'in', chunk))
+        const q = query(collection(db, 'userDirectory'), where('schoolId', '==', session.schoolId), where('role', '==', 'student'), where('sectionId', 'in', chunk))
         return onSnapshot(q, (snap) => {
           studentsByChunk[index] = snap.docs.map((d) => ({ id: d.id, ...d.data() }))
           updateContacts()

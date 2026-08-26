@@ -48,6 +48,11 @@ const provisioningEmails = new Set(
     .filter((email) => typeof email === 'string')
     .map((email) => email.toLowerCase()),
 )
+const provisioningUids = new Set(
+  provisioningSnap.docs
+    .map((doc) => doc.get('adminUid'))
+    .filter((uid) => typeof uid === 'string'),
+)
 for (let i = 0; i < authUsers.length; i += 300) {
   const chunk = authUsers.slice(i, i + 300)
   const snaps = await db.getAll(...chunk.map((u) => db.collection('users').doc(u.uid)))
@@ -57,7 +62,7 @@ for (let i = 0; i < authUsers.length; i += 300) {
       protectedPlatformAdmins.push(u)
       return
     }
-    if (u.email && provisioningEmails.has(u.email.toLowerCase())) {
+    if (provisioningUids.has(u.uid) || (u.email && provisioningEmails.has(u.email.toLowerCase()))) {
       protectedProvisioningAccounts.push(u)
       return
     }

@@ -175,6 +175,7 @@ function ChildTimetable({ child, todayDayIdx, coverageToday }) {
 
 export default function TimetablePage() {
   const { session } = useSession()
+  const { currentAcademicYear } = useSchoolStructure()
   const [children, setChildren] = useState([])
   const [coverageToday, setCoverageToday] = useState([])
   const todayDayIdx = new Date().getDay() // الأحد=0 ... الخميس=4، مطابق تمامًا لترتيب DAYS
@@ -184,7 +185,7 @@ export default function TimetablePage() {
     const chunks = chunkArray(session.childUids)
     const childrenByChunk = chunks.map(() => [])
     const unsubs = chunks.map((chunk, index) => {
-      const q = query(collection(db, 'users'), where('schoolId', '==', session.schoolId), where(documentId(), 'in', chunk))
+      const q = query(collection(db, 'userDirectory'), where('schoolId', '==', session.schoolId), where(documentId(), 'in', chunk))
       return onSnapshot(q, (snap) => {
         childrenByChunk[index] = snap.docs.map((d) => ({ id: d.id, ...d.data() }))
         setChildren(childrenByChunk.flat())
@@ -195,12 +196,12 @@ export default function TimetablePage() {
 
   // بدلاء اليوم فقط — بيانات محدودة جدًا (تغطية يوم واحد لمدرسة وحدة)، عرض لحظي مقبول ضمن حصة Spark
   useEffect(() => {
-    if (todayDayIdx > 4) { setCoverageToday([]); return } // جمعة/سبت
+    if (!session || !currentAcademicYear || todayDayIdx > 4) { setCoverageToday([]); return } // جمعة/سبت
     const todayStr = new Date().toISOString().slice(0, 10)
-    const q = query(collection(db, 'substituteCoverage'), where('schoolId', '==', session.schoolId), where('date', '==', todayStr))
+    const q = query(collection(db, 'substituteCoverage'), where('schoolId', '==', session.schoolId), where('date', '==', todayStr), where('academicYear', '==', currentAcademicYear))
     const unsub = onSnapshot(q, (snap) => setCoverageToday(snap.docs.map((d) => d.data())), () => setCoverageToday([]))
     return () => unsub()
-  }, [session, todayDayIdx])
+  }, [session, todayDayIdx, currentAcademicYear])
 
   return (
     <div>

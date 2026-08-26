@@ -139,7 +139,7 @@ function InterventionCard({ intervention }) {
 export default function StudentProfilePage() {
   const { studentUid } = useParams()
   const { session } = useSession()
-  const { allUsers, sections, grades, subjects } = useSchoolStructure()
+  const { allUsers, sections, grades, subjects, currentAcademicYear } = useSchoolStructure()
   const { getAbsenceCounts } = useAttendance()
   const { getMarksForStudentSubject } = useMarks()
   const { homework } = useHomework()
@@ -157,16 +157,16 @@ export default function StudentProfilePage() {
   }, [studentUid])
 
   useEffect(() => {
-    if (!studentUid || !session) return
+    if (!studentUid || !session || !currentAcademicYear) return
     setLoadingExtra(true)
     Promise.all([
       getDoc(doc(db, 'earlyWarnings', studentUid)),
-      getDocs(query(collection(db, 'submissions'), where('schoolId', '==', session.schoolId), where('studentUid', '==', studentUid))),
+      getDocs(query(collection(db, 'submissions'), where('schoolId', '==', session.schoolId), where('studentUid', '==', studentUid), where('academicYear', '==', currentAcademicYear))),
     ]).then(([ewSnap, subSnap]) => {
       setEarlyWarning(ewSnap.exists() ? ewSnap.data() : null)
       setSubmissions(subSnap.docs.map((d) => d.data()))
     }).finally(() => setLoadingExtra(false))
-  }, [studentUid, session])
+  }, [studentUid, session, currentAcademicYear])
 
   if (session.role !== 'admin') {
     return <p style={{ color: 'var(--ink-soft)' }}>هاي الصفحة للإدارة بس.</p>

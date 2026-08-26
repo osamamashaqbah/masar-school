@@ -18,12 +18,12 @@ export function HomeworkProvider({ children }) {
 
   // نسخة مسطّحة من التسليمات (لطالب لحاله، أو كل أبناء ولي الأمر) — لحساب نمط التسويف بس
   useEffect(() => {
-    if (!session) { setSubmissionsForPattern([]); return }
+    if (!session || !currentAcademicYear) { setSubmissionsForPattern([]); return }
     if (session.role === 'parent' && session.childUids?.length > 0) {
       const chunks = chunkArray(session.childUids)
       const rowsByChunk = chunks.map(() => [])
       const unsubs = chunks.map((chunk, index) => {
-        const q = query(collection(db, 'submissions'), where('studentUid', 'in', chunk))
+        const q = query(collection(db, 'submissions'), where('studentUid', 'in', chunk), where('academicYear', '==', currentAcademicYear))
         return onSnapshot(q, (s) => {
           rowsByChunk[index] = s.docs.map((d) => d.data())
           setSubmissionsForPattern(rowsByChunk.flat())
@@ -32,26 +32,26 @@ export function HomeworkProvider({ children }) {
       return () => unsubs.forEach((unsub) => unsub())
     }
     setSubmissionsForPattern([])
-  }, [session])
+  }, [session, currentAcademicYear])
 
   useEffect(() => {
-    if (!session) {
+    if (!session || !currentAcademicYear) {
       setHomework([])
       return
     }
-    const q = query(collection(db, 'homework'), where('schoolId', '==', session.schoolId))
+    const q = query(collection(db, 'homework'), where('schoolId', '==', session.schoolId), where('academicYear', '==', currentAcademicYear))
     const unsubscribe = onSnapshot(q, (snapshot) => {
       setHomework(snapshot.docs.map((d) => ({ id: d.id, ...d.data() })))
     })
     return () => unsubscribe()
-  }, [session])
+  }, [session, currentAcademicYear])
 
   useEffect(() => {
-    if (!session || session.role !== 'student') {
+    if (!session || session.role !== 'student' || !currentAcademicYear) {
       setSubmissions({})
       return
     }
-    const q = query(collection(db, 'submissions'), where('studentUid', '==', session.uid))
+    const q = query(collection(db, 'submissions'), where('studentUid', '==', session.uid), where('academicYear', '==', currentAcademicYear))
     const unsubscribe = onSnapshot(q, (snapshot) => {
       const map = {}
       snapshot.docs.forEach((d) => {
@@ -60,7 +60,7 @@ export function HomeworkProvider({ children }) {
       setSubmissions(map)
     })
     return () => unsubscribe()
-  }, [session])
+  }, [session, currentAcademicYear])
 
   function getHomeworkForCourse(courseId) {
     return homework.filter((h) => h.courseId === courseId && (!h.academicYear || h.academicYear === currentAcademicYear))

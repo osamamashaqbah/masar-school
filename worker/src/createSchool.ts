@@ -179,6 +179,11 @@ function finalWrites(
       precondition: { exists: false },
     },
     {
+      path: `userDirectory/${adminUid}`,
+      data: { name: input.adminName, role: 'admin', schoolId: marker.schoolId, sectionId: null, status: 'active', contactUids: [] },
+      precondition: { exists: false },
+    },
+    {
       path: `platformStats/${marker.schoolId}`,
       data: {
         schoolName: input.schoolName,

@@ -9,7 +9,7 @@ import TaskCenter from '../components/TaskCenter'
 
 export default function AdminPage() {
   const { session } = useSession()
-  const { subjects, grades, sections, currentAcademicYear, allUsers } = useSchoolStructure()
+  const { subjects, grades, sections, currentAcademicYear, allUsers, allUsersTruncated } = useSchoolStructure()
   const { notifications, unreadCount } = useNotifications()
 
   const [name, setName] = useState('')
@@ -303,6 +303,7 @@ export default function AdminPage() {
 
       <div className="eyebrow" style={{ marginTop: '32px' }}>كل المستخدمين</div>
       <h2 className="page-title" style={{ marginBottom: '16px', fontSize: '20px' }}>قائمة الحسابات المسجّلة</h2>
+      {allUsersTruncated && <p className="auth-error">تم عرض أول 1000 حساب فقط لحماية المتصفح والحصة. يلزم تقسيم القائمة قبل تجاوز هذا الحد.</p>}
 
       <div className="users-list">
         {allUsers.map((u) => (

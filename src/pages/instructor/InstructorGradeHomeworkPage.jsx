@@ -17,7 +17,7 @@ const STATUS_LABELS = {
 
 export default function InstructorGradeHomeworkPage() {
   const { session } = useSession()
-  const { subjects } = useSchoolStructure()
+  const { subjects, currentAcademicYear } = useSchoolStructure()
   const { homework, returnHomework, markSubmissionGraded } = useHomework()
   const { setMarkValue } = useMarks()
 
@@ -37,21 +37,21 @@ export default function InstructorGradeHomeworkPage() {
   // فبنحدد الاستعلام بـ homeworkId ضمن واجبات هالمعلّم فقط — نفس الحقل إلي القاعدة أصلاً بتتحقق منه.
   // 'in' فيها حد أقصى 30 قيمة بـ Firestore، فبنقسّم القائمة لدفعات ومنستمع لكل دفعة لحالها.
   useEffect(() => {
-    if (myHomeworkIds.length === 0) { setSubmissions([]); return }
+    if (myHomeworkIds.length === 0 || !currentAcademicYear) { setSubmissions([]); return }
 
     const chunks = []
     for (let i = 0; i < myHomeworkIds.length; i += 30) chunks.push(myHomeworkIds.slice(i, i + 30))
 
     const resultsByChunk = chunks.map(() => [])
     const unsubs = chunks.map((chunk, i) =>
-      onSnapshot(query(collection(db, 'submissions'), where('homeworkId', 'in', chunk)), (snap) => {
+      onSnapshot(query(collection(db, 'submissions'), where('homeworkId', 'in', chunk), where('academicYear', '==', currentAcademicYear)), (snap) => {
         resultsByChunk[i] = snap.docs.map((d) => ({ id: d.id, ...d.data() }))
         setSubmissions(resultsByChunk.flat())
       })
     )
     return () => unsubs.forEach((unsub) => unsub())
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [myHomeworkIds.join(',')])
+  }, [myHomeworkIds.join(','), currentAcademicYear])
 
   async function handleGrade(sub, hw) {
     const score = scores[sub.id]

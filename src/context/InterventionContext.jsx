@@ -2,6 +2,7 @@ import { createContext, useContext, useState, useEffect } from 'react'
 import { collection, addDoc, updateDoc, doc, query, where, onSnapshot, arrayUnion, serverTimestamp } from 'firebase/firestore'
 import { db } from '../firebase'
 import { useSession } from './SessionContext'
+import { useSchoolStructure } from './SchoolStructureContext'
 import { sendNotification } from '../utils/notify'
 import { logAudit } from '../utils/audit'
 
@@ -9,17 +10,18 @@ const InterventionContext = createContext(null)
 
 export function InterventionProvider({ children }) {
   const { session } = useSession()
+  const { currentAcademicYear } = useSchoolStructure()
   const [byStudent, setByStudent] = useState({}) // studentUid -> interventions[]
   const [watchedUid, setWatchedUid] = useState(null)
   const [error, setError] = useState('')
 
   // نافذة واحدة مفتوحة بكل مرة (صفحة الملف الشخصي لطالب واحد) — نفس فكرة activeCaseId بـ FeedbackContext
   useEffect(() => {
-    if (!session || session.role !== 'admin' || !watchedUid) { setError(''); return }
+    if (!session || session.role !== 'admin' || !watchedUid || !currentAcademicYear) { setError(''); return }
     setError('')
     const q = query(
       collection(db, 'studentInterventions'),
-      where('schoolId', '==', session.schoolId), where('studentUid', '==', watchedUid)
+      where('schoolId', '==', session.schoolId), where('studentUid', '==', watchedUid), where('academicYear', '==', currentAcademicYear)
     )
     const unsub = onSnapshot(q, (snap) => {
       const list = snap.docs.map((d) => ({ id: d.id, ...d.data() }))
@@ -27,7 +29,7 @@ export function InterventionProvider({ children }) {
       setByStudent((prev) => ({ ...prev, [watchedUid]: list }))
     }, (err) => { console.error('[التدخلات] فشل تحميل تدخلات الطالب:', err); setError('تعذّر تحميل خطط التدخل لهذا الطالب.') })
     return () => unsub()
-  }, [session, watchedUid])
+  }, [session, watchedUid, currentAcademicYear])
 
   function watchStudent(studentUid) {
     setWatchedUid(studentUid)
@@ -39,7 +41,7 @@ export function InterventionProvider({ children }) {
 
   async function createIntervention({ studentUid, studentName, riskLevel, reason, assignedToUid, assignedToName, action, followUpDate }) {
     const ref = await addDoc(collection(db, 'studentInterventions'), {
-      schoolId: session.schoolId, studentUid, studentName,
+      schoolId: session.schoolId, academicYear: currentAcademicYear, studentUid, studentName,
       riskLevel: riskLevel || 'medium', reason: reason || '',
       assignedToUid: assignedToUid || null, assignedToName: assignedToName || null,
       action: action || '', followUpDate: followUpDate || null,

@@ -5,6 +5,7 @@ import { randomUUID } from 'crypto'
 import { initializeApp, cert } from 'firebase-admin/app'
 import { getAuth } from 'firebase-admin/auth'
 import { getFirestore, FieldValue } from 'firebase-admin/firestore'
+import { getStorage } from 'firebase-admin/storage'
 
 const serviceAccount = JSON.parse(readFileSync(new URL('../serviceAccountKey.json', import.meta.url)))
 const projectId = serviceAccount.project_id || ''
@@ -17,9 +18,10 @@ if (!confirmation || (!usingEmulators && !isTestProject) || projectId === 'masar
   process.exit(1)
 }
 
-initializeApp({ credential: cert(serviceAccount) })
+initializeApp({ credential: cert(serviceAccount), storageBucket: process.env.FIREBASE_STORAGE_BUCKET || `${projectId}.appspot.com` })
 const auth = getAuth()
 const db = getFirestore()
+const bucket = getStorage().bucket()
 
 const COLLECTIONS = [
   'attendance', 'grades', 'homework', 'marks', 'notes', 'notifications',
@@ -28,7 +30,8 @@ const COLLECTIONS = [
   'announcements', 'auditLog', 'excuseRequests', 'timetables',
   'feedbackCases', 'feedbackReplies', 'teacherAvailability', 'teacherAbsences',
   'substituteCoverage', 'studentInterventions', 'examPeriods', 'examSlots',
-  'questionBank', 'rolloverOperations', 'platformStats',
+  'questionBank', 'rolloverOperations', 'platformStats', 'userDirectory',
+  'schoolDeletionOperations',
 ]
 
 console.log('== حذف Firebase Auth ==')
@@ -58,6 +61,9 @@ for (const name of COLLECTIONS) {
   console.log(`${name}: حذف ${deleted}`)
 }
 
+await bucket.deleteFiles({ prefix: 'schools/' })
+console.log('Storage: حُذفت ملفات المدارس')
+
 console.log('\n== بناء مدرسة العرض التجريبي ==')
 const schoolRef = db.collection('schools').doc()
 const schoolId = schoolRef.id
@@ -65,6 +71,7 @@ const schoolId = schoolRef.id
 async function createAccount(role, name, email, password, extra = {}) {
   const rec = await auth.createUser({ email, password, displayName: name })
   await db.collection('users').doc(rec.uid).set({ name, role, email, schoolId, ...extra })
+  await db.collection('userDirectory').doc(rec.uid).set({ name, role, schoolId, sectionId: extra.sectionId || null, status: 'active', contactUids: [] })
   return rec.uid
 }
 

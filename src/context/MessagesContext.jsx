@@ -20,7 +20,7 @@ export function MessagesProvider({ children }) {
   const [messages, setMessages] = useState([])
 
   useEffect(() => {
-    if (!session || !messagingEnabled) { setThreads([]); setActiveThreadId(null); return }
+    if (!session || !messagingEnabled) { setThreads([]); setActiveThreadId(null); setMessages([]); return }
     const q = query(collection(db, 'threads'), where('participantUids', 'array-contains', session.uid))
     const unsub = onSnapshot(q, (snap) => {
       const list = snap.docs.map((d) => ({ id: d.id, ...d.data() }))

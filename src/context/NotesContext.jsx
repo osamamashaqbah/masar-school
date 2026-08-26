@@ -1,4 +1,4 @@
-import { createContext, useContext, useState, useRef } from 'react'
+import { createContext, useContext, useState, useRef, useEffect } from 'react'
 import { collection, doc, setDoc, onSnapshot, query, where } from 'firebase/firestore'
 import { db } from '../firebase'
 import { useSession } from './SessionContext'
@@ -13,12 +13,23 @@ export function NotesProvider({ children }) {
   const loadedCourseRef = useRef(null)
   const unsubscribeRef = useRef(null)
 
+  useEffect(() => {
+    if (unsubscribeRef.current) unsubscribeRef.current()
+    unsubscribeRef.current = null
+    loadedCourseRef.current = null
+    setNotesMap({})
+    return () => {
+      if (unsubscribeRef.current) unsubscribeRef.current()
+      unsubscribeRef.current = null
+    }
+  }, [session, currentAcademicYear])
+
   function loadCourseNotes(courseId) {
-    if (!session || !courseId || loadedCourseRef.current === courseId) return
+    if (!session || !currentAcademicYear || !courseId || loadedCourseRef.current === `${courseId}:${currentAcademicYear}`) return
     if (unsubscribeRef.current) unsubscribeRef.current()
 
-    loadedCourseRef.current = courseId
-    const q = query(collection(db, 'notes'), where('courseId', '==', courseId))
+    loadedCourseRef.current = `${courseId}:${currentAcademicYear}`
+    const q = query(collection(db, 'notes'), where('courseId', '==', courseId), where('academicYear', '==', currentAcademicYear))
     unsubscribeRef.current = onSnapshot(q, (snapshot) => {
       setNotesMap((prev) => {
         const updated = { ...prev }

@@ -34,7 +34,7 @@ export default function InstructorManualGradesPage() {
   useEffect(() => {
     if (!subject) return
     setStudentsError('')
-    const q = query(collection(db, 'users'), where('schoolId', '==', session.schoolId), where('role', '==', 'student'), where('sectionId', '==', subject.sectionId))
+    const q = query(collection(db, 'userDirectory'), where('schoolId', '==', session.schoolId), where('role', '==', 'student'), where('sectionId', '==', subject.sectionId))
     const unsub = onSnapshot(
       q,
       (snap) => setStudents(snap.docs.map((d) => ({ id: d.id, ...d.data() }))),

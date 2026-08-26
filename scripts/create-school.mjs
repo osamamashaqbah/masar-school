@@ -43,6 +43,9 @@ batch.set(schoolRef, { name: school, adminUid: userRecord.uid, createdAt: now })
 batch.set(db.collection('users').doc(userRecord.uid), {
   name, role: 'admin', email, schoolId: schoolRef.id, status: 'active', mustChangePassword: true,
 })
+batch.set(db.collection('userDirectory').doc(userRecord.uid), {
+  name, role: 'admin', schoolId: schoolRef.id, sectionId: null, status: 'active', contactUids: [],
+})
 batch.set(db.collection('platformStats').doc(schoolRef.id), {
   schoolName: school,
   studentCount: 0,

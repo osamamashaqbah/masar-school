@@ -15,14 +15,14 @@ export const DIFFICULTIES = [
 
 export function QuestionBankProvider({ children }) {
   const { session } = useSession()
-  const { subjects } = useSchoolStructure()
+  const { subjects, currentAcademicYear } = useSchoolStructure()
   const [questions, setQuestions] = useState([])
   const [error, setError] = useState('')
 
   // بنك الأسئلة كله للمدرسة — للإدارة والمعلمين بس (القواعد بتمنع الطلاب). عدد معقول لمدرسة
   // وحدة (مئات لآلاف بحد أقصى)، فـ listener وحدة مقبولة هون بدون حاجة لـ pagination الآن
   useEffect(() => {
-    if (!session || (session.role !== 'admin' && session.role !== 'instructor')) { setQuestions([]); setError(''); return }
+    if (!session || (session.role !== 'admin' && session.role !== 'instructor') || !currentAcademicYear) { setQuestions([]); setError(''); return }
     setError('')
     const subjectIds = session.role === 'instructor'
       ? subjects.filter((subject) => subject.teacherUid === session.uid).map((subject) => subject.id)
@@ -37,7 +37,7 @@ export function QuestionBankProvider({ children }) {
       setQuestions([])
     }
     const unsubs = chunks.map((chunk, index) => {
-      const filters = [where('schoolId', '==', session.schoolId)]
+      const filters = [where('schoolId', '==', session.schoolId), where('academicYear', '==', currentAcademicYear)]
       if (chunk) filters.push(where('subjectId', 'in', chunk))
       return onSnapshot(query(collection(db, 'questionBank'), ...filters), (snap) => {
         rowsByChunk[index] = snap.docs.map((d) => ({ id: d.id, ...d.data() }))
@@ -45,14 +45,14 @@ export function QuestionBankProvider({ children }) {
       }, handleError)
     })
     return () => unsubs.forEach((unsub) => unsub())
-  }, [session, subjects])
+  }, [session, subjects, currentAcademicYear])
 
   async function addQuestion({ subjectId, subjectName, questionText, options, correctIndex, difficulty, tags }) {
     const ref = await addDoc(collection(db, 'questionBank'), {
       schoolId: session.schoolId, subjectId, subjectName,
       questionText: questionText.trim(), options: options.map((o) => o.trim()), correctIndex,
       difficulty: difficulty || 'medium', tags: tags || [],
-      timesUsed: 0, timesCorrect: 0,
+      timesUsed: 0, timesCorrect: 0, academicYear: currentAcademicYear,
       createdByUid: session.uid, createdByName: session.name, createdAt: serverTimestamp(),
     })
     return ref.id

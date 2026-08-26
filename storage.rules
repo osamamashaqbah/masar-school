@@ -2,19 +2,30 @@ rules_version = '2';
 service firebase.storage {
   match /b/{bucket}/o {
     match /schools/{schoolId}/branding/{fileName} {
+      function userPath() {
+        return /databases/(default)/documents/users/$(request.auth.uid);
+      }
+
       allow read: if request.auth != null
         && (
           firestore.exists(/databases/(default)/documents/platformAdmins/$(request.auth.uid))
-          || firestore.get(/databases/(default)/documents/users/$(request.auth.uid)).data.schoolId == schoolId
+          || (
+            firestore.exists(userPath())
+            && firestore.get(userPath()).data.get('schoolId', '') == schoolId
+          )
         );
+
       allow write: if request.auth != null
+        && request.resource != null
         && request.resource.size < 3 * 1024 * 1024
         && request.resource.contentType.matches('image/.*')
         && (
           firestore.exists(/databases/(default)/documents/platformAdmins/$(request.auth.uid))
           || (
-            firestore.get(/databases/(default)/documents/users/$(request.auth.uid)).data.schoolId == schoolId
-            && firestore.get(/databases/(default)/documents/users/$(request.auth.uid)).data.role == 'admin'
+            firestore.exists(userPath())
+            && firestore.get(userPath()).data.get('schoolId', '') == schoolId
+            && firestore.get(userPath()).data.get('role', '') == 'admin'
+            && firestore.get(userPath()).data.get('status', 'active') != 'inactive'
           )
         );
     }

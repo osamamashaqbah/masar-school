@@ -14,9 +14,9 @@ export function QuestionsProvider({ children }) {
   const [teacherQuestions, setTeacherQuestions] = useState([])
 
   useEffect(() => {
-    if (!session) return
+    if (!session || !currentAcademicYear) { setMyQuestions([]); setTeacherQuestions([]); return }
     if (session.role === 'student') {
-      const q = query(collection(db, 'questions'), where('studentUid', '==', session.uid))
+      const q = query(collection(db, 'questions'), where('studentUid', '==', session.uid), where('academicYear', '==', currentAcademicYear))
       const unsub = onSnapshot(q, (s) => setMyQuestions(s.docs.map((d) => ({ id: d.id, ...d.data() }))))
       return () => unsub()
     }
@@ -26,7 +26,7 @@ export function QuestionsProvider({ children }) {
       const subjectChunks = chunkArray(subjectIds)
       const rowsByChunk = subjectChunks.map(() => [])
       const unsubs = subjectChunks.map((chunk, index) => {
-        const q = query(collection(db, 'questions'), where('schoolId', '==', session.schoolId), where('subjectId', 'in', chunk))
+        const q = query(collection(db, 'questions'), where('schoolId', '==', session.schoolId), where('subjectId', 'in', chunk), where('academicYear', '==', currentAcademicYear))
         return onSnapshot(q, (snap) => {
           rowsByChunk[index] = snap.docs.map((d) => ({ id: d.id, ...d.data() }))
           setTeacherQuestions(rowsByChunk.flat())
@@ -34,7 +34,7 @@ export function QuestionsProvider({ children }) {
       })
       return () => unsubs.forEach((unsub) => unsub())
     }
-  }, [session, subjects])
+  }, [session, subjects, currentAcademicYear])
 
   async function askQuestion(subjectId, text) {
     await addDoc(collection(db, 'questions'), {

@@ -4,7 +4,7 @@ import { db } from '../firebase'
 import { useSession } from './SessionContext'
 import { useSchoolStructure } from './SchoolStructureContext'
 import { sendNotification } from '../utils/notify'
-import { logAudit } from '../utils/audit'
+import { requireAudit } from '../utils/audit'
 import { categoriesFor, markDocId, aggregateMark } from '../utils/gradeCategories'
 import { chunkArray } from '../utils/chunk'
 
@@ -18,21 +18,21 @@ export function MarksProvider({ children }) {
   const [allMarksError, setAllMarksError] = useState(null)
 
   useEffect(() => {
-    if (!session) { setMyMarks([]); return }
+    if (!session || !currentAcademicYear) { setMyMarks([]); return }
     if (session.role === 'student') {
-      const q = query(collection(db, 'marks'), where('studentUid', '==', session.uid))
+      const q = query(collection(db, 'marks'), where('studentUid', '==', session.uid), where('academicYear', '==', currentAcademicYear))
       const unsub = onSnapshot(q, (s) => setMyMarks(s.docs.map((d) => ({ id: d.id, ...d.data() }))))
       return () => unsub()
     }
     setMyMarks([])
-  }, [session])
+  }, [session, currentAcademicYear])
 
   // للإدارة: قراءة مرة وحدة (getDocs) لا real-time — علامات المدرسة كلها ممكن توصل آلاف الوثائق،
   // و real-time listener عليها هيك بيستهلك حصة القراءة اليومية بسرعة. refreshAdminMarks تحت
   // بتعيد الجلب عند الطلب (مثلاً قبل إعادة حساب لوحات الشرف بـ AdminInsightsPage)
   async function refreshAdminMarks() {
-    if (!session || session.role !== 'admin') return []
-    const q = query(collection(db, 'marks'), where('schoolId', '==', session.schoolId))
+    if (!session || session.role !== 'admin' || !currentAcademicYear) return []
+    const q = query(collection(db, 'marks'), where('schoolId', '==', session.schoolId), where('academicYear', '==', currentAcademicYear))
     try {
       const snap = await getDocs(q)
       const rows = snap.docs.map((d) => ({ id: d.id, ...d.data() }))
@@ -55,7 +55,7 @@ export function MarksProvider({ children }) {
     }
 
     if (session.role === 'instructor') {
-      const q = query(collection(db, 'marks'), where('teacherUid', '==', session.uid))
+      const q = query(collection(db, 'marks'), where('teacherUid', '==', session.uid), where('academicYear', '==', currentAcademicYear))
       const unsub = onSnapshot(q, (s) => setAllMarks(s.docs.map((d) => ({ id: d.id, ...d.data() }))))
       return () => unsub()
     }
@@ -64,7 +64,7 @@ export function MarksProvider({ children }) {
       const chunks = chunkArray(session.childUids)
       const rowsByChunk = chunks.map(() => [])
       const unsubs = chunks.map((chunk, index) => {
-        const q = query(collection(db, 'marks'), where('studentUid', 'in', chunk))
+        const q = query(collection(db, 'marks'), where('studentUid', 'in', chunk), where('academicYear', '==', currentAcademicYear))
         return onSnapshot(q, (s) => {
           rowsByChunk[index] = s.docs.map((d) => ({ id: d.id, ...d.data() }))
           setAllMarks(rowsByChunk.flat())
@@ -75,7 +75,7 @@ export function MarksProvider({ children }) {
 
     setAllMarks([])
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [session])
+  }, [session, currentAcademicYear])
 
   // score و maxScore أرقام. homeworkId اختياري (بينحط تلقائي لما العلامة جايه من تقييم واجب)
   async function setMarkValue(subjectId, studentUid, categoryId, score, maxScore, homeworkId = null) {
@@ -85,6 +85,7 @@ export function MarksProvider({ children }) {
       throw new Error('invalid-mark')
     }
     const docId = markDocId(studentUid, subjectId, categoryId, homeworkId, currentAcademicYear)
+    await requireAudit(session.schoolId, session.uid, session.name, 'set_mark', 'student', studentUid, `${subjectId}/${categoryId}: ${score}/${maxScore}`)
     await setDoc(doc(db, 'marks', docId), {
       subjectId,
       studentUid,
@@ -98,12 +99,10 @@ export function MarksProvider({ children }) {
       academicYear: currentAcademicYear,
       updatedAt: Date.now(),
     })
-    logAudit(session.schoolId, session.uid, session.name, 'set_mark', 'student', studentUid, `${subjectId}/${categoryId}: ${score}/${maxScore}`)
-
     // إشعار الطالب وأهله بالعلامة الجديدة — أفضل جهد، ما لازم يوقف حفظ العلامة لو فشل لأي سبب.
     try {
       const [studentSnap, subjectSnap] = await Promise.all([
-        getDoc(doc(db, 'users', studentUid)),
+        getDoc(doc(db, 'userDirectory', studentUid)),
         getDoc(doc(db, 'subjects', subjectId)),
       ])
       if (studentSnap.exists() && subjectSnap.exists()) {
@@ -113,10 +112,11 @@ export function MarksProvider({ children }) {
         const label = category?.label || 'درجة'
         const scoreText = `${Number(score)}/${Number(maxScore)}`
         await sendNotification(studentUid, `انحطّت لك علامة جديدة بمادة ${subject.name} (${label}): ${scoreText}.`, 'grade', session.schoolId)
-        if (!student.parentUids || student.parentUids.length === 0) {
-          console.warn(`[إشعارات] الطالب ${student.name} (${studentUid}) ما إله parentUids — ما رح يوصل إشعار لولي أمره.`)
+        const parentUids = student.contactUids || []
+        if (parentUids.length === 0) {
+          console.warn(`[إشعارات] الطالب ${student.name} (${studentUid}) ما إله contactUids — ما رح يوصل إشعار لولي أمره.`)
         }
-        for (const parentUid of student.parentUids || []) {
+        for (const parentUid of parentUids) {
           await sendNotification(parentUid, `حصل/ت ${student.name} على ${scoreText} بمادة ${subject.name} (${label}).`, 'grade', session.schoolId)
         }
       } else {

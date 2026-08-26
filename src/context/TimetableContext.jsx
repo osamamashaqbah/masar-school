@@ -1,4 +1,4 @@
-import { createContext, useContext, useState, useRef } from 'react'
+import { createContext, useContext, useState, useRef, useEffect } from 'react'
 import { doc, setDoc, onSnapshot, runTransaction } from 'firebase/firestore'
 import { db } from '../firebase'
 import { useSession } from './SessionContext'
@@ -13,15 +13,26 @@ export function TimetableProvider({ children }) {
   const { session } = useSession()
   const { currentAcademicYear } = useSchoolStructure()
   const [bySectionId, setBySectionId] = useState({})
-  const loadedRef = useRef(new Set())
+  const loadedRef = useRef(new Map())
+
+  useEffect(() => {
+    const listeners = loadedRef.current
+    setBySectionId({})
+    listeners.forEach((unsubscribe) => unsubscribe())
+    listeners.clear()
+    return () => {
+      listeners.forEach((unsubscribe) => unsubscribe())
+      listeners.clear()
+    }
+  }, [session, currentAcademicYear])
 
   // تحميل كسول: أول مرة حدا يطلب جدول شعبة معيّنة، نفتح listener إلها بس — مو كل الشعب دفعة وحدة
   function loadSectionTimetable(sectionId) {
-    if (!sectionId || loadedRef.current.has(sectionId)) return
-    loadedRef.current.add(sectionId)
-    onSnapshot(doc(db, 'timetables', sectionId), (snap) => {
+    if (!sectionId || !session || !currentAcademicYear || loadedRef.current.has(sectionId)) return
+    const unsubscribe = onSnapshot(doc(db, 'timetables', sectionId), (snap) => {
       setBySectionId((prev) => ({ ...prev, [sectionId]: snap.exists() ? snap.data() : { slots: [] } }))
     })
+    loadedRef.current.set(sectionId, unsubscribe)
   }
 
   function getSlots(sectionId) {

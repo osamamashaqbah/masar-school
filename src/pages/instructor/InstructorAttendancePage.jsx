@@ -37,7 +37,7 @@ export default function InstructorAttendancePage() {
   useEffect(() => {
     if (!sectionId) { setStudents([]); return }
     setStudentsError('')
-    const q = query(collection(db, 'users'), where('schoolId', '==', session.schoolId), where('role', '==', 'student'), where('sectionId', '==', sectionId))
+    const q = query(collection(db, 'userDirectory'), where('schoolId', '==', session.schoolId), where('role', '==', 'student'), where('sectionId', '==', sectionId))
     const unsub = onSnapshot(
       q,
       (snap) => setStudents(snap.docs.map((d) => ({ id: d.id, ...d.data() }))),

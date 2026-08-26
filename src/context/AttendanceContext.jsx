@@ -5,7 +5,7 @@ import { useSession } from './SessionContext'
 import { useSchoolStructure } from './SchoolStructureContext'
 import { sendNotification } from '../utils/notify'
 import { chunkArray } from '../utils/chunk'
-import { logAudit } from '../utils/audit'
+import { requireAudit } from '../utils/audit'
 
 const AttendanceContext = createContext(null)
 
@@ -18,32 +18,32 @@ export function AttendanceProvider({ children }) {
   const [schoolAbsencesError, setSchoolAbsencesError] = useState(null)
 
   useEffect(() => {
-    if (!session || session.role !== 'student') { setMyAbsences([]); return }
-    const q = query(collection(db, 'attendance'), where('studentUid', '==', session.uid))
+    if (!session || session.role !== 'student' || !currentAcademicYear) { setMyAbsences([]); return }
+    const q = query(collection(db, 'attendance'), where('studentUid', '==', session.uid), where('academicYear', '==', currentAcademicYear))
     const unsub = onSnapshot(q, (s) => setMyAbsences(s.docs.map((d) => ({ id: d.id, ...d.data() }))))
     return () => unsub()
-  }, [session])
+  }, [session, currentAcademicYear])
 
   useEffect(() => {
-    if (!session || session.role !== 'parent' || !session.childUids?.length) { setChildrenAbsences([]); return }
+    if (!session || session.role !== 'parent' || !session.childUids?.length || !currentAcademicYear) { setChildrenAbsences([]); return }
     const chunks = chunkArray(session.childUids)
     const rowsByChunk = chunks.map(() => [])
     const unsubs = chunks.map((chunk, index) => {
-      const q = query(collection(db, 'attendance'), where('studentUid', 'in', chunk))
+      const q = query(collection(db, 'attendance'), where('studentUid', 'in', chunk), where('academicYear', '==', currentAcademicYear))
       return onSnapshot(q, (s) => {
         rowsByChunk[index] = s.docs.map((d) => ({ id: d.id, ...d.data() }))
         setChildrenAbsences(rowsByChunk.flat())
       })
     })
     return () => unsubs.forEach((unsub) => unsub())
-  }, [session])
+  }, [session, currentAcademicYear])
 
   // للإدارة بس — مطلوب لحساب الإنذار المبكر (غياب) على مستوى المدرسة كلها.
   // getDocs مرة وحدة لا real-time (نفس منطق refreshAdminMarks بـ MarksContext) — حضور مدرسة
   // كاملة عبر السنين ممكن يوصل آلاف الوثائق، ما بستاهل استهلاك حصة القراءة اليومية عليه بشكل مستمر
   async function refreshSchoolAbsences() {
-    if (!session || session.role !== 'admin') return []
-    const q = query(collection(db, 'attendance'), where('schoolId', '==', session.schoolId))
+    if (!session || session.role !== 'admin' || !currentAcademicYear) return []
+    const q = query(collection(db, 'attendance'), where('schoolId', '==', session.schoolId), where('academicYear', '==', currentAcademicYear))
     try {
       const snap = await getDocs(q)
       const rows = snap.docs.map((d) => ({ id: d.id, ...d.data() }))
@@ -61,7 +61,7 @@ export function AttendanceProvider({ children }) {
     if (!session || session.role !== 'admin') { setSchoolAbsences([]); setSchoolAbsencesError(null); return }
     refreshSchoolAbsences().catch(() => {}) // الخطأ محفوظ بـ schoolAbsencesError، هون بس منمنع unhandled rejection
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [session])
+  }, [session, currentAcademicYear])
 
   // بيرجع {unexcused, excused} لطالب معيّن (بالسنة الحالية بس) — يشتغل بس لحساب الإدارة (schoolAbsences)
   function getAbsenceCounts(uid) {
@@ -87,6 +87,7 @@ export function AttendanceProvider({ children }) {
 
   async function setAbsent(studentUid, sectionId, date, excused = false) {
     const docId = `${studentUid}_${date}`
+    await requireAudit(session.schoolId, session.uid, session.name, 'set_attendance', 'student', studentUid, `${date}: ${excused ? 'excused' : 'absent'}`)
     await setDoc(doc(db, 'attendance', docId), {
       studentUid,
       sectionId,
@@ -97,19 +98,18 @@ export function AttendanceProvider({ children }) {
       academicYear: currentAcademicYear,
       createdAt: Date.now(),
     })
-    logAudit(session.schoolId, session.uid, session.name, 'set_attendance', 'student', studentUid, `${date}: ${excused ? 'excused' : 'absent'}`)
-
     // إشعار الطالب وأهله بالغياب — أفضل جهد، ما لازم يوقف حفظ الحضور لو فشل لأي سبب.
     try {
-      const studentSnap = await getDoc(doc(db, 'users', studentUid))
+      const studentSnap = await getDoc(doc(db, 'userDirectory', studentUid))
       if (studentSnap.exists()) {
         const student = studentSnap.data()
         const excuseText = excused ? 'بعذر' : 'بدون عذر'
         await sendNotification(studentUid, `تسجّل غياب عليك (${excuseText}) بتاريخ ${date}.`, 'attendance', session.schoolId)
-        if (!student.parentUids || student.parentUids.length === 0) {
-          console.warn(`[إشعارات] الطالب ${student.name} (${studentUid}) ما إله parentUids — ما رح يوصل إشعار لولي أمره.`)
+        const parentUids = student.contactUids || []
+        if (parentUids.length === 0) {
+          console.warn(`[إشعارات] الطالب ${student.name} (${studentUid}) ما إله contactUids — ما رح يوصل إشعار لولي أمره.`)
         }
-        await Promise.all((student.parentUids || []).map((parentUid) =>
+        await Promise.all(parentUids.map((parentUid) =>
           sendNotification(parentUid, `غاب/ت ${student.name} (${excuseText}) بتاريخ ${date}.`, 'attendance', session.schoolId)
         ))
       } else {
@@ -124,14 +124,14 @@ export function AttendanceProvider({ children }) {
   // تعديل حالة العذر لغياب مسجّل أصلاً، بدون إعادة إرسال إشعار غياب جديد
   async function updateExcused(studentUid, date, excused) {
     const docId = `${studentUid}_${date}`
+    await requireAudit(session.schoolId, session.uid, session.name, 'update_attendance_excuse', 'student', studentUid, `${date}: ${excused}`)
     await setDoc(doc(db, 'attendance', docId), { excused }, { merge: true })
-    logAudit(session.schoolId, session.uid, session.name, 'update_attendance_excuse', 'student', studentUid, `${date}: ${excused}`)
   }
 
   async function setPresent(studentUid, date) {
     const docId = `${studentUid}_${date}`
+    await requireAudit(session.schoolId, session.uid, session.name, 'remove_attendance', 'student', studentUid, date)
     await deleteDoc(doc(db, 'attendance', docId))
-    logAudit(session.schoolId, session.uid, session.name, 'remove_attendance', 'student', studentUid, date)
   }
 
   // بيرجع [{date, excused}, ...] الأحدث أول

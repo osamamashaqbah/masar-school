@@ -13,10 +13,10 @@ export function QuizStatsProvider({ children }) {
   const [allStats, setAllStats] = useState([])
 
   useEffect(() => {
-    if (!session) { setAllStats([]); return }
+    if (!session || !currentAcademicYear) { setAllStats([]); return }
 
     if (session.role === 'admin') {
-      const q = query(collection(db, 'quizStats'), where('schoolId', '==', session.schoolId))
+      const q = query(collection(db, 'quizStats'), where('schoolId', '==', session.schoolId), where('academicYear', '==', currentAcademicYear))
       const unsub = onSnapshot(q, (snapshot) => {
         setAllStats(snapshot.docs.map((d) => d.data()))
       })
@@ -29,7 +29,7 @@ export function QuizStatsProvider({ children }) {
       const subjectChunks = chunkArray(subjectIds)
       const rowsByChunk = subjectChunks.map(() => [])
       const unsubs = subjectChunks.map((chunk, index) => {
-        const q = query(collection(db, 'quizStats'), where('schoolId', '==', session.schoolId), where('subjectId', 'in', chunk))
+        const q = query(collection(db, 'quizStats'), where('schoolId', '==', session.schoolId), where('subjectId', 'in', chunk), where('academicYear', '==', currentAcademicYear))
         return onSnapshot(q, (snapshot) => {
           rowsByChunk[index] = snapshot.docs.map((d) => d.data())
           setAllStats(rowsByChunk.flat())
@@ -42,7 +42,7 @@ export function QuizStatsProvider({ children }) {
       const chunks = chunkArray(session.childUids)
       const rowsByChunk = chunks.map(() => [])
       const unsubs = chunks.map((chunk, index) => {
-        const q = query(collection(db, 'quizStats'), where('uid', 'in', chunk))
+        const q = query(collection(db, 'quizStats'), where('uid', 'in', chunk), where('academicYear', '==', currentAcademicYear))
         return onSnapshot(q, (snapshot) => {
           rowsByChunk[index] = snapshot.docs.map((d) => d.data())
           setAllStats(rowsByChunk.flat())
@@ -52,7 +52,7 @@ export function QuizStatsProvider({ children }) {
     }
 
     setAllStats([])
-  }, [session, subjects])
+  }, [session, subjects, currentAcademicYear])
 
   // docId يتضمّن السنة الدراسية — وإلا الـ increment كان رح يضل يتراكم عبر السنين على نفس الوثيقة للأبد
   async function recordAttempt(subjectId, isCorrect) {

@@ -23,3 +23,9 @@ export async function logAudit(schoolId, actorUid, actorName, action, targetType
     return false
   }
 }
+
+export async function requireAudit(schoolId, actorUid, actorName, action, targetType, targetId, details = '') {
+  if (!await logAudit(schoolId, actorUid, actorName, action, targetType, targetId, details)) {
+    throw new Error('audit_unavailable')
+  }
+}

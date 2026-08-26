@@ -20,11 +20,12 @@ export function FeedbackProvider({ children }) {
 
   // كل حالة أنا مشارك فيها (مرسلة أو واردة) — نفس منطق threads بالضبط
   useEffect(() => {
-    if (!session || !feedbackEnabled) { setMyCases([]); return }
+    if (!session || !feedbackEnabled || !currentAcademicYear) { setMyCases([]); return }
     const q = query(
       collection(db, 'feedbackCases'),
       where('schoolId', '==', session.schoolId),
       where('participantUids', 'array-contains', session.uid),
+      where('academicYear', '==', currentAcademicYear),
     )
     const unsub = onSnapshot(q, (snap) => {
       const list = snap.docs.map((d) => ({ id: d.id, ...d.data() }))
@@ -32,14 +33,14 @@ export function FeedbackProvider({ children }) {
       setMyCases(list)
     }, (err) => { console.error('[الملاحظات] فشل تحميل حالاتي:', err); setMyCases([]) })
     return () => unsub()
-  }, [session, feedbackEnabled])
+  }, [session, feedbackEnabled, currentAcademicYear])
 
   // صندوق الإدارة: موجّهة للإدارة، أو مصعّدة إليها — استعلامين منفصلين ودمج، لأن القاعدة الأمنية
   // بتتحقق من recipientRole أو escalatedToAdmin وبدها الحقل يلي عم تفحصه ضمن فلتر الاستعلام نفسه
   useEffect(() => {
-    if (!session || session.role !== 'admin' || !feedbackEnabled) { setAdminCases([]); return }
-    const directedQ = query(collection(db, 'feedbackCases'), where('schoolId', '==', session.schoolId), where('recipientRole', '==', 'admin'))
-    const escalatedQ = query(collection(db, 'feedbackCases'), where('schoolId', '==', session.schoolId), where('escalatedToAdmin', '==', true))
+    if (!session || session.role !== 'admin' || !feedbackEnabled || !currentAcademicYear) { setAdminCases([]); return }
+    const directedQ = query(collection(db, 'feedbackCases'), where('schoolId', '==', session.schoolId), where('recipientRole', '==', 'admin'), where('academicYear', '==', currentAcademicYear))
+    const escalatedQ = query(collection(db, 'feedbackCases'), where('schoolId', '==', session.schoolId), where('escalatedToAdmin', '==', true), where('academicYear', '==', currentAcademicYear))
     let directed = [], escalated = []
     function mergeAndSet() {
       const map = new Map()
@@ -51,7 +52,7 @@ export function FeedbackProvider({ children }) {
     const unsub1 = onSnapshot(directedQ, (snap) => { directed = snap.docs.map((d) => ({ id: d.id, ...d.data() })); mergeAndSet() }, (err) => console.error('[الملاحظات] فشل تحميل صندوق الإدارة:', err))
     const unsub2 = onSnapshot(escalatedQ, (snap) => { escalated = snap.docs.map((d) => ({ id: d.id, ...d.data() })); mergeAndSet() }, (err) => console.error('[الملاحظات] فشل تحميل التصعيدات:', err))
     return () => { unsub1(); unsub2() }
-  }, [session, feedbackEnabled])
+  }, [session, feedbackEnabled, currentAcademicYear])
 
   // ردود الحالة المفتوحة حاليًا — ردود المشاركين دايمًا، وملاحظات الإدارة الداخلية بس للإدارة
   useEffect(() => {

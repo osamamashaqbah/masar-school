@@ -99,7 +99,7 @@ export default function ParentDashboardPage() {
     const chunks = chunkArray(session.childUids)
     const childrenByChunk = chunks.map(() => [])
     const unsubs = chunks.map((chunk, index) => {
-      const q = query(collection(db, 'users'), where('schoolId', '==', session.schoolId), where(documentId(), 'in', chunk))
+      const q = query(collection(db, 'userDirectory'), where('schoolId', '==', session.schoolId), where(documentId(), 'in', chunk))
       return onSnapshot(q, (snapshot) => {
         childrenByChunk[index] = snapshot.docs.map((d) => ({ id: d.id, ...d.data() }))
         setChildren(childrenByChunk.flat())

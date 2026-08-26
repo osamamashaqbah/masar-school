@@ -1,8 +1,8 @@
 import { createContext, useContext, useState, useEffect } from 'react'
-import { collection, addDoc, updateDoc, doc, onSnapshot, arrayUnion, query, where, runTransaction } from 'firebase/firestore'
+import { collection, addDoc, updateDoc, setDoc, doc, onSnapshot, arrayUnion, query, where, runTransaction, limit } from 'firebase/firestore'
 import { db } from '../firebase'
 import { useSession } from './SessionContext'
-import { logAudit } from '../utils/audit'
+import { requireAudit } from '../utils/audit'
 import { rolloverSectionDocId } from '../utils/rollover'
 import { safeHttpUrl } from '../utils/parseMaterialUrl'
 import { taughtSectionsForInstructors } from '../utils/taughtSections'
@@ -16,6 +16,7 @@ export function SchoolStructureProvider({ children }) {
   const [allSubjects, setAllSubjects] = useState([])
   const [subjectsLoaded, setSubjectsLoaded] = useState(false)
   const [allUsers, setAllUsers] = useState([])
+  const [allUsersTruncated, setAllUsersTruncated] = useState(false)
   const [schoolName, setSchoolName] = useState('')
   const [currentAcademicYear, setCurrentAcademicYear] = useState(null)
   const [features, setFeatures] = useState({})
@@ -32,22 +33,23 @@ export function SchoolStructureProvider({ children }) {
   const archivedSubjects = allSubjects.filter((s) => s.archived)
 
   useEffect(() => {
-    if (!session) { setAllSubjects([]); setSubjectsLoaded(false); return }
+    if (!session || !currentAcademicYear) { setAllSubjects([]); setSubjectsLoaded(false); return }
     setAllSubjects([])
     setSubjectsLoaded(false)
     const unsub1 = onSnapshot(query(collection(db, 'grades'), where('schoolId', '==', session.schoolId)), (s) => setGrades(s.docs.map((d) => ({ id: d.id, ...d.data() }))))
     const unsub2 = onSnapshot(query(collection(db, 'sections'), where('schoolId', '==', session.schoolId)), (s) => setSections(s.docs.map((d) => ({ id: d.id, ...d.data() }))))
-    const unsub3 = onSnapshot(query(collection(db, 'subjects'), where('schoolId', '==', session.schoolId)), (s) => {
+    const unsub3 = onSnapshot(query(collection(db, 'subjects'), where('schoolId', '==', session.schoolId), where('academicYear', '==', currentAcademicYear)), (s) => {
       setAllSubjects(s.docs.map((d) => ({ id: d.id, ...d.data(), lessons: d.data().lessons || [] })))
       setSubjectsLoaded(true)
     }, () => setSubjectsLoaded(true))
     return () => { unsub1(); unsub2(); unsub3() }
-  }, [session])
+  }, [session, currentAcademicYear])
 
   // اسم المدرسة + السنة الدراسية الحالية — لازم onSnapshot (مش قراءة وحدة) لأنه إجراء الترفيع
   // السنوي بيغيّر currentAcademicYear لحظيًا، وكل تبويب مفتوح لازم يتفاعل معه فورًا
   useEffect(() => {
     if (!session) {
+      setSyncedParentLinks(false)
       setSchoolName(''); setCurrentAcademicYear(null); setFeatures({})
       setRamadanSchedule({ enabled: false, shortDayHours: null }); setCurrency('JOD'); setGradebookLocks({ marks: false, attendance: false })
       return
@@ -67,9 +69,12 @@ export function SchoolStructureProvider({ children }) {
 
   // بيانات كل المستخدمين — بس لإدارة المدرسة، مطلوبة للإصلاح الذاتي تحت (ربط أولياء الأمور بأبنائهم)
   useEffect(() => {
-    if (session?.role !== 'admin') { setAllUsers([]); return }
-    const q = query(collection(db, 'users'), where('schoolId', '==', session.schoolId))
-    const unsub = onSnapshot(q, (s) => setAllUsers(s.docs.map((d) => ({ id: d.id, ...d.data() }))))
+    if (session?.role !== 'admin') { setAllUsers([]); setAllUsersTruncated(false); return }
+    const q = query(collection(db, 'users'), where('schoolId', '==', session.schoolId), limit(1000))
+    const unsub = onSnapshot(q, (s) => {
+      setAllUsers(s.docs.map((d) => ({ id: d.id, ...d.data() })))
+      setAllUsersTruncated(s.size === 1000)
+    })
     return () => unsub()
   }, [session])
 
@@ -124,11 +129,7 @@ export function SchoolStructureProvider({ children }) {
         parentsByChild.set(childUid, list)
       })
     })
-    const contactSets = new Map(
-      allUsers
-        .filter((u) => u.role === 'parent' || u.role === 'instructor')
-        .map((u) => [u.id, new Set()]),
-    )
+    const contactSets = new Map(allUsers.map((u) => [u.id, new Set()]))
     subjects.forEach((subject) => {
       if (!subject.teacherUid || !subject.sectionId) return
       const teacherContacts = contactSets.get(subject.teacherUid)
@@ -136,11 +137,12 @@ export function SchoolStructureProvider({ children }) {
         ;(parentsByChild.get(studentUid) || []).forEach((parentUid) => {
           teacherContacts?.add(parentUid)
           contactSets.get(parentUid)?.add(subject.teacherUid)
+          contactSets.get(studentUid)?.add(parentUid)
         })
       })
     })
     const updates = allUsers
-      .filter((u) => contactSets.has(u.id))
+      .filter((u) => u.role === 'parent' || u.role === 'instructor')
       .map((user) => {
         const next = [...contactSets.get(user.id)].sort()
         const previous = [...(user.messageContactUids || [])].sort()
@@ -148,7 +150,11 @@ export function SchoolStructureProvider({ children }) {
         return updateDoc(doc(db, 'users', user.id), { messageContactUids: next }).catch(() => {})
       })
       .filter(Boolean)
-    if (updates.length > 0) Promise.all(updates).catch(() => {})
+    const directoryUpdates = allUsers.map((user) => setDoc(doc(db, 'userDirectory', user.id), {
+      name: user.name || '', role: user.role, schoolId: user.schoolId || session.schoolId,
+      sectionId: user.sectionId || null, status: user.status || 'active', contactUids: [...(contactSets.get(user.id) || [])].sort(),
+    }, { merge: true }).catch(() => {}))
+    if (updates.length > 0 || directoryUpdates.length > 0) Promise.all([...updates, ...directoryUpdates]).catch(() => {})
   }, [allUsers, session, subjects])
 
   async function addGrade(name) {
@@ -225,48 +231,48 @@ export function SchoolStructureProvider({ children }) {
   // "حذف" مادة = أرشفة، مش حذف فعلي. بتختفي من كل الواجهات فورًا (لأنها بتطلع من قائمة subjects
   // النشطة) بس درجات/حضور/تقدّم الطلاب المرتبطة فيها بتضل محفوظة، وممكن ترجّعها أي وقت.
   async function archiveSubject(subjectId) {
+    await requireAudit(session.schoolId, session.uid, session.name, 'archive_subject', 'subject', subjectId)
     await updateDoc(doc(db, 'subjects', subjectId), { archived: true })
-    logAudit(session.schoolId, session.uid, session.name, 'archive_subject', 'subject', subjectId)
   }
   async function restoreSubject(subjectId) {
+    await requireAudit(session.schoolId, session.uid, session.name, 'restore_subject', 'subject', subjectId)
     await updateDoc(doc(db, 'subjects', subjectId), { archived: false })
-    logAudit(session.schoolId, session.uid, session.name, 'restore_subject', 'subject', subjectId)
   }
 
   // فيتشر فلاغز — تفعيل/تعطيل ميزات بمدرسة معيّنة بدون أي كود إضافي (بديل عن فرع git لكل مدرسة)
   async function setFeature(key, enabled) {
+    await requireAudit(session.schoolId, session.uid, session.name, 'set_feature', 'school', session.schoolId, `${key}=${enabled}`)
     await updateDoc(doc(db, 'schools', session.schoolId), { [`features.${key}`]: enabled })
-    logAudit(session.schoolId, session.uid, session.name, 'set_feature', 'school', session.schoolId, `${key}=${enabled}`)
   }
 
   // جاهزية الخليج — دوام رمضان المختصر (تفعيل + عدد ساعات)، والعملة (تحضيرًا للفوترة لاحقًا)
   async function updateRamadanSchedule(enabled, shortDayHours) {
+    await requireAudit(session.schoolId, session.uid, session.name, 'set_ramadan_schedule', 'school', session.schoolId, `enabled=${enabled}, hours=${shortDayHours}`)
     await updateDoc(doc(db, 'schools', session.schoolId), { ramadanSchedule: { enabled, shortDayHours: shortDayHours || null } })
-    logAudit(session.schoolId, session.uid, session.name, 'set_ramadan_schedule', 'school', session.schoolId, `enabled=${enabled}, hours=${shortDayHours}`)
   }
   async function updateCurrency(code) {
+    await requireAudit(session.schoolId, session.uid, session.name, 'set_currency', 'school', session.schoolId, code)
     await updateDoc(doc(db, 'schools', session.schoolId), { currency: code })
-    logAudit(session.schoolId, session.uid, session.name, 'set_currency', 'school', session.schoolId, code)
   }
   async function updatePaymentInfo(info) {
+    await requireAudit(session.schoolId, session.uid, session.name, 'set_payment_info', 'school', session.schoolId, JSON.stringify(info))
     await updateDoc(doc(db, 'schools', session.schoolId), { paymentInfo: info })
-    logAudit(session.schoolId, session.uid, session.name, 'set_payment_info', 'school', session.schoolId, JSON.stringify(info))
   }
   async function updateBranding(info) {
     if (info.logoUrl && !safeHttpUrl(info.logoUrl)) throw new Error('رابط الشعار غير صالح')
+    await requireAudit(session.schoolId, session.uid, session.name, 'set_branding', 'school', session.schoolId, JSON.stringify(info))
     await updateDoc(doc(db, 'schools', session.schoolId), { branding: info })
-    logAudit(session.schoolId, session.uid, session.name, 'set_branding', 'school', session.schoolId, JSON.stringify(info))
   }
   async function setGradebookLock(area, locked) {
     if (!['marks', 'attendance'].includes(area)) return
+    await requireAudit(session.schoolId, session.uid, session.name, locked ? 'lock_gradebook' : 'unlock_gradebook', 'school', session.schoolId, area)
     await updateDoc(doc(db, 'schools', session.schoolId), { [`gradebookLocks.${area}`]: locked })
-    logAudit(session.schoolId, session.uid, session.name, locked ? 'lock_gradebook' : 'unlock_gradebook', 'school', session.schoolId, area)
   }
 
   return (
     <SchoolStructureContext.Provider
      value={{
-        grades, sections, subjects, subjectsLoaded, archivedSubjects, allUsers, schoolName, currentAcademicYear, features,
+        grades, sections, subjects, subjectsLoaded, archivedSubjects, allUsers, allUsersTruncated, schoolName, currentAcademicYear, features,
         ramadanSchedule, currency, paymentInfo, branding, gradebookLocks,
         addGrade, addSection, addSubject,
         getSectionsForGrade, getSubjectsForSection,

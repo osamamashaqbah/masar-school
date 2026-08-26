@@ -9,7 +9,7 @@ import { chunkArray } from '../../utils/chunk'
 
 export default function InstructorAnalyticsPage() {
   const { session } = useSession()
-  const { subjects } = useSchoolStructure()
+  const { subjects, currentAcademicYear } = useSchoolStructure()
   const { getCourseAggregateStats, getStudentStats } = useQuizStats()
   const { getStudentProgress } = useProgress()
 
@@ -24,12 +24,12 @@ export default function InstructorAnalyticsPage() {
   const sectionIdsKey = myTaughtSectionIds.join(',')
 
   useEffect(() => {
-    if (myTaughtSectionIds.length === 0) { setStudents([]); return }
+    if (myTaughtSectionIds.length === 0 || !currentAcademicYear) { setStudents([]); return }
     setStudentsError('')
     setStudents([])
     const unsubs = chunkArray(myTaughtSectionIds).map((sectionChunk) => {
       const q = query(
-        collection(db, 'users'),
+        collection(db, 'userDirectory'),
         where('schoolId', '==', session.schoolId),
         where('role', '==', 'student'),
         where('sectionId', 'in', sectionChunk)
@@ -46,15 +46,15 @@ export default function InstructorAnalyticsPage() {
     })
     return () => unsubs.forEach((unsub) => unsub())
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [sectionIdsKey])
+  }, [sectionIdsKey, currentAcademicYear])
 
   useEffect(() => {
-    if (myTaughtSectionIds.length === 0) { setWarnings([]); return }
-    const q = query(collection(db, 'earlyWarnings'), where('schoolId', '==', session.schoolId), where('instructorUids', 'array-contains', session.uid))
+    if (myTaughtSectionIds.length === 0 || !currentAcademicYear) { setWarnings([]); return }
+    const q = query(collection(db, 'earlyWarnings'), where('schoolId', '==', session.schoolId), where('instructorUids', 'array-contains', session.uid), where('academicYear', '==', currentAcademicYear))
     const unsub = onSnapshot(q, (snap) => setWarnings(snap.docs.map((d) => d.data())))
     return () => unsub()
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [sectionIdsKey])
+  }, [sectionIdsKey, currentAcademicYear])
 
   const flaggedStudents = warnings
     .filter((w) => w.attendanceAlert || w.subjectAlerts?.length > 0)

@@ -10,7 +10,7 @@ const ScheduleOpsContext = createContext(null)
 
 export function ScheduleOpsProvider({ children }) {
   const { session } = useSession()
-  const { sections, subjects, allUsers } = useSchoolStructure()
+  const { sections, subjects, allUsers, currentAcademicYear } = useSchoolStructure()
 
   const [scanning, setScanning] = useState(false)
   const [scanResult, setScanResult] = useState(null) // { conflicts, availabilityViolations, weeklyMismatches, teacherSlotMap, slotsByTeacher }
@@ -23,13 +23,13 @@ export function ScheduleOpsProvider({ children }) {
 
   // سجل الغياب وسجل التغطية — قراءة مرة وحدة (schoolId فقط) عشان الإدارة تشوف تاريخها بدون listener دائم
   useEffect(() => {
-    if (!session || session.role !== 'admin') { setAbsences([]); setCoverageLog([]); return }
+    if (!session || session.role !== 'admin' || !currentAcademicYear) { setAbsences([]); setCoverageLog([]); return }
     setError('')
     const onLoadError = (err) => { console.error('[الجدول] فشل تحميل السجل:', err); setError('تعذّر تحميل سجلات الغياب والتغطية. حاول تحديث الصفحة.') }
-    const unsub1 = getDocsOnce(query(collection(db, 'teacherAbsences'), where('schoolId', '==', session.schoolId)), setAbsences, onLoadError)
-    const unsub2 = getDocsOnce(query(collection(db, 'substituteCoverage'), where('schoolId', '==', session.schoolId)), setCoverageLog, onLoadError)
+    const unsub1 = getDocsOnce(query(collection(db, 'teacherAbsences'), where('schoolId', '==', session.schoolId), where('academicYear', '==', currentAcademicYear)), setAbsences, onLoadError)
+    const unsub2 = getDocsOnce(query(collection(db, 'substituteCoverage'), where('schoolId', '==', session.schoolId), where('academicYear', '==', currentAcademicYear)), setCoverageLog, onLoadError)
     return () => { unsub1(); unsub2() }
-  }, [session])
+  }, [session, currentAcademicYear])
 
   // فحص كامل: يجيب جداول المدرسة كلها + توفر المعلمين، ويبني خريطة (معلم × يوم × حصة) بربط subjectId
   // بمادته (subjects.teacherUid) بالمتصفح — بدون أي تعديل على شكل وثيقة timetables نفسها
@@ -37,8 +37,8 @@ export function ScheduleOpsProvider({ children }) {
     setScanning(true)
     setError('')
     try {
-      const ttSnap = await getDocs(query(collection(db, 'timetables'), where('schoolId', '==', session.schoolId)))
-      const availSnap = await getDocs(query(collection(db, 'teacherAvailability'), where('schoolId', '==', session.schoolId)))
+      const ttSnap = await getDocs(query(collection(db, 'timetables'), where('schoolId', '==', session.schoolId), where('academicYear', '==', currentAcademicYear)))
+      const availSnap = await getDocs(query(collection(db, 'teacherAvailability'), where('schoolId', '==', session.schoolId), where('academicYear', '==', currentAcademicYear)))
       const availMap = {}
       availSnap.docs.forEach((d) => { availMap[d.data().teacherUid] = d.data().unavailable || [] })
       setAvailabilityByTeacher(availMap)
@@ -98,7 +98,7 @@ export function ScheduleOpsProvider({ children }) {
     } finally {
       setScanning(false)
     }
-  }, [session, subjects, sections])
+  }, [session, subjects, sections, currentAcademicYear])
 
   // حصص معلم غائب بيوم معيّن (مشتقة من آخر فحص) — لازم تشغّل scanConflicts قبلها
   function getTeacherSlotsForDay(teacherUid, dateStr) {
@@ -122,7 +122,7 @@ export function ScheduleOpsProvider({ children }) {
 
   async function setTeacherAvailability(teacherUid, unavailable) {
     await setDoc(doc(db, 'teacherAvailability', teacherUid), {
-      teacherUid, schoolId: session.schoolId, unavailable, updatedAt: serverTimestamp(),
+      teacherUid, schoolId: session.schoolId, academicYear: currentAcademicYear, unavailable, updatedAt: serverTimestamp(),
     })
     logAudit(session.schoolId, session.uid, session.name, 'set_teacher_availability', 'teacherAvailability', teacherUid)
   }
@@ -133,7 +133,7 @@ export function ScheduleOpsProvider({ children }) {
 
   async function reportAbsence({ teacherUid, teacherName, date, periods, reason }) {
     const ref = await addDoc(collection(db, 'teacherAbsences'), {
-      schoolId: session.schoolId, teacherUid, teacherName, date, periods, reason: reason || '',
+      schoolId: session.schoolId, academicYear: currentAcademicYear, teacherUid, teacherName, date, periods, reason: reason || '',
       status: 'open', createdByUid: session.uid, createdByName: session.name, createdAt: serverTimestamp(),
     })
     logAudit(session.schoolId, session.uid, session.name, 'report_teacher_absence', 'teacherAbsence', ref.id, `${teacherName} — ${date}`)
@@ -142,7 +142,7 @@ export function ScheduleOpsProvider({ children }) {
 
   async function assignSubstitute({ absenceId, date, day, period, sectionId, sectionName, subjectId, subjectName, originalTeacherUid, originalTeacherName, substituteTeacherUid, substituteTeacherName }) {
     const ref = await addDoc(collection(db, 'substituteCoverage'), {
-      schoolId: session.schoolId, absenceId, date, day, period,
+      schoolId: session.schoolId, academicYear: currentAcademicYear, absenceId, date, day, period,
       sectionId, sectionName, subjectId, subjectName,
       originalTeacherUid, originalTeacherName, substituteTeacherUid, substituteTeacherName,
       createdByUid: session.uid, createdAt: serverTimestamp(),

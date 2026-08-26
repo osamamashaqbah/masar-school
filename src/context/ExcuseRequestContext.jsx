@@ -19,19 +19,19 @@ export function ExcuseRequestProvider({ children }) {
   const sectionIdsKey = myTaughtSectionIds.join(',')
 
   useEffect(() => {
-    if (!session || session.role !== 'parent') { setMyRequests([]); return }
-    const q = query(collection(db, 'excuseRequests'), where('requestedByUid', '==', session.uid))
+    if (!session || session.role !== 'parent' || !currentAcademicYear) { setMyRequests([]); return }
+    const q = query(collection(db, 'excuseRequests'), where('requestedByUid', '==', session.uid), where('academicYear', '==', currentAcademicYear))
     const unsub = onSnapshot(q, (s) => setMyRequests(s.docs.map((d) => ({ id: d.id, ...d.data() }))))
     return () => unsub()
-  }, [session])
+  }, [session, currentAcademicYear])
 
   useEffect(() => {
-    if (myTaughtSectionIds.length === 0) { setSectionRequests([]); return }
-    const q = query(collection(db, 'excuseRequests'), where('schoolId', '==', session.schoolId), where('instructorUids', 'array-contains', session.uid))
+    if (myTaughtSectionIds.length === 0 || !currentAcademicYear) { setSectionRequests([]); return }
+    const q = query(collection(db, 'excuseRequests'), where('schoolId', '==', session.schoolId), where('instructorUids', 'array-contains', session.uid), where('academicYear', '==', currentAcademicYear))
     const unsub = onSnapshot(q, (s) => setSectionRequests(s.docs.map((d) => ({ id: d.id, ...d.data() }))))
     return () => unsub()
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [sectionIdsKey])
+  }, [sectionIdsKey, currentAcademicYear])
 
   async function submitRequest(studentUid, studentName, sectionId, date, reason) {
     const instructorUids = [...new Set(subjects
@@ -39,7 +39,7 @@ export function ExcuseRequestProvider({ children }) {
       .map((subject) => subject.teacherUid))]
     await addDoc(collection(db, 'excuseRequests'), {
       studentUid, studentName, sectionId, date, reason: reason.trim(),
-      status: 'pending', requestedByUid: session.uid, schoolId: session.schoolId, instructorUids, createdAt: Date.now(),
+      status: 'pending', requestedByUid: session.uid, schoolId: session.schoolId, academicYear: currentAcademicYear, instructorUids, createdAt: Date.now(),
     })
   }
 

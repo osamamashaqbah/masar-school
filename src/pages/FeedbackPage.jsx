@@ -34,7 +34,7 @@ function ComposerParent({ onDone }) {
     const chunks = chunkArray(session.childUids)
     const childrenByChunk = chunks.map(() => [])
     const unsubs = chunks.map((chunk, index) => {
-      const q = query(collection(db, 'users'), where('schoolId', '==', session.schoolId), where(documentId(), 'in', chunk))
+      const q = query(collection(db, 'userDirectory'), where('schoolId', '==', session.schoolId), where(documentId(), 'in', chunk))
       return onSnapshot(q, (snap) => {
         childrenByChunk[index] = snap.docs.map((d) => ({ id: d.id, ...d.data() }))
         setChildren(childrenByChunk.flat())
@@ -155,14 +155,14 @@ function ComposerInstructor({ onDone }) {
 
   useEffect(() => {
     if (!subject) { setStudents([]); setStudentUid(''); return }
-    const q = query(collection(db, 'users'), where('schoolId', '==', session.schoolId), where('role', '==', 'student'), where('sectionId', '==', subject.sectionId))
+    const q = query(collection(db, 'userDirectory'), where('schoolId', '==', session.schoolId), where('role', '==', 'student'), where('sectionId', '==', subject.sectionId))
     const unsub = onSnapshot(q, (snap) => setStudents(snap.docs.map((d) => ({ id: d.id, ...d.data() }))))
     return () => unsub()
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [subjectId, session.schoolId])
 
   const student = students.find((s) => s.id === studentUid)
-  const recipientUid = student?.parentUids?.[0] || null
+  const recipientUid = student?.contactUids?.[0] || null
 
   function applyTemplate(t) { setBody(t) }
 

@@ -7,6 +7,7 @@ export interface FirestoreWrite {
   path: string
   data: Record<string, unknown>
   precondition?: { exists?: boolean; updateTime?: string }
+  updateMask?: string[]
 }
 
 export interface FirestoreDoc {
@@ -71,8 +72,9 @@ export async function firestoreCommit(
     method: 'POST',
     headers: { Authorization: `Bearer ${accessToken}`, 'Content-Type': 'application/json' },
     body: JSON.stringify({
-      writes: writes.map(({ path, data, precondition }) => ({
+      writes: writes.map(({ path, data, precondition, updateMask }) => ({
         update: { name: documentName(projectId, path), fields: toFirestoreFields(data) },
+        ...(updateMask?.length ? { updateMask: { fieldPaths: updateMask } } : {}),
         ...(precondition ? { currentDocument: precondition } : {}),
       })),
     }),
@@ -141,11 +143,25 @@ export async function firestoreRunQuery(
   fieldValue: string,
   selectFields: string[] = [],
 ): Promise<Record<string, unknown>[]> {
+  const rows = await firestoreRunQueryWithIds(accessToken, projectId, collectionId, fieldPath, fieldValue, selectFields)
+  return rows.map(({ data }) => data)
+}
+
+export async function firestoreRunQueryWithIds(
+  accessToken: string,
+  projectId: string,
+  collectionId: string,
+  fieldPath: string,
+  fieldValue: string,
+  selectFields: string[] = [],
+  limit?: number,
+): Promise<Array<{ id: string; data: Record<string, unknown> }>> {
   const structuredQuery: Record<string, unknown> = {
     from: [{ collectionId }],
     where: { fieldFilter: { field: { fieldPath }, op: 'EQUAL', value: { stringValue: fieldValue } } },
   }
   if (selectFields.length > 0) structuredQuery.select = { fields: selectFields.map((fieldPath) => ({ fieldPath })) }
+  if (limit) structuredQuery.limit = limit
 
   const res = await fetch(`${BASE(projectId)}:runQuery`, {
     method: 'POST',
@@ -153,8 +169,13 @@ export async function firestoreRunQuery(
     body: JSON.stringify({ structuredQuery }),
   })
   if (!res.ok) throw new Error(`فشل الاستعلام عن ${collectionId}: ${res.status} ${await res.text()}`)
-  const rows = (await res.json()) as Array<{ document?: { fields?: Record<string, FirestoreValue> } }>
-  return rows.filter((row) => row.document).map((row) => fromFirestoreFields(row.document?.fields || {}))
+  const rows = (await res.json()) as Array<{ document?: { name?: string; fields?: Record<string, FirestoreValue> } }>
+  return rows
+    .filter((row) => row.document)
+    .map((row) => ({
+      id: row.document?.name?.split('/').pop() || '',
+      data: fromFirestoreFields(row.document?.fields || {}),
+    }))
 }
 
 export async function firestoreUpsertDoc(

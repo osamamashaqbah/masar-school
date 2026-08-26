@@ -71,6 +71,7 @@ export default function AdminInsightsPage() {
           setDoc(doc(db, 'earlyWarnings', student.id), {
             studentUid: student.id,
             schoolId: session.schoolId,
+            academicYear: currentAcademicYear,
             sectionId: student.sectionId || null,
             instructorUids,
             attendanceAlert, unexcusedCount: unexcused, excusedCount: excused,

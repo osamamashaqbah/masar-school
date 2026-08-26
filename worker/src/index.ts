@@ -1,5 +1,5 @@
 import { getAccessToken, verifyFirebaseIdToken, createIdentityUser, lookupIdentityUserByEmail, lookupIdentityUserStatus, isIdentityUserActive, updateIdentityUser, deleteIdentityUser, type ServiceAccount } from './google'
-import { firestoreGetDoc, firestoreGetDocWithMeta, firestoreCreateDoc, firestoreCreateDocIfAbsent, firestorePatchDoc, firestoreDeleteDoc, firestoreRunQuery, firestoreUpsertDoc, firestoreCommit, type FirestoreWrite as WorkerFirestoreWrite } from './firestore'
+import { firestoreGetDoc, firestoreGetDocWithMeta, firestoreCreateDoc, firestoreCreateDocIfAbsent, firestorePatchDoc, firestoreDeleteDoc, firestoreRunQuery, firestoreRunQueryWithIds, firestoreUpsertDoc, firestoreCommit, type FirestoreWrite as WorkerFirestoreWrite } from './firestore'
 import { CreateSchoolError, generateTemporaryPassword, isRecentAuth, normalizeCreateSchoolInput, provisionSchool, type CreateSchoolDependencies, type ProvisioningMarker } from './createSchool'
 
 interface Env extends Cloudflare.Env {
@@ -12,6 +12,8 @@ interface CreateUserBody {
   password?: unknown
   role?: unknown
   childUids?: unknown
+  bulk?: unknown
+  sectionId?: unknown
 }
 
 interface UpdateUserBody {
@@ -67,6 +69,8 @@ const FEEDBACK_AUDIT_ACTIONS = new Set([
 ])
 
 const MAX_REQUEST_BODY_BYTES = 32 * 1024
+const MAX_CHILD_UIDS = 100
+const MAX_DRILLDOWN_USERS = 500
 
 function corsHeaders(origin: string): HeadersInit {
   return {
@@ -84,14 +88,20 @@ function json(data: unknown, status: number, origin: string): Response {
 }
 
 function validateInput(body: CreateUserBody): string | null {
-  if (typeof body.name !== 'string' || !body.name.trim()) return 'الاسم مطلوب'
-  if (typeof body.email !== 'string' || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(body.email)) return 'بريد إلكتروني غير صالح'
-  if (typeof body.password !== 'string' || body.password.length < 6) return 'كلمة السر لازم 6 أحرف على الأقل'
+  if (typeof body.name !== 'string' || !body.name.trim() || body.name.trim().length > 80) return 'الاسم مطلوب وبحد أقصى 80 حرفًا'
+  if (typeof body.email !== 'string' || body.email.length > 254 || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(body.email)) return 'بريد إلكتروني غير صالح'
+  if (body.password !== undefined && (typeof body.password !== 'string' || body.password.length < 6 || body.password.length > 128)) return 'كلمة السر لازم تكون بين 6 و128 حرفًا'
+  if (body.password === undefined && body.bulk !== true) return 'كلمة السر مطلوبة'
   if (typeof body.role !== 'string' || !VALID_ROLES.includes(body.role as ValidRole)) return 'دور غير صالح'
+  if (body.sectionId !== undefined && (typeof body.sectionId !== 'string' || !body.sectionId.trim() || body.sectionId.length > 120)) return 'الشعبة غير صالحة'
+  if (body.sectionId !== undefined && body.role !== 'student') return 'sectionId مسموحة للطالب فقط'
   if (body.childUids !== undefined) {
     if (!Array.isArray(body.childUids)) return 'childUids لازم تكون مصفوفة'
     if (body.role !== 'parent') return 'childUids مسموحة لولي الأمر فقط'
+    if (body.childUids.length > MAX_CHILD_UIDS) return `عدد الأبناء لا يتجاوز ${MAX_CHILD_UIDS}`
     if (body.childUids.some((uid) => typeof uid !== 'string' || !uid.trim())) return 'كل childUids لازم تكون معرّفات صحيحة'
+    if (new Set(body.childUids as string[]).size !== body.childUids.length) return 'لا تكرر معرّف الابن'
+    if ((body.childUids as string[]).some((uid) => uid.length > 128)) return 'معرّف ابن غير صالح'
   }
   return null
 }
@@ -105,7 +115,7 @@ export default {
     }
 
     const url = new URL(request.url)
-    if (request.method !== 'POST' || !['/create-school', '/create-school-user', '/update-school-user', '/change-password', '/audit-log', '/refresh-platform-stats'].includes(url.pathname)) {
+    if (request.method !== 'POST' || !['/create-school', '/create-school-user', '/update-school-user', '/change-password', '/audit-log', '/refresh-platform-stats', '/platform-school-drilldown'].includes(url.pathname)) {
       return json({ error: 'not_found' }, 404, origin)
     }
 
@@ -118,9 +128,11 @@ export default {
       if (url.pathname === '/update-school-user') return await handleUpdateSchoolUser(request, env, origin)
       if (url.pathname === '/change-password') return await handleChangePassword(request, env, origin)
       if (url.pathname === '/refresh-platform-stats') return await handleRefreshPlatformStats(request, env, origin)
+      if (url.pathname === '/platform-school-drilldown') return await handlePlatformSchoolDrilldown(request, env, origin)
       return await handleWriteAuditLog(request, env, origin)
     } catch (err) {
       console.error('[admin-ops] خطأ غير متوقع:', err)
+      if (err instanceof Error && err.message === 'audit_unavailable') return json({ error: 'audit_unavailable', message: 'خدمة التدقيق غير متاحة؛ لم يتم فتح البيانات.' }, 503, origin)
       return json({ error: 'internal', message: 'حدث خطأ داخلي. حاول مرة ثانية.' }, 500, origin)
     }
   },
@@ -266,6 +278,85 @@ async function handleRefreshPlatformStats(request: Request, env: Env, origin: st
   return json({ ok: true, ...counts }, 200, origin)
 }
 
+async function handlePlatformSchoolDrilldown(request: Request, env: Env, origin: string): Promise<Response> {
+  const authHeader = request.headers.get('Authorization') || ''
+  const idToken = authHeader.startsWith('Bearer ') ? authHeader.slice('Bearer '.length) : ''
+  if (!idToken) return json({ error: 'unauthenticated' }, 401, origin)
+
+  const projectId = env.FIREBASE_PROJECT_ID
+  let callerUid: string
+  let authTime: number | undefined
+  try {
+    const verified = await verifyFirebaseIdToken(idToken, projectId)
+    callerUid = verified.uid
+    authTime = verified.authTime
+  } catch {
+    return json({ error: 'unauthenticated' }, 401, origin)
+  }
+  if (!isRecentAuth(authTime)) return json({ error: 'recent_login_required' }, 403, origin)
+  const actorLimitResponse = await enforceActorLimit(env, '/platform-school-drilldown', callerUid, origin)
+  if (actorLimitResponse) return actorLimitResponse
+
+  const body = (await request.json().catch(() => ({}))) as { schoolId?: unknown; reason?: unknown }
+  const schoolId = typeof body.schoolId === 'string' ? body.schoolId.trim() : ''
+  const reason = typeof body.reason === 'string' ? body.reason.trim() : ''
+  if (!schoolId || schoolId.length > 120 || !reason || reason.length > 500) {
+    return json({ error: 'invalid_input', message: 'المدرسة وسبب الوصول مطلوبان' }, 400, origin)
+  }
+
+  const serviceAccount = JSON.parse(env.FIREBASE_SERVICE_ACCOUNT_KEY) as ServiceAccount
+  const accessToken = await getAccessToken(serviceAccount, [
+    'https://www.googleapis.com/auth/identitytoolkit',
+    'https://www.googleapis.com/auth/datastore',
+  ])
+  if (!(await hasActiveIdentity(accessToken, projectId, callerUid, authTime))) return json({ error: 'account_inactive' }, 403, origin)
+  const platformProfile = await firestoreGetDoc(accessToken, projectId, `platformAdmins/${callerUid}`)
+  if (!platformProfile) return json({ error: 'permission_denied' }, 403, origin)
+  const school = await firestoreGetDoc(accessToken, projectId, `schools/${schoolId}`)
+  if (!school) return json({ error: 'invalid_input', message: 'المدرسة غير موجودة' }, 400, origin)
+
+  // The audit is a hard prerequisite: no successful response and no tenant data
+  // query if the durable audit record cannot be written.
+  await firestoreCreateDoc(accessToken, projectId, 'auditLog', crypto.randomUUID(), {
+    schoolId,
+    actorUid: callerUid,
+    actorName: typeof platformProfile.name === 'string' ? platformProfile.name : '',
+    actorRole: 'platformAdmin',
+    action: 'platform_admin_full_access',
+    targetType: 'school',
+    targetId: schoolId,
+    details: reason,
+    source: 'worker',
+    createdAt: new Date().toISOString(),
+  }).catch(() => { throw new Error('audit_unavailable') })
+
+  const [userRows, marks, attendance] = await Promise.all([
+    firestoreRunQueryWithIds(accessToken, projectId, 'users', 'schoolId', schoolId, ['name', 'role', 'sectionId', 'status'], MAX_DRILLDOWN_USERS),
+    firestoreRunQuery(accessToken, projectId, 'marks', 'schoolId', schoolId, ['score', 'maxScore', 'academicYear']),
+    firestoreRunQuery(accessToken, projectId, 'attendance', 'schoolId', schoolId, ['excused', 'academicYear']),
+  ])
+  const currentYear = typeof school.currentAcademicYear === 'string' ? school.currentAcademicYear : null
+  const currentMarks = marks.filter((mark) => !currentYear || mark.academicYear === currentYear)
+  const currentAttendance = attendance.filter((row) => !currentYear || row.academicYear === currentYear)
+  const scored = currentMarks.filter((mark) => typeof mark.score === 'number' && typeof mark.maxScore === 'number' && mark.maxScore > 0)
+  const excusedCount = currentAttendance.filter((row) => row.excused === true).length
+
+  return json({
+    schoolId,
+    schoolName: typeof school.name === 'string' ? school.name : schoolId,
+    currentAcademicYear: currentYear,
+    truncatedUsers: userRows.length >= MAX_DRILLDOWN_USERS,
+    users: userRows.map(({ id, data }) => ({ id, name: data.name || id, role: data.role || '', sectionId: data.sectionId || null, status: data.status || 'active' })),
+    summary: {
+      marksCount: currentMarks.length,
+      avgPct: scored.length ? Math.round((scored.reduce((sum, mark) => sum + (mark.score as number) / (mark.maxScore as number), 0) / scored.length) * 100) : null,
+      absencesCount: currentAttendance.length,
+      excusedCount,
+      unexcusedCount: currentAttendance.length - excusedCount,
+    },
+  }, 200, origin)
+}
+
 async function handleCreateSchoolUser(request: Request, env: Env, origin: string): Promise<Response> {
   const authHeader = request.headers.get('Authorization') || ''
   const idToken = authHeader.startsWith('Bearer ') ? authHeader.slice('Bearer '.length) : ''
@@ -308,16 +399,65 @@ async function handleCreateSchoolUser(request: Request, env: Env, origin: string
 
   const name = (body.name as string).trim()
   const email = (body.email as string).trim()
-  const password = body.password as string
+  const generatedPassword = body.password === undefined
+  const password = generatedPassword ? generateTemporaryPassword() : body.password as string
   const role = body.role as ValidRole
   const childUids = (body.childUids as string[] | undefined) || []
+  const sectionId = typeof body.sectionId === 'string' ? body.sectionId.trim() : null
+
+  if (sectionId) {
+    const section = await firestoreGetDoc(accessToken, projectId, `sections/${sectionId}`)
+    if (!section || section.schoolId !== schoolId) return json({ error: 'invalid_input', message: 'الشعبة ليست من نفس المدرسة' }, 400, origin)
+  }
 
   if (role === 'parent' && childUids.length > 0) {
     for (const childUid of childUids) {
       const child = await firestoreGetDoc(accessToken, projectId, `users/${childUid}`)
-      if (!child || child.schoolId !== schoolId) {
+      if (!child || child.schoolId !== schoolId || child.role !== 'student') {
         return json({ error: 'invalid_input', message: `الطالب ${childUid} مو من نفس المدرسة` }, 400, origin)
       }
+    }
+  }
+
+  if (body.bulk === true) {
+    const existingAuth = await lookupIdentityUserByEmail(accessToken, projectId, email)
+    if (existingAuth) {
+      const existingProfile = await firestoreGetDocWithMeta(accessToken, projectId, `users/${existingAuth.localId}`)
+      if (existingProfile?.data.schoolId !== schoolId || existingProfile.data.role !== role) {
+        return json({ error: 'email_exists', message: 'هذا البريد مستخدم بحساب مختلف.' }, 409, origin)
+      }
+      if (role === 'parent' && childUids.length > 0) {
+        const parentChildren = Array.isArray(existingProfile.data.childUids) ? existingProfile.data.childUids as string[] : []
+        const nextChildren = [...new Set([...parentChildren, ...childUids])]
+        const linkWrites: WorkerFirestoreWrite[] = [{
+          path: `users/${existingAuth.localId}`,
+          data: { childUids: nextChildren },
+          updateMask: ['childUids'],
+          precondition: existingProfile.updateTime ? { updateTime: existingProfile.updateTime } : { exists: true },
+        }]
+        for (const childUid of childUids) {
+          const child = await firestoreGetDocWithMeta(accessToken, projectId, `users/${childUid}`)
+          if (!child?.data || child.data.schoolId !== schoolId || child.data.role !== 'student') return json({ error: 'invalid_input', message: 'أحد الأبناء غير صالح' }, 400, origin)
+          const parentUids = Array.isArray(child?.data.parentUids) ? child.data.parentUids as string[] : []
+          linkWrites.push({
+            path: `users/${childUid}`,
+            data: { parentUids: parentUids.includes(existingAuth.localId) ? parentUids : [...parentUids, existingAuth.localId] },
+            updateMask: ['parentUids'],
+            precondition: child?.updateTime ? { updateTime: child.updateTime } : { exists: true },
+          })
+        }
+        linkWrites.push({
+          path: `auditLog/${crypto.randomUUID()}`,
+          data: {
+            schoolId, actorUid: callerUid, actorName: typeof callerProfile.name === 'string' ? callerProfile.name : '',
+            action: 'create_user', targetType: role, targetId: existingAuth.localId, details: `${name} (${email})`,
+            source: 'worker', createdAt: new Date().toISOString(),
+          },
+          precondition: { exists: false },
+        })
+        await firestoreCommit(accessToken, projectId, linkWrites)
+      }
+      return json({ uid: existingAuth.localId, existing: true, status: 'resumed', temporaryPassword: null }, 200, origin)
     }
   }
 
@@ -331,56 +471,67 @@ async function handleCreateSchoolUser(request: Request, env: Env, origin: string
     return json({ error: 'auth_error', message: knownError || 'AUTH_ERROR' }, 400, origin)
   }
 
-  const patchedChildren: Array<{ path: string; parentUids: string[] }> = []
-  let profileCreated = false
+  const childWrites: WorkerFirestoreWrite[] = []
+  const childProfiles: Array<{ path: string; data: Record<string, unknown>; updateTime?: string }> = []
   try {
-    await firestoreCreateDoc(accessToken, projectId, 'users', created.localId, {
-      name, role, email, schoolId, mustChangePassword: true, status: 'active',
-      ...(role === 'parent' ? { childUids } : {}),
-    })
-    profileCreated = true
-
     if (role === 'parent') {
       for (const childUid of childUids) {
-        const child = await firestoreGetDoc(accessToken, projectId, `users/${childUid}`)
-        const parentUids = Array.isArray(child?.parentUids) ? (child.parentUids as string[]) : []
-        patchedChildren.push({ path: `users/${childUid}`, parentUids })
-        if (!parentUids.includes(created.localId)) {
-          await firestorePatchDoc(accessToken, projectId, `users/${childUid}`, { parentUids: [...parentUids, created.localId] })
-        }
+        const child = await firestoreGetDocWithMeta(accessToken, projectId, `users/${childUid}`)
+        const childData = child?.data
+        const parentUids = Array.isArray(childData?.parentUids) ? (childData.parentUids as string[]) : []
+        childProfiles.push({ path: `users/${childUid}`, data: childData || {}, updateTime: child?.updateTime })
+        childWrites.push({
+          path: `users/${childUid}`,
+          data: { parentUids: parentUids.includes(created.localId) ? parentUids : [...parentUids, created.localId] },
+          updateMask: ['parentUids'],
+          precondition: child?.updateTime ? { updateTime: child.updateTime } : { exists: true },
+        })
       }
     }
+    await firestoreCommit(accessToken, projectId, [
+      {
+        path: `users/${created.localId}`,
+        data: {
+          name, role, email, schoolId, mustChangePassword: true, status: 'active',
+          ...(role === 'parent' ? { childUids } : {}),
+          ...(sectionId ? { sectionId } : {}),
+        },
+        precondition: { exists: false },
+      },
+      {
+        path: `userDirectory/${created.localId}`,
+        data: { name, role, schoolId, sectionId, status: 'active', contactUids: [] },
+        precondition: { exists: false },
+      },
+      ...childWrites,
+      {
+        path: `auditLog/${crypto.randomUUID()}`,
+        data: {
+          schoolId,
+          actorUid: callerUid,
+          actorName: typeof callerProfile.name === 'string' ? callerProfile.name : '',
+          action: 'create_user',
+          targetType: role,
+          targetId: created.localId,
+          details: `${name} (${email})`,
+          source: 'worker',
+          createdAt: new Date().toISOString(),
+        },
+        precondition: { exists: false },
+      },
+    ])
   } catch (profileErr) {
-    // نرجّع كل الآثار الجزئية: روابط الأبناء، ملف Firestore، ثم حساب Auth.
-    await Promise.all(patchedChildren.map(({ path, parentUids }) =>
-      firestorePatchDoc(accessToken, projectId, path, { parentUids }).catch((rollbackErr) => {
-        console.error('[create-school-user] فشل تراجع رابط ولي الأمر:', path, rollbackErr)
-      })
-    ))
-    if (profileCreated) {
-      await firestoreDeleteDoc(accessToken, projectId, `users/${created.localId}`).catch((rollbackErr) => {
-        console.error('[create-school-user] فشل حذف ملف المستخدم أثناء التراجع:', created.localId, rollbackErr)
-      })
+    try {
+      await deleteIdentityUser(accessToken, projectId, created.localId)
+    } catch (rollbackErr) {
+      console.error('[create-school-user] فشل التراجع عن Auth:', created.localId, rollbackErr)
+      return json({ error: 'rollback_failed', message: 'فشل التراجع عن إنشاء الحساب. أوقف المحاولة واطلب فحصًا يدويًا.' }, 500, origin)
     }
-    await deleteIdentityUser(accessToken, projectId, created.localId).catch((rollbackErr) => {
-      console.error('[create-school-user] فشل التراجع أيضًا — حساب يتيم فعليًا:', created.localId, rollbackErr)
-    })
-    console.error('[create-school-user] فشلت كتابة الملف الشخصي، تراجعنا:', profileErr)
-    return json({ error: 'profile_write_failed', message: 'صار خطأ وقت حفظ بيانات الحساب. اتراجعنا عن إنشائه، جرب مرة ثانية.' }, 500, origin)
+    console.error('[create-school-user] فشل الـcommit الذري:', profileErr, childProfiles.length)
+    return json({ error: 'profile_write_failed', message: 'صار خطأ وقت حفظ بيانات الحساب. لم يُترك ملف مدرسي جزئي.' }, 500, origin)
   }
 
-  await firestoreCreateDoc(accessToken, projectId, 'auditLog', crypto.randomUUID(), {
-    schoolId,
-    actorUid: callerUid,
-    actorName: typeof callerProfile.name === 'string' ? callerProfile.name : '',
-    action: 'create_user',
-    targetType: role,
-    targetId: created.localId,
-    details: `${name} (${email})`,
-    createdAt: new Date().toISOString(),
-  }).catch((err) => console.error('[audit] فشل التسجيل:', err))
-
-  return json({ uid: created.localId }, 200, origin)
+  return json({ uid: created.localId, ...(generatedPassword ? { temporaryPassword: password } : {}) }, 200, origin)
 }
 
 function rateLimited(origin: string): Response {
@@ -391,8 +542,8 @@ function rateLimited(origin: string): Response {
 }
 
 async function enforceEdgeLimit(request: Request, env: Env, pathname: string, origin: string): Promise<Response | null> {
-  const contentLength = Number(request.headers.get('Content-Length') || 0)
-  if (contentLength > MAX_REQUEST_BODY_BYTES) return json({ error: 'payload_too_large' }, 413, origin)
+  const bodyBytes = await request.clone().arrayBuffer()
+  if (bodyBytes.byteLength > MAX_REQUEST_BODY_BYTES) return json({ error: 'payload_too_large' }, 413, origin)
   const ip = request.headers.get('CF-Connecting-IP') || 'unknown'
   const { success } = await env.EDGE_REQUEST_LIMITER.limit({ key: `${pathname}:${ip}` })
   return success ? null : rateLimited(origin)
@@ -482,6 +633,63 @@ async function handleWriteAuditLog(request: Request, env: Env, origin: string): 
   return json({ ok: true }, 200, origin)
 }
 
+async function commitInChunks(accessToken: string, projectId: string, writes: WorkerFirestoreWrite[]): Promise<void> {
+  for (let i = 0; i < writes.length; i += 450) {
+    await firestoreCommit(accessToken, projectId, writes.slice(i, i + 450))
+  }
+}
+
+async function unlinkDeletedUserReferences(
+  accessToken: string,
+  projectId: string,
+  schoolId: string,
+  uid: string,
+): Promise<WorkerFirestoreWrite[]> {
+  const [users, directories, subjects] = await Promise.all([
+    firestoreRunQueryWithIds(accessToken, projectId, 'users', 'schoolId', schoolId, ['childUids', 'parentUids', 'messageContactUids']),
+    firestoreRunQueryWithIds(accessToken, projectId, 'userDirectory', 'schoolId', schoolId, ['contactUids']),
+    firestoreRunQueryWithIds(accessToken, projectId, 'subjects', 'schoolId', schoolId, ['teacherUid', 'teacherName']),
+  ])
+  const writes: WorkerFirestoreWrite[] = []
+  const rollbackWrites: WorkerFirestoreWrite[] = []
+  const addArrayRemoval = (row: { id: string; data: Record<string, unknown> }, field: string) => {
+    const original = row.data[field]
+    if (!Array.isArray(original) || !original.includes(uid)) return
+    const next = original.filter((value) => value !== uid)
+    writes.push({ path: `users/${row.id}`, data: { [field]: next }, updateMask: [field] })
+    rollbackWrites.push({ path: `users/${row.id}`, data: { [field]: original }, updateMask: [field] })
+  }
+  users.forEach((row) => {
+    if (row.id === uid) return
+    addArrayRemoval(row, 'childUids')
+    addArrayRemoval(row, 'parentUids')
+    addArrayRemoval(row, 'messageContactUids')
+  })
+  directories.forEach((row) => {
+    const original = row.data.contactUids
+    if (!Array.isArray(original) || !original.includes(uid)) return
+    writes.push({ path: `userDirectory/${row.id}`, data: { contactUids: original.filter((value) => value !== uid) }, updateMask: ['contactUids'] })
+    rollbackWrites.push({ path: `userDirectory/${row.id}`, data: { contactUids: original }, updateMask: ['contactUids'] })
+  })
+  subjects.forEach((row) => {
+    if (row.data.teacherUid !== uid) return
+    writes.push({ path: `subjects/${row.id}`, data: { teacherUid: null, teacherName: null }, updateMask: ['teacherUid', 'teacherName'] })
+    rollbackWrites.push({ path: `subjects/${row.id}`, data: { teacherUid: row.data.teacherUid, teacherName: row.data.teacherName || null }, updateMask: ['teacherUid', 'teacherName'] })
+  })
+  if (writes.length === 0) return []
+  try {
+    await commitInChunks(accessToken, projectId, writes)
+  } catch (error) {
+    try { await commitInChunks(accessToken, projectId, rollbackWrites) } catch (rollbackError) { console.error('[update-school-user] فشل تراجع الروابط:', rollbackError) }
+    throw error
+  }
+  return rollbackWrites
+}
+
+async function rollbackDeletedUserReferences(accessToken: string, projectId: string, writes: WorkerFirestoreWrite[]): Promise<void> {
+  if (writes.length > 0) await commitInChunks(accessToken, projectId, writes)
+}
+
 async function handleUpdateSchoolUser(request: Request, env: Env, origin: string): Promise<Response> {
   const authHeader = request.headers.get('Authorization') || ''
   const idToken = authHeader.startsWith('Bearer ') ? authHeader.slice('Bearer '.length) : ''
@@ -531,50 +739,45 @@ async function handleUpdateSchoolUser(request: Request, env: Env, origin: string
   }
 
   const action = String(body.action)
-  if (action === 'delete') {
-    const patchedChildren: Array<{ path: string; parentUids: string[] }> = []
-    try {
-      const childUids = target.role === 'parent' && Array.isArray(target.childUids) ? target.childUids : []
-      for (const childUid of childUids) {
-        if (typeof childUid !== 'string') continue
-        const childPath = `users/${childUid}`
-        const child = await firestoreGetDoc(accessToken, projectId, childPath)
-        if (!child || child.schoolId !== callerProfile.schoolId) continue
-        const parentUids = Array.isArray(child.parentUids) ? child.parentUids.filter((parentUid) => parentUid !== uid) : []
-        const originalParentUids = Array.isArray(child.parentUids) ? child.parentUids : []
-        patchedChildren.push({ path: childPath, parentUids: originalParentUids })
-        await firestorePatchDoc(accessToken, projectId, childPath, { parentUids })
-      }
-
-      await firestoreDeleteDoc(accessToken, projectId, `users/${uid}`)
-      try {
-        await deleteIdentityUser(accessToken, projectId, uid)
-      } catch (err) {
-        await firestoreUpsertDoc(accessToken, projectId, `users/${uid}`, target).catch((rollbackErr) => {
-          console.error('[update-school-user] فشل استعادة ملف الحساب بعد فشل حذف Auth:', rollbackErr)
-        })
-        throw err
-      }
-    } catch (err) {
-      await Promise.all(patchedChildren.map(({ path, parentUids }) =>
-        firestorePatchDoc(accessToken, projectId, path, { parentUids }).catch((rollbackErr) => {
-          console.error('[update-school-user] فشل استعادة رابط ولي الأمر:', path, rollbackErr)
-        })
-      ))
-      console.error('[update-school-user] فشل حذف الحساب:', uid, err)
-      return json({ error: 'delete_failed', message: 'تعذّر حذف الحساب بالكامل. لم نكمل العملية.' }, 500, origin)
-    }
-
+  const auditAction = action === 'delete' ? 'user_delete' : `user_${action}`
+  try {
     await firestoreCreateDoc(accessToken, projectId, 'auditLog', crypto.randomUUID(), {
       schoolId: callerProfile.schoolId,
       actorUid: callerUid,
       actorName: typeof callerProfile.name === 'string' ? callerProfile.name : '',
-      action: 'user_delete',
+      action: auditAction,
       targetType: target.role,
       targetId: uid,
       details: typeof target.email === 'string' ? target.email : uid,
+      source: 'worker',
       createdAt: new Date().toISOString(),
-    }).catch((err) => console.error('[audit] فشل تسجيل حذف الحساب:', err))
+    })
+  } catch (err) {
+    console.error('[audit] فشل تسجيل الإجراء قبل تنفيذه:', err)
+    return json({ error: 'audit_unavailable', message: 'خدمة التدقيق غير متاحة؛ لم يتم تنفيذ الإجراء.' }, 503, origin)
+  }
+
+  const directory = await firestoreGetDoc(accessToken, projectId, `userDirectory/${uid}`)
+  if (action === 'delete') {
+    let referenceRollback: WorkerFirestoreWrite[] = []
+    let profileDeleted = false
+    let directoryDeleted = false
+    let authDeleted = false
+    try {
+      referenceRollback = await unlinkDeletedUserReferences(accessToken, projectId, callerProfile.schoolId, uid)
+      await firestoreDeleteDoc(accessToken, projectId, `users/${uid}`)
+      profileDeleted = true
+      await firestoreDeleteDoc(accessToken, projectId, `userDirectory/${uid}`)
+      directoryDeleted = true
+      await deleteIdentityUser(accessToken, projectId, uid)
+      authDeleted = true
+    } catch (err) {
+      if (!authDeleted && profileDeleted) await firestoreUpsertDoc(accessToken, projectId, `users/${uid}`, target).catch((rollbackErr) => console.error('[update-school-user] فشل استعادة ملف الحساب:', rollbackErr))
+      if (!authDeleted && directoryDeleted && directory) await firestoreUpsertDoc(accessToken, projectId, `userDirectory/${uid}`, directory).catch((rollbackErr) => console.error('[update-school-user] فشل استعادة دليل المستخدم:', rollbackErr))
+      await rollbackDeletedUserReferences(accessToken, projectId, referenceRollback).catch((rollbackErr) => console.error('[update-school-user] فشل استعادة الروابط:', rollbackErr))
+      console.error('[update-school-user] فشل حذف الحساب:', uid, err)
+      return json({ error: 'delete_failed', message: 'تعذّر حذف الحساب بالكامل. لم نكمل العملية.' }, 500, origin)
+    }
 
     return json({ uid, deleted: true }, 200, origin)
   }
@@ -593,24 +796,15 @@ async function handleUpdateSchoolUser(request: Request, env: Env, origin: string
       disableUser: disabled,
       ...(temporaryPassword ? { password: temporaryPassword } : {}),
     })
+    if (directory) await firestorePatchDoc(accessToken, projectId, `userDirectory/${uid}`, { status: nextStatus })
   } catch (err) {
     await firestorePatchDoc(accessToken, projectId, `users/${uid}`, {
       status: previousStatus,
       mustChangePassword: previousMustChangePassword,
     }).catch((rollbackErr) => console.error('[update-school-user] فشل تراجع ملف المستخدم:', rollbackErr))
+    if (directory) await firestorePatchDoc(accessToken, projectId, `userDirectory/${uid}`, { status: previousStatus }).catch((rollbackErr) => console.error('[update-school-user] فشل تراجع دليل المستخدم:', rollbackErr))
     throw err
   }
-
-  await firestoreCreateDoc(accessToken, projectId, 'auditLog', crypto.randomUUID(), {
-    schoolId: callerProfile.schoolId,
-    actorUid: callerUid,
-    actorName: typeof callerProfile.name === 'string' ? callerProfile.name : '',
-    action: `user_${action}`,
-    targetType: target.role,
-    targetId: uid,
-    details: typeof target.email === 'string' ? target.email : uid,
-    createdAt: new Date().toISOString(),
-  }).catch((err) => console.error('[audit] فشل تسجيل إجراء الحساب:', err))
 
   return json({ uid, status: nextStatus, ...(temporaryPassword ? { temporaryPassword } : {}) }, 200, origin)
 }

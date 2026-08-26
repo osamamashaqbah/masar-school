@@ -14,8 +14,8 @@ export function ProgressProvider({ children }) {
   const [allProgress, setAllProgress] = useState([])
 
   useEffect(() => {
-    if (!session) { setProgress({}); return }
-    const q = query(collection(db, 'progress'), where('uid', '==', session.uid))
+    if (!session || !currentAcademicYear) { setProgress({}); return }
+    const q = query(collection(db, 'progress'), where('uid', '==', session.uid), where('academicYear', '==', currentAcademicYear))
     const unsub = onSnapshot(q, (snapshot) => {
       const map = {}
       snapshot.docs.forEach((d) => {
@@ -28,10 +28,10 @@ export function ProgressProvider({ children }) {
   }, [session, currentAcademicYear])
 
   useEffect(() => {
-    if (!session) { setAllProgress([]); return }
+    if (!session || !currentAcademicYear) { setAllProgress([]); return }
 
     if (session.role === 'admin') {
-      const q = query(collection(db, 'progress'), where('schoolId', '==', session.schoolId))
+      const q = query(collection(db, 'progress'), where('schoolId', '==', session.schoolId), where('academicYear', '==', currentAcademicYear))
       const unsub = onSnapshot(q, (snapshot) => {
         setAllProgress(snapshot.docs.map((d) => d.data()))
       })
@@ -44,7 +44,7 @@ export function ProgressProvider({ children }) {
       const subjectChunks = chunkArray(subjectIds)
       const rowsByChunk = subjectChunks.map(() => [])
       const unsubs = subjectChunks.map((chunk, index) => {
-        const q = query(collection(db, 'progress'), where('schoolId', '==', session.schoolId), where('subjectId', 'in', chunk))
+        const q = query(collection(db, 'progress'), where('schoolId', '==', session.schoolId), where('subjectId', 'in', chunk), where('academicYear', '==', currentAcademicYear))
         return onSnapshot(q, (snapshot) => {
           rowsByChunk[index] = snapshot.docs.map((d) => d.data())
           setAllProgress(rowsByChunk.flat())
@@ -57,7 +57,7 @@ export function ProgressProvider({ children }) {
       const chunks = chunkArray(session.childUids)
       const rowsByChunk = chunks.map(() => [])
       const unsubs = chunks.map((chunk, index) => {
-        const q = query(collection(db, 'progress'), where('uid', 'in', chunk))
+        const q = query(collection(db, 'progress'), where('uid', 'in', chunk), where('academicYear', '==', currentAcademicYear))
         return onSnapshot(q, (snapshot) => {
           rowsByChunk[index] = snapshot.docs.map((d) => d.data())
           setAllProgress(rowsByChunk.flat())
@@ -67,7 +67,7 @@ export function ProgressProvider({ children }) {
     }
 
     setAllProgress([])
-  }, [session, subjects])
+  }, [session, subjects, currentAcademicYear])
 
   // docId يتضمّن السنة الدراسية — التقدّم "ما يرجع للخلف" حسب قواعد Firestore، فلازم كل سنة توثيقها لحالها
   async function completeLesson(subjectId, lessonIndex) {

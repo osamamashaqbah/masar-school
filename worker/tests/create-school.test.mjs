@@ -7,13 +7,26 @@ import {
   normalizeCreateSchoolInput,
   provisionSchool,
 } from '../src/createSchool.ts'
-import { firestoreCommit } from '../src/firestore.ts'
+import { firestoreCommit, firestoreDeleteDoc } from '../src/firestore.ts'
 
 const input = {
   requestId: '11111111-1111-4111-8111-111111111111',
   schoolName: 'مدرسة النور',
   adminName: 'مدير النور',
   adminEmail: 'ADMIN@EXAMPLE.COM',
+}
+
+const normalizedInput = { ...input, adminEmail: input.adminEmail.toLowerCase() }
+
+function staleMarker(overrides = {}) {
+  return {
+    ...normalizedInput,
+    schoolId: `school-${normalizedInput.requestId}`,
+    status: 'provisioning',
+    createdAt: '2026-08-26T08:00:00.000Z',
+    updateTime: '2026-08-26T08:00:00.001Z',
+    ...overrides,
+  }
 }
 
 function makeDeps(overrides = {}) {
@@ -28,7 +41,7 @@ function makeDeps(overrides = {}) {
       marker = { ...next, updateTime: '2026-08-26T10:00:00.001Z' }
       return marker
     },
-    deleteRequest: async () => { calls.deleteRequest += 1; marker = null },
+    deleteRequest: async (_requestId, updateTime) => { calls.deleteRequest += 1; calls.lastDeleteRequestUpdateTime = updateTime; marker = null },
     getDoc: async () => null,
     lookupUserByEmail: async () => null,
     createUser: async () => { calls.createUser += 1; return { localId: 'admin-uid', email: input.adminEmail.toLowerCase() } },
@@ -92,6 +105,26 @@ test('encodes Firestore timestamps and create preconditions for atomic commits',
   assert.deepEqual(payload.writes[0].currentDocument, { exists: false })
 })
 
+test('uses the marker update time when deleting a provisioning request', async () => {
+  const originalFetch = globalThis.fetch
+  let url
+  globalThis.fetch = async (_url) => {
+    url = _url
+    return new Response(null, { status: 204 })
+  }
+  try {
+    await firestoreDeleteDoc('token', 'project', 'schoolProvisioningRequests/request-1', {
+      updateTime: '2026-08-26T10:00:00.001Z',
+    })
+  } finally {
+    globalThis.fetch = originalFetch
+  }
+  assert.equal(
+    url,
+    'https://firestore.googleapis.com/v1/projects/project/databases/(default)/documents/schoolProvisioningRequests/request-1?currentDocument.updateTime=2026-08-26T10%3A00%3A00.001Z',
+  )
+})
+
 test('creates all tenant records in one commit and keeps password out of writes', async () => {
   const deps = makeDeps()
   const result = await provisionSchool({ ...input, adminEmail: input.adminEmail.toLowerCase() }, deps, 'owner-uid', 'صاحب المنصة')
@@ -117,6 +150,38 @@ test('rolls Auth back when the atomic Firestore commit fails', async () => {
   assert.equal(deps.calls.deleteRequest, 1)
 })
 
+test('does not delete a reused orphan Auth account when Firestore commit fails', async () => {
+  const orphan = { localId: 'orphan-uid', email: normalizedInput.adminEmail }
+  const deps = makeDeps({
+    createUser: async () => { throw new Error('EMAIL_EXISTS') },
+    lookupUserByEmail: async () => orphan,
+    commit: async () => { throw new Error('Firestore unavailable') },
+  })
+  await assert.rejects(
+    provisionSchool(normalizedInput, deps, 'owner-uid', 'صاحب المنصة'),
+    (error) => error instanceof CreateSchoolError && error.code === 'provisioning_failed',
+  )
+  assert.equal(deps.calls.deleteUser, 0)
+  assert.equal(deps.calls.deleteRequest, 1)
+  assert.equal(deps.calls.lastDeleteRequestUpdateTime, '2026-08-26T10:00:00.001Z')
+})
+
+test('fresh EMAIL_EXISTS rejects an existing school user account', async () => {
+  const existing = { localId: 'school-user-uid', email: normalizedInput.adminEmail }
+  const deps = makeDeps({
+    createUser: async () => { throw new Error('EMAIL_EXISTS') },
+    lookupUserByEmail: async () => existing,
+    getDoc: async (path) => path === `users/${existing.localId}` ? { role: 'student', schoolId: 'other-school' } : null,
+  })
+  await assert.rejects(
+    provisionSchool(normalizedInput, deps, 'owner-uid', 'صاحب المنصة'),
+    (error) => error instanceof CreateSchoolError && error.code === 'email_exists',
+  )
+  assert.equal(deps.calls.commit, 0)
+  assert.equal(deps.calls.deleteUser, 0)
+  assert.equal(deps.calls.lastDeleteRequestUpdateTime, '2026-08-26T10:00:00.001Z')
+})
+
 test('surfaces a critical error when Auth rollback also fails', async () => {
   const deps = makeDeps({
     commit: async () => { throw new Error('Firestore unavailable') },
@@ -136,6 +201,84 @@ test('does not write Firestore when Auth creation fails', async () => {
   )
   assert.equal(deps.calls.commit, 0)
   assert.equal(deps.calls.deleteRequest, 1)
+})
+
+test('stale recovery rejects an Auth account with an existing school user profile', async () => {
+  const existing = { localId: 'school-user-uid', email: normalizedInput.adminEmail }
+  const deps = makeDeps({
+    getRequest: async () => staleMarker(),
+    lookupUserByEmail: async () => existing,
+    getDoc: async (path) => path === `users/${existing.localId}` ? { role: 'student', schoolId: 'other-school' } : null,
+  })
+  await assert.rejects(
+    provisionSchool(normalizedInput, deps, 'owner-uid', 'صاحب المنصة'),
+    (error) => error instanceof CreateSchoolError && error.code === 'email_exists',
+  )
+  assert.equal(deps.calls.commit, 0)
+  assert.equal(deps.calls.updatePassword, 0)
+  assert.equal(deps.calls.deleteUser, 0)
+})
+
+test('stale recovery rejects an Auth account with a platform admin profile', async () => {
+  const existing = { localId: 'platform-admin-uid', email: normalizedInput.adminEmail }
+  const deps = makeDeps({
+    getRequest: async () => staleMarker(),
+    lookupUserByEmail: async () => existing,
+    getDoc: async (path) => path === `platformAdmins/${existing.localId}` ? { name: 'صاحب المنصة' } : null,
+  })
+  await assert.rejects(
+    provisionSchool(normalizedInput, deps, 'owner-uid', 'صاحب المنصة'),
+    (error) => error instanceof CreateSchoolError && error.code === 'email_exists',
+  )
+  assert.equal(deps.calls.commit, 0)
+  assert.equal(deps.calls.updatePassword, 0)
+  assert.equal(deps.calls.deleteUser, 0)
+})
+
+test('stale recovery reuses an orphan Auth account and issues new credentials', async () => {
+  const existing = { localId: 'orphan-uid', email: normalizedInput.adminEmail }
+  const deps = makeDeps({
+    getRequest: async () => staleMarker(),
+    lookupUserByEmail: async () => existing,
+  })
+  const result = await provisionSchool(normalizedInput, deps, 'owner-uid', 'صاحب المنصة')
+  assert.equal(result.schoolId, `school-${normalizedInput.requestId}`)
+  assert.equal(deps.calls.commit, 1)
+  assert.equal(deps.calls.updatePassword, 1)
+  assert.equal(deps.calls.deleteUser, 0)
+})
+
+test('stale recovery keeps a reused orphan Auth account when Firestore fails', async () => {
+  const existing = { localId: 'orphan-uid', email: normalizedInput.adminEmail }
+  const deps = makeDeps({
+    getRequest: async () => staleMarker(),
+    lookupUserByEmail: async () => existing,
+    commit: async () => { throw new Error('Firestore unavailable') },
+  })
+  await assert.rejects(
+    provisionSchool(normalizedInput, deps, 'owner-uid', 'صاحب المنصة'),
+    (error) => error instanceof CreateSchoolError && error.code === 'provisioning_failed',
+  )
+  assert.equal(deps.calls.deleteUser, 0)
+  assert.equal(deps.calls.updatePassword, 0)
+  assert.equal(deps.calls.deleteRequest, 1)
+  assert.equal(deps.calls.lastDeleteRequestUpdateTime, '2026-08-26T08:00:00.001Z')
+})
+
+test('stale recovery clears a marker when its Auth account no longer exists', async () => {
+  const deps = makeDeps({
+    getRequest: async () => staleMarker(),
+    lookupUserByEmail: async () => null,
+  })
+  await assert.rejects(
+    provisionSchool(normalizedInput, deps, 'owner-uid', 'صاحب المنصة'),
+    (error) => error instanceof CreateSchoolError && error.code === 'provisioning_failed',
+  )
+  assert.equal(deps.calls.commit, 0)
+  assert.equal(deps.calls.updatePassword, 0)
+  assert.equal(deps.calls.deleteUser, 0)
+  assert.equal(deps.calls.deleteRequest, 1)
+  assert.equal(deps.calls.lastDeleteRequestUpdateTime, '2026-08-26T08:00:00.001Z')
 })
 
 test('replaying a completed request reuses the tenant and only resets credentials', async () => {

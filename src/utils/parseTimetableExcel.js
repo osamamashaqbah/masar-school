@@ -1,5 +1,5 @@
 import * as XLSX from 'xlsx'
-import { DAYS } from '../context/TimetableContext'
+import { DAYS } from './timetable'
 
 // نظّف نص عربي للمطابقة: شيل تشكيل، وحّد الألف/التاء المربوطة، شيل مسافات زايدة
 function normalize(text) {

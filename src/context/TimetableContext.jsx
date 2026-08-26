@@ -5,10 +5,9 @@ import { useSession } from './SessionContext'
 import { useSchoolStructure } from './SchoolStructureContext'
 import { replaceTimetableSlot } from '../utils/timetable'
 
-const TimetableContext = createContext(null)
+export { DAYS, PERIODS } from '../utils/timetable'
 
-export const DAYS = ['الأحد', 'الاثنين', 'الثلاثاء', 'الأربعاء', 'الخميس']
-export const PERIODS = [1, 2, 3, 4, 5, 6, 7]
+const TimetableContext = createContext(null)
 
 export function TimetableProvider({ children }) {
   const { session } = useSession()

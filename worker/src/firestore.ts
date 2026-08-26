@@ -174,8 +174,13 @@ export async function firestoreUpsertDoc(
   throw new Error(`فشل حفظ ${path}: ${res.status} ${await res.text()}`)
 }
 
-export async function firestoreDeleteDoc(accessToken: string, projectId: string, path: string): Promise<void> {
-  const res = await fetch(`${BASE(projectId)}/${path}`, {
+export async function firestoreDeleteDoc(
+  accessToken: string, projectId: string, path: string, precondition?: { updateTime?: string }
+): Promise<void> {
+  const query = precondition?.updateTime
+    ? `?currentDocument.updateTime=${encodeURIComponent(precondition.updateTime)}`
+    : ''
+  const res = await fetch(`${BASE(projectId)}/${path}${query}`, {
     method: 'DELETE',
     headers: { Authorization: `Bearer ${accessToken}` },
   })

@@ -173,7 +173,12 @@ async function handleCreateSchool(request: Request, env: Env, origin: string): P
       )
       return { ...marker, updateTime }
     },
-    deleteRequest: (requestId) => firestoreDeleteDoc(accessToken, projectId, `schoolProvisioningRequests/${requestId}`),
+    deleteRequest: (requestId, updateTime) => firestoreDeleteDoc(
+      accessToken,
+      projectId,
+      `schoolProvisioningRequests/${requestId}`,
+      updateTime ? { updateTime } : undefined,
+    ),
     getDoc: (path) => firestoreGetDoc(accessToken, projectId, path),
     lookupUserByEmail: (email) => lookupIdentityUserByEmail(accessToken, projectId, email),
     createUser: (input) => createIdentityUser(accessToken, projectId, input),

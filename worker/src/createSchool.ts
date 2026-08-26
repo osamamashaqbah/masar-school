@@ -33,7 +33,7 @@ export interface CreateSchoolDependencies {
   generateTemporaryPassword: () => string
   getRequest: (requestId: string) => Promise<ProvisioningMarker | null>
   reserveRequest: (marker: ProvisioningMarker) => Promise<ProvisioningMarker>
-  deleteRequest: (requestId: string) => Promise<void>
+  deleteRequest: (requestId: string, updateTime?: string) => Promise<void>
   getDoc: (path: string) => Promise<Record<string, unknown> | null>
   lookupUserByEmail: (email: string) => Promise<IdentityUser | null>
   createUser: (input: { email: string; password: string; displayName: string }) => Promise<IdentityUser>
@@ -119,6 +119,29 @@ function authErrorCode(error: unknown): string {
   const message = error instanceof Error ? error.message : ''
   return ['EMAIL_EXISTS', 'INVALID_EMAIL', 'WEAK_PASSWORD', 'OPERATION_NOT_ALLOWED']
     .find((code) => message.includes(code)) || ''
+}
+
+async function deleteMarkerIfOwned(marker: ProvisioningMarker, deps: CreateSchoolDependencies): Promise<boolean> {
+  if (!marker.updateTime) return false
+  return deps.deleteRequest(marker.requestId, marker.updateTime).then(() => true).catch(() => false)
+}
+
+interface AuthAccountInspection {
+  user: IdentityUser
+  reusable: boolean
+}
+
+async function inspectReusableAuthAccount(
+  email: string,
+  deps: CreateSchoolDependencies,
+): Promise<AuthAccountInspection | null> {
+  const user = await deps.lookupUserByEmail(email)
+  if (!user) return null
+  const [schoolProfile, platformProfile] = await Promise.all([
+    deps.getDoc(`users/${user.localId}`),
+    deps.getDoc(`platformAdmins/${user.localId}`),
+  ])
+  return { user, reusable: !schoolProfile && !platformProfile }
 }
 
 function finalWrites(
@@ -222,22 +245,26 @@ async function recoverStaleProvisioning(
   actorUid: string,
   actorName: string,
 ): Promise<{ schoolId: string; schoolName: string; adminName: string; adminEmail: string; temporaryPassword: string }> {
-  const existing = await deps.lookupUserByEmail(input.adminEmail)
-  if (!existing) {
-    await deps.deleteRequest(input.requestId)
+  const inspection = await inspectReusableAuthAccount(input.adminEmail, deps)
+  if (!inspection) {
+    const markerDeleted = await deleteMarkerIfOwned(marker, deps)
+    if (!markerDeleted) throw new CreateSchoolError('provisioning_rollback_failed', 'تعذّر تنظيف محاولة الإنشاء القديمة')
     throw new CreateSchoolError('provisioning_failed', 'انتهت محاولة إنشاء سابقة. حاول مرة ثانية.')
   }
+  if (!inspection.reusable) throw new CreateSchoolError('email_exists', 'هذا البريد مستخدم مسبقًا في النظام')
 
   const now = deps.now()
   try {
-    await deps.commit(finalWrites(marker, existing.localId, input, now, actorUid, actorName))
+    await deps.commit(finalWrites(marker, inspection.user.localId, input, now, actorUid, actorName))
   } catch {
+    const markerDeleted = await deleteMarkerIfOwned(marker, deps)
+    if (!markerDeleted) throw new CreateSchoolError('provisioning_rollback_failed', 'تعذّر تنظيف محاولة الإنشاء القديمة')
     throw new CreateSchoolError('provisioning_failed', 'تعذّر إكمال إنشاء المدرسة')
   }
 
   const temporaryPassword = deps.generateTemporaryPassword()
   try {
-    await deps.updateUserPassword(existing.localId, temporaryPassword)
+    await deps.updateUserPassword(inspection.user.localId, temporaryPassword)
   } catch {
     throw new CreateSchoolError('provisioning_failed', 'تم حفظ المدرسة لكن تعذّر إصدار كلمة السر')
   }
@@ -281,24 +308,22 @@ export async function provisionSchool(
 
   const temporaryPassword = deps.generateTemporaryPassword()
   let created: IdentityUser
-  let existingAuthNeedsPasswordUpdate = false
+  let authCreatedByThisAttempt = false
   try {
     created = await deps.createUser({ email: input.adminEmail, password: temporaryPassword, displayName: input.adminName })
+    authCreatedByThisAttempt = true
   } catch (error) {
     if (authErrorCode(error) === 'EMAIL_EXISTS') {
-      const existing = await deps.lookupUserByEmail(input.adminEmail)
-      const existingProfile = existing ? await deps.getDoc(`users/${existing.localId}`) : null
-      const existingPlatformProfile = existing ? await deps.getDoc(`platformAdmins/${existing.localId}`) : null
-      if (existing && !existingProfile && !existingPlatformProfile) {
-        created = existing
-        existingAuthNeedsPasswordUpdate = true
+      const inspection = await inspectReusableAuthAccount(input.adminEmail, deps)
+      if (inspection?.reusable) {
+        created = inspection.user
       } else {
-        const markerDeleted = await deps.deleteRequest(input.requestId).then(() => true).catch(() => false)
+        const markerDeleted = await deleteMarkerIfOwned(marker, deps)
         if (!markerDeleted) throw new CreateSchoolError('provisioning_rollback_failed', 'تعذّر تنظيف محاولة الإنشاء الفاشلة')
         throw new CreateSchoolError('email_exists', 'هذا البريد مستخدم مسبقًا في النظام')
       }
     } else {
-      const markerDeleted = await deps.deleteRequest(input.requestId).then(() => true).catch(() => false)
+      const markerDeleted = await deleteMarkerIfOwned(marker, deps)
       if (!markerDeleted) throw new CreateSchoolError('provisioning_rollback_failed', 'تعذّر تنظيف محاولة الإنشاء الفاشلة')
       throw new CreateSchoolError('auth_error', 'تعذّر إنشاء حساب المدير')
     }
@@ -307,17 +332,18 @@ export async function provisionSchool(
   try {
     await deps.commit(finalWrites(marker, created.localId, input, deps.now(), actorUid, actorName))
   } catch {
-    const [authRollback, markerRollback] = await Promise.all([
-      deps.deleteUser(created.localId).then(() => true).catch(() => false),
-      deps.deleteRequest(input.requestId).then(() => true).catch(() => false),
-    ])
-    if (!authRollback || !markerRollback) {
+    const markerRollback = deleteMarkerIfOwned(marker, deps)
+    const authRollback = authCreatedByThisAttempt
+      ? deps.deleteUser(created.localId).then(() => true).catch(() => false)
+      : Promise.resolve(true)
+    const [authRollbackSucceeded, markerRollbackSucceeded] = await Promise.all([authRollback, markerRollback])
+    if (!authRollbackSucceeded || !markerRollbackSucceeded) {
       throw new CreateSchoolError('provisioning_rollback_failed', 'فشل إنشاء المدرسة والتراجع عن آثاره بالكامل. يلزم فحص يدوي قبل إعادة المحاولة.')
     }
     throw new CreateSchoolError('provisioning_failed', 'تعذّر حفظ بيانات المدرسة')
   }
 
-  if (existingAuthNeedsPasswordUpdate) {
+  if (!authCreatedByThisAttempt) {
     try {
       await deps.updateUserPassword(created.localId, temporaryPassword)
     } catch {

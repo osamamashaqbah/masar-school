@@ -19,11 +19,6 @@ export function HomeworkProvider({ children }) {
   // نسخة مسطّحة من التسليمات (لطالب لحاله، أو كل أبناء ولي الأمر) — لحساب نمط التسويف بس
   useEffect(() => {
     if (!session) { setSubmissionsForPattern([]); return }
-    if (session.role === 'student') {
-      const q = query(collection(db, 'submissions'), where('studentUid', '==', session.uid))
-      const unsub = onSnapshot(q, (s) => setSubmissionsForPattern(s.docs.map((d) => d.data())))
-      return () => unsub()
-    }
     if (session.role === 'parent' && session.childUids?.length > 0) {
       const chunks = chunkArray(session.childUids)
       const rowsByChunk = chunks.map(() => [])
@@ -52,7 +47,7 @@ export function HomeworkProvider({ children }) {
   }, [session])
 
   useEffect(() => {
-    if (!session) {
+    if (!session || session.role !== 'student') {
       setSubmissions({})
       return
     }
@@ -158,7 +153,8 @@ export function HomeworkProvider({ children }) {
   }
 
   function getProcrastinationPattern(uid) {
-    const pairs = submissionsForPattern
+    const source = session?.role === 'student' ? Object.values(submissions) : submissionsForPattern
+    const pairs = source
       .filter((s) => s.studentUid === uid)
       .map((s) => {
         const hw = homework.find((h) => h.id === s.homeworkId)

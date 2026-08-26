@@ -5,6 +5,7 @@ import { useSession } from './SessionContext'
 import { logAudit } from '../utils/audit'
 import { rolloverSectionDocId } from '../utils/rollover'
 import { safeHttpUrl } from '../utils/parseMaterialUrl'
+import { taughtSectionsForInstructors } from '../utils/taughtSections'
 
 const SchoolStructureContext = createContext(null)
 
@@ -23,7 +24,6 @@ export function SchoolStructureProvider({ children }) {
   const [paymentInfo, setPaymentInfo] = useState(null)
   const [branding, setBranding] = useState(null)
   const [gradebookLocks, setGradebookLocks] = useState({ marks: false, attendance: false })
-  const [syncedPermissions, setSyncedPermissions] = useState(false)
   const [syncedParentLinks, setSyncedParentLinks] = useState(false)
 
   // المواد المؤرشفة (archived: true) بتنخبّى من كل مكان بالتطبيق تلقائيًا لأنه كل الصفحات
@@ -73,24 +73,18 @@ export function SchoolStructureProvider({ children }) {
     return () => unsub()
   }, [session])
 
-  // إصلاح ذاتي: بعض معلمي المواد القديمة (أو يلي انربطوا بمادة قبل ما نضيف حقل taughtSectionIds)
-  // ممكن يوصلهم الحقل هذا ناقص، فبالتالي قواعد Firestore بتمنعهم يشوفوا طلاب شعبتهم (بدون أي خطأ ظاهر،
-  // بس القائمة بتطلع فاضية). نعيد مزامنته تلقائيًا مرة وحدة كل ما صاحب المنصة يفتح لوحته، حتى ما يحتاج
-  // أي إجراء يدوي ولا ننتظر إجراء تاني (متل تسجيل دخول الطالب) يصلحه بالصدفة.
+  // مصدر صلاحيات حضور المعلّمين هو المواد النشطة. نكتب المجموعة كاملة، لا arrayUnion، حتى إزالة
+  // آخر مادة من شعبة تسحب صلاحيتها بدل أن تبقى شعبة قديمة قابلة للوصول.
   useEffect(() => {
-    if (syncedPermissions || session?.role !== 'admin' || subjects.length === 0) return
-    setSyncedPermissions(true)
-    const pairs = new Map()
-    subjects.forEach((s) => {
-      if (s.teacherUid && s.sectionId) pairs.set(`${s.teacherUid}_${s.sectionId}`, { teacherUid: s.teacherUid, sectionId: s.sectionId })
-    })
-    Promise.all(
-      [...pairs.values()].map(({ teacherUid, sectionId }) =>
-        updateDoc(doc(db, 'users', teacherUid), { taughtSectionIds: arrayUnion(sectionId) }).catch(() => {})
-      )
-    )
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [subjects, session, syncedPermissions])
+    if (session?.role !== 'admin' || allUsers.length === 0) return
+    const updates = taughtSectionsForInstructors(allUsers, subjects)
+      .filter(({ uid, sectionIds }) => {
+        const current = allUsers.find((user) => user.id === uid)?.taughtSectionIds || []
+        return JSON.stringify([...current].sort()) !== JSON.stringify(sectionIds)
+      })
+      .map(({ uid, sectionIds }) => updateDoc(doc(db, 'users', uid), { taughtSectionIds: sectionIds }).catch(() => {}))
+    if (updates.length > 0) Promise.all(updates).catch(() => {})
+  }, [allUsers, session, subjects])
 
   // إصلاح ذاتي: حسابات أولياء الأمور يلي انربطت بأبنائها (childUids) قبل ما نضيف الربط العكسي
   // (parentUids على وثيقة الطالب، وهو يلي الإشعارات معتمدة عليه لتوصيل تنبيهات العلامات/الغياب

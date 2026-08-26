@@ -1,11 +1,10 @@
 import { useState, useEffect } from 'react'
-import { collection, query, where, documentId, onSnapshot } from 'firebase/firestore'
+import { collection, query, where, doc, onSnapshot } from 'firebase/firestore'
 import { db } from '../firebase'
 import { useSession } from '../context/SessionContext'
 import { useSchoolStructure } from '../context/SchoolStructureContext'
 import { useTimetable, DAYS, PERIODS } from '../context/TimetableContext'
 import { parseTimetableExcel } from '../utils/parseTimetableExcel'
-import { chunkArray } from '../utils/chunk'
 
 function TimetableGrid({ sectionId, editable, todayDayIdx, coverageToday }) {
   const { subjects } = useSchoolStructure()
@@ -181,16 +180,12 @@ export default function TimetablePage() {
   const todayDayIdx = new Date().getDay() // الأحد=0 ... الخميس=4، مطابق تمامًا لترتيب DAYS
 
   useEffect(() => {
-    if (session.role !== 'parent' || !session.childUids?.length) return
-    const chunks = chunkArray(session.childUids)
-    const childrenByChunk = chunks.map(() => [])
-    const unsubs = chunks.map((chunk, index) => {
-      const q = query(collection(db, 'userDirectory'), where('schoolId', '==', session.schoolId), where(documentId(), 'in', chunk))
-      return onSnapshot(q, (snap) => {
-        childrenByChunk[index] = snap.docs.map((d) => ({ id: d.id, ...d.data() }))
-        setChildren(childrenByChunk.flat())
-      })
-    })
+    if (!session || session.role !== 'parent' || !session.childUids?.length) return
+    const childrenByUid = session.childUids.map(() => null)
+    const unsubs = session.childUids.map((uid, index) => onSnapshot(doc(db, 'userDirectory', uid), (snap) => {
+        childrenByUid[index] = snap.exists() ? { id: snap.id, ...snap.data() } : null
+        setChildren(childrenByUid.filter(Boolean))
+      }))
     return () => unsubs.forEach((unsub) => unsub())
   }, [session])
 

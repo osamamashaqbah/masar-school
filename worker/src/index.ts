@@ -1,4 +1,4 @@
-import { getAccessToken, verifyFirebaseIdToken, createIdentityUser, lookupIdentityUserByEmail, updateIdentityUser, deleteIdentityUser, type ServiceAccount } from './google'
+import { getAccessToken, verifyFirebaseIdToken, createIdentityUser, lookupIdentityUserByEmail, lookupIdentityUserStatus, isIdentityUserActive, updateIdentityUser, deleteIdentityUser, type ServiceAccount } from './google'
 import { firestoreGetDoc, firestoreGetDocWithMeta, firestoreCreateDoc, firestoreCreateDocIfAbsent, firestorePatchDoc, firestoreDeleteDoc, firestoreRunQuery, firestoreUpsertDoc, firestoreCommit, type FirestoreWrite as WorkerFirestoreWrite } from './firestore'
 import { CreateSchoolError, generateTemporaryPassword, isRecentAuth, normalizeCreateSchoolInput, provisionSchool, type CreateSchoolDependencies, type ProvisioningMarker } from './createSchool'
 
@@ -152,6 +152,9 @@ async function handleCreateSchool(request: Request, env: Env, origin: string): P
     'https://www.googleapis.com/auth/identitytoolkit',
     'https://www.googleapis.com/auth/datastore',
   ])
+  if (!(await hasActiveIdentity(accessToken, projectId, callerUid, authTime))) {
+    return json({ error: 'account_inactive' }, 403, origin)
+  }
   const platformProfile = await firestoreGetDoc(accessToken, projectId, `platformAdmins/${callerUid}`)
   if (!platformProfile) return json({ error: 'permission_denied' }, 403, origin)
 
@@ -199,6 +202,10 @@ async function handleCreateSchool(request: Request, env: Env, origin: string): P
   }
 }
 
+async function hasActiveIdentity(accessToken: string, projectId: string, uid: string, authTime: unknown): Promise<boolean> {
+  return isIdentityUserActive(await lookupIdentityUserStatus(accessToken, projectId, uid), authTime)
+}
+
 async function handleRefreshPlatformStats(request: Request, env: Env, origin: string): Promise<Response> {
   const authHeader = request.headers.get('Authorization') || ''
   const idToken = authHeader.startsWith('Bearer ') ? authHeader.slice('Bearer '.length) : ''
@@ -206,8 +213,11 @@ async function handleRefreshPlatformStats(request: Request, env: Env, origin: st
 
   const projectId = env.FIREBASE_PROJECT_ID
   let callerUid: string
+  let authTime: number | undefined
   try {
-    callerUid = (await verifyFirebaseIdToken(idToken, projectId)).uid
+    const verified = await verifyFirebaseIdToken(idToken, projectId)
+    callerUid = verified.uid
+    authTime = verified.authTime
   } catch {
     return json({ error: 'unauthenticated' }, 401, origin)
   }
@@ -215,9 +225,15 @@ async function handleRefreshPlatformStats(request: Request, env: Env, origin: st
   if (actorLimitResponse) return actorLimitResponse
 
   const serviceAccount = JSON.parse(env.FIREBASE_SERVICE_ACCOUNT_KEY) as ServiceAccount
-  const accessToken = await getAccessToken(serviceAccount, ['https://www.googleapis.com/auth/datastore'])
+  const accessToken = await getAccessToken(serviceAccount, [
+    'https://www.googleapis.com/auth/identitytoolkit',
+    'https://www.googleapis.com/auth/datastore',
+  ])
+  if (!(await hasActiveIdentity(accessToken, projectId, callerUid, authTime))) {
+    return json({ error: 'account_inactive' }, 403, origin)
+  }
   const callerProfile = await firestoreGetDoc(accessToken, projectId, `users/${callerUid}`)
-  if (!callerProfile || callerProfile.role !== 'admin' || typeof callerProfile.schoolId !== 'string') {
+  if (!callerProfile || callerProfile.status === 'inactive' || callerProfile.role !== 'admin' || typeof callerProfile.schoolId !== 'string') {
     return json({ error: 'permission_denied' }, 403, origin)
   }
 
@@ -252,8 +268,11 @@ async function handleCreateSchoolUser(request: Request, env: Env, origin: string
 
   const projectId = env.FIREBASE_PROJECT_ID
   let callerUid: string
+  let authTime: number | undefined
   try {
-    callerUid = (await verifyFirebaseIdToken(idToken, projectId)).uid
+    const verified = await verifyFirebaseIdToken(idToken, projectId)
+    callerUid = verified.uid
+    authTime = verified.authTime
   } catch (err) {
     console.error('[create-school-user] توكن غير صالح:', err)
     return json({ error: 'unauthenticated' }, 401, origin)
@@ -266,11 +285,14 @@ async function handleCreateSchoolUser(request: Request, env: Env, origin: string
     'https://www.googleapis.com/auth/identitytoolkit',
     'https://www.googleapis.com/auth/datastore',
   ])
+  if (!(await hasActiveIdentity(accessToken, projectId, callerUid, authTime))) {
+    return json({ error: 'account_inactive' }, 403, origin)
+  }
 
   // ما بنثق بأي schoolId جاي من العميل — منجيبه من ملف تعريف المدير نفسه، المكتوب أصلًا
   // بصلاحية إدارية (Admin SDK/سكربتات)، مو من شي قابل للتعديل من المتصفح.
   const callerProfile = await firestoreGetDoc(accessToken, projectId, `users/${callerUid}`)
-  if (!callerProfile || callerProfile.role !== 'admin' || typeof callerProfile.schoolId !== 'string') {
+  if (!callerProfile || callerProfile.status === 'inactive' || callerProfile.role !== 'admin' || typeof callerProfile.schoolId !== 'string') {
     return json({ error: 'permission_denied' }, 403, origin)
   }
   const schoolId = callerProfile.schoolId
@@ -400,8 +422,11 @@ async function handleWriteAuditLog(request: Request, env: Env, origin: string): 
 
   const projectId = env.FIREBASE_PROJECT_ID
   let callerUid: string
+  let authTime: number | undefined
   try {
-    callerUid = (await verifyFirebaseIdToken(idToken, projectId)).uid
+    const verified = await verifyFirebaseIdToken(idToken, projectId)
+    callerUid = verified.uid
+    authTime = verified.authTime
   } catch {
     return json({ error: 'unauthenticated' }, 401, origin)
   }
@@ -413,12 +438,18 @@ async function handleWriteAuditLog(request: Request, env: Env, origin: string): 
   if (validationError) return json({ error: 'invalid_input', message: validationError }, 400, origin)
 
   const serviceAccount = JSON.parse(env.FIREBASE_SERVICE_ACCOUNT_KEY) as ServiceAccount
-  const accessToken = await getAccessToken(serviceAccount, ['https://www.googleapis.com/auth/datastore'])
+  const accessToken = await getAccessToken(serviceAccount, [
+    'https://www.googleapis.com/auth/identitytoolkit',
+    'https://www.googleapis.com/auth/datastore',
+  ])
+  if (!(await hasActiveIdentity(accessToken, projectId, callerUid, authTime))) {
+    return json({ error: 'account_inactive' }, 403, origin)
+  }
   const callerProfile = await firestoreGetDoc(accessToken, projectId, `users/${callerUid}`)
   const platformProfile = callerProfile ? null : await firestoreGetDoc(accessToken, projectId, `platformAdmins/${callerUid}`)
   const isPlatformAdmin = Boolean(platformProfile)
   const role = typeof callerProfile?.role === 'string' ? callerProfile.role : ''
-  if (!callerProfile && !platformProfile) return json({ error: 'permission_denied' }, 403, origin)
+  if ((!callerProfile && !platformProfile) || callerProfile?.status === 'inactive') return json({ error: 'permission_denied' }, 403, origin)
   if (!canWriteAuditAction(role, body.action as string, isPlatformAdmin)) return json({ error: 'permission_denied' }, 403, origin)
 
   const profileSchoolId = typeof callerProfile?.schoolId === 'string' ? callerProfile.schoolId : ''
@@ -453,8 +484,11 @@ async function handleUpdateSchoolUser(request: Request, env: Env, origin: string
 
   const projectId = env.FIREBASE_PROJECT_ID
   let callerUid: string
+  let authTime: number | undefined
   try {
-    callerUid = (await verifyFirebaseIdToken(idToken, projectId)).uid
+    const verified = await verifyFirebaseIdToken(idToken, projectId)
+    callerUid = verified.uid
+    authTime = verified.authTime
   } catch (err) {
     console.error('[update-school-user] توكن غير صالح:', err)
     return json({ error: 'unauthenticated' }, 401, origin)
@@ -467,14 +501,20 @@ async function handleUpdateSchoolUser(request: Request, env: Env, origin: string
   if (!['deactivate', 'activate', 'reset-password', 'delete'].includes(String(body.action))) {
     return json({ error: 'invalid_input', message: 'إجراء الحساب غير صالح' }, 400, origin)
   }
+  if (!isRecentAuth(authTime)) {
+    return json({ error: 'recent_login_required', message: 'لأمان الحساب، أعد تسجيل الدخول ثم حاول مرة ثانية.' }, 403, origin)
+  }
 
   const serviceAccount = JSON.parse(env.FIREBASE_SERVICE_ACCOUNT_KEY) as ServiceAccount
   const accessToken = await getAccessToken(serviceAccount, [
     'https://www.googleapis.com/auth/identitytoolkit',
     'https://www.googleapis.com/auth/datastore',
   ])
+  if (!(await hasActiveIdentity(accessToken, projectId, callerUid, authTime))) {
+    return json({ error: 'account_inactive' }, 403, origin)
+  }
   const callerProfile = await firestoreGetDoc(accessToken, projectId, `users/${callerUid}`)
-  if (!callerProfile || callerProfile.role !== 'admin' || typeof callerProfile.schoolId !== 'string') {
+  if (!callerProfile || callerProfile.status === 'inactive' || callerProfile.role !== 'admin' || typeof callerProfile.schoolId !== 'string') {
     return json({ error: 'permission_denied' }, 403, origin)
   }
 

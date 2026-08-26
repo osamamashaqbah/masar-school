@@ -53,6 +53,16 @@ export interface IdentityUser {
   email: string
 }
 
+export interface IdentityUserStatus {
+  disabled: boolean
+  validSince?: number
+}
+
+export function isIdentityUserActive(user: IdentityUserStatus | null, authTime: unknown): boolean {
+  if (!user || typeof authTime !== 'number') return false
+  return user.disabled !== true && (user.validSince === undefined || authTime >= user.validSince)
+}
+
 // إنشاء حساب Auth بصلاحية إدارية — google.identity.toolkit.v1.AccountManagementService.CreateAccount
 // (نفس الـ RPC يلي بيستخدمه firebase-admin داخليًا): POST /v1/projects/{projectId}/accounts
 export async function createIdentityUser(
@@ -85,6 +95,23 @@ export async function lookupIdentityUserByEmail(
   if (!res.ok) throw new Error(data.error?.message || `فشل البحث عن حساب Auth: ${res.status}`)
   const user = data.users?.[0]
   return user?.localId ? { localId: user.localId, email: user.email || email } : null
+}
+
+export async function lookupIdentityUserStatus(
+  accessToken: string, projectId: string, localId: string,
+): Promise<IdentityUserStatus | null> {
+  const res = await fetch(`${IDENTITYTOOLKIT_BASE}/${projectId}/accounts:lookup`, {
+    method: 'POST',
+    headers: { Authorization: `Bearer ${accessToken}`, 'Content-Type': 'application/json' },
+    body: JSON.stringify({ localId: [localId] }),
+  })
+  const data = (await res.json()) as { users?: Array<{ disabled?: boolean; validSince?: string }>; error?: { message?: string } }
+  if (res.status === 400 && data.error?.message === 'USER_NOT_FOUND') return null
+  if (!res.ok) throw new Error(data.error?.message || `فشل التحقق من حساب Auth: ${res.status}`)
+  const user = data.users?.[0]
+  if (!user) return null
+  const validSince = Number(user.validSince)
+  return { disabled: user.disabled === true, ...(Number.isFinite(validSince) ? { validSince } : {}) }
 }
 
 export async function updateIdentityUser(

@@ -7,6 +7,7 @@ import {
   normalizeCreateSchoolInput,
   provisionSchool,
 } from '../src/createSchool.ts'
+import { isIdentityUserActive } from '../src/google.ts'
 import { firestoreCommit, firestoreDeleteDoc } from '../src/firestore.ts'
 
 const input = {
@@ -80,6 +81,13 @@ test('requires a recent Firebase authentication time', () => {
   assert.equal(isRecentAuth(1_000, 1_500), true)
   assert.equal(isRecentAuth(899, 1_500), false)
   assert.equal(isRecentAuth(undefined, 1_500), false)
+})
+
+test('rejects disabled, revoked, and missing Auth accounts', () => {
+  assert.equal(isIdentityUserActive({ disabled: false }, 100), true)
+  assert.equal(isIdentityUserActive({ disabled: true }, 100), false)
+  assert.equal(isIdentityUserActive({ disabled: false, validSince: 101 }, 100), false)
+  assert.equal(isIdentityUserActive(null, 100), false)
 })
 
 test('encodes Firestore timestamps and create preconditions for atomic commits', async () => {

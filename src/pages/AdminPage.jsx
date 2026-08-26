@@ -1,5 +1,6 @@
 import { useState } from 'react'
 import { Navigate, Link } from 'react-router-dom'
+import { EmailAuthProvider, reauthenticateWithCredential } from 'firebase/auth'
 import { auth } from '../firebase'
 import { useSession } from '../context/SessionContext'
 import { useSchoolStructure } from '../context/SchoolStructureContext'
@@ -125,7 +126,12 @@ export default function AdminPage() {
     setTemporaryCredential(null)
     setAccountActionUid(user.id)
     try {
-      const idToken = await auth.currentUser.getIdToken()
+      const currentUser = auth.currentUser
+      if (!currentUser?.email) { setError('انتهت الجلسة، سجّل دخولك من جديد.'); return }
+      const reauthPassword = window.prompt('أدخل كلمة سرّك لتأكيد هذا الإجراء الحساس:')
+      if (reauthPassword === null) return
+      await reauthenticateWithCredential(currentUser, EmailAuthProvider.credential(currentUser.email, reauthPassword))
+      const idToken = await currentUser.getIdToken(true)
       const res = await fetch(`${import.meta.env.VITE_ADMIN_OPS_WORKER_URL}/update-school-user`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${idToken}` },
@@ -378,5 +384,7 @@ function translateWorkerError(data) {
   if (data?.error === 'invalid_input') return data.message || 'بيانات غير صالحة.'
   if (data?.error === 'permission_denied') return 'ما عندك صلاحية تنشئ حسابات لهاي المدرسة.'
   if (data?.error === 'unauthenticated') return 'انتهت الجلسة، سجّل دخول من جديد.'
+  if (data?.error === 'account_inactive') return 'حسابك معطّل أو انتهت صلاحيته. سجّل دخول من جديد أو راجع إدارة المنصة.'
+  if (data?.error === 'recent_login_required') return 'أعد إدخال كلمة السر ثم حاول مرة ثانية.'
   return 'صار خطأ غير متوقع. جرب مرة ثانية.'
 }

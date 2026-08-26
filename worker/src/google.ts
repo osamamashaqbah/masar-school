@@ -39,13 +39,13 @@ export async function getAccessToken(serviceAccount: ServiceAccount, scopes: str
   return data.access_token
 }
 
-export async function verifyFirebaseIdToken(idToken: string, projectId: string): Promise<{ uid: string }> {
+export async function verifyFirebaseIdToken(idToken: string, projectId: string): Promise<{ uid: string; authTime?: number }> {
   const { payload } = await jwtVerify(idToken, GOOGLE_SECURETOKEN_JWKS, {
     issuer: `https://securetoken.google.com/${projectId}`,
     audience: projectId,
   })
   if (typeof payload.sub !== 'string' || !payload.sub) throw new Error('توكن بدون sub صالح')
-  return { uid: payload.sub }
+  return { uid: payload.sub, authTime: typeof payload.auth_time === 'number' ? payload.auth_time : undefined }
 }
 
 export interface IdentityUser {
@@ -70,6 +70,21 @@ export async function createIdentityUser(
     throw new Error(data.error?.message || `فشل إنشاء حساب Auth: ${res.status}`)
   }
   return { localId: data.localId, email: data.email || input.email }
+}
+
+export async function lookupIdentityUserByEmail(
+  accessToken: string, projectId: string, email: string
+): Promise<IdentityUser | null> {
+  const res = await fetch(`${IDENTITYTOOLKIT_BASE}/${projectId}/accounts:lookup`, {
+    method: 'POST',
+    headers: { Authorization: `Bearer ${accessToken}`, 'Content-Type': 'application/json' },
+    body: JSON.stringify({ email: [email] }),
+  })
+  const data = (await res.json()) as { users?: Array<{ localId?: string; email?: string }>; error?: { message?: string } }
+  if (res.status === 400 && ['USER_NOT_FOUND', 'EMAIL_NOT_FOUND'].includes(data.error?.message || '')) return null
+  if (!res.ok) throw new Error(data.error?.message || `فشل البحث عن حساب Auth: ${res.status}`)
+  const user = data.users?.[0]
+  return user?.localId ? { localId: user.localId, email: user.email || email } : null
 }
 
 export async function updateIdentityUser(

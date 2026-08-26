@@ -3,11 +3,23 @@
 
 type FirestoreValue = Record<string, unknown>
 
+export interface FirestoreWrite {
+  path: string
+  data: Record<string, unknown>
+  precondition?: { exists?: boolean; updateTime?: string }
+}
+
+export interface FirestoreDoc {
+  data: Record<string, unknown>
+  updateTime?: string
+}
+
 function toFirestoreValue(v: unknown): FirestoreValue {
   if (v === null || v === undefined) return { nullValue: null }
   if (typeof v === 'string') return { stringValue: v }
   if (typeof v === 'boolean') return { booleanValue: v }
   if (typeof v === 'number') return Number.isInteger(v) ? { integerValue: String(v) } : { doubleValue: v }
+  if (v instanceof Date) return { timestampValue: v.toISOString() }
   if (Array.isArray(v)) return { arrayValue: { values: v.map(toFirestoreValue) } }
   if (typeof v === 'object') return { mapValue: { fields: toFirestoreFields(v as Record<string, unknown>) } }
   throw new Error(`نوع غير مدعوم لقيمة Firestore: ${typeof v}`)
@@ -48,16 +60,52 @@ function fromFirestoreFields(fields: Record<string, FirestoreValue>): Record<str
 
 const BASE = (projectId: string) => `https://firestore.googleapis.com/v1/projects/${projectId}/databases/(default)/documents`
 
-export async function firestoreGetDoc(
+function documentName(projectId: string, path: string): string {
+  return `${BASE(projectId)}/${path}`
+}
+
+export async function firestoreCommit(
+  accessToken: string, projectId: string, writes: FirestoreWrite[]
+): Promise<string[]> {
+  const res = await fetch(`${BASE(projectId)}:commit`, {
+    method: 'POST',
+    headers: { Authorization: `Bearer ${accessToken}`, 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      writes: writes.map(({ path, data, precondition }) => ({
+        update: { name: documentName(projectId, path), fields: toFirestoreFields(data) },
+        ...(precondition ? { currentDocument: precondition } : {}),
+      })),
+    }),
+  })
+  if (!res.ok) throw new Error(`فشل commit Firestore: ${res.status}`)
+  const data = (await res.json()) as { writeResults?: Array<{ updateTime?: string }> }
+  return (data.writeResults || []).map((result) => result.updateTime || '')
+}
+
+export async function firestoreCreateDocIfAbsent(
+  accessToken: string, projectId: string, path: string, data: Record<string, unknown>
+): Promise<string | undefined> {
+  const [updateTime] = await firestoreCommit(accessToken, projectId, [{ path, data, precondition: { exists: false } }])
+  return updateTime || undefined
+}
+
+export async function firestoreGetDocWithMeta(
   accessToken: string, projectId: string, path: string
-): Promise<Record<string, unknown> | null> {
-  const res = await fetch(`${BASE(projectId)}/${path}`, {
+): Promise<FirestoreDoc | null> {
+  const res = await fetch(documentName(projectId, path), {
     headers: { Authorization: `Bearer ${accessToken}` },
   })
   if (res.status === 404) return null
-  if (!res.ok) throw new Error(`فشلت قراءة ${path}: ${res.status} ${await res.text()}`)
-  const data = (await res.json()) as { fields?: Record<string, FirestoreValue> }
-  return fromFirestoreFields(data.fields || {})
+  if (!res.ok) throw new Error(`فشلت قراءة ${path}: ${res.status}`)
+  const data = (await res.json()) as { fields?: Record<string, FirestoreValue>; updateTime?: string }
+  return { data: fromFirestoreFields(data.fields || {}), updateTime: data.updateTime }
+}
+
+export async function firestoreGetDoc(
+  accessToken: string, projectId: string, path: string
+): Promise<Record<string, unknown> | null> {
+  const doc = await firestoreGetDocWithMeta(accessToken, projectId, path)
+  return doc?.data || null
 }
 
 export async function firestoreCreateDoc(

@@ -1,5 +1,6 @@
-import { getAccessToken, verifyFirebaseIdToken, createIdentityUser, updateIdentityUser, deleteIdentityUser, type ServiceAccount } from './google'
-import { firestoreGetDoc, firestoreCreateDoc, firestorePatchDoc, firestoreDeleteDoc, firestoreRunQuery, firestoreUpsertDoc } from './firestore'
+import { getAccessToken, verifyFirebaseIdToken, createIdentityUser, lookupIdentityUserByEmail, updateIdentityUser, deleteIdentityUser, type ServiceAccount } from './google'
+import { firestoreGetDoc, firestoreGetDocWithMeta, firestoreCreateDoc, firestoreCreateDocIfAbsent, firestorePatchDoc, firestoreDeleteDoc, firestoreRunQuery, firestoreUpsertDoc, firestoreCommit, type FirestoreWrite as WorkerFirestoreWrite } from './firestore'
+import { CreateSchoolError, generateTemporaryPassword, isRecentAuth, normalizeCreateSchoolInput, provisionSchool, type CreateSchoolDependencies, type ProvisioningMarker } from './createSchool'
 
 interface Env extends Cloudflare.Env {
   FIREBASE_SERVICE_ACCOUNT_KEY: string
@@ -100,7 +101,7 @@ export default {
     }
 
     const url = new URL(request.url)
-    if (request.method !== 'POST' || !['/create-school-user', '/update-school-user', '/audit-log', '/refresh-platform-stats'].includes(url.pathname)) {
+    if (request.method !== 'POST' || !['/create-school', '/create-school-user', '/update-school-user', '/audit-log', '/refresh-platform-stats'].includes(url.pathname)) {
       return json({ error: 'not_found' }, 404, origin)
     }
 
@@ -108,6 +109,7 @@ export default {
     if (edgeLimitResponse) return edgeLimitResponse
 
     try {
+      if (url.pathname === '/create-school') return await handleCreateSchool(request, env, origin)
       if (url.pathname === '/create-school-user') return await handleCreateSchoolUser(request, env, origin)
       if (url.pathname === '/update-school-user') return await handleUpdateSchoolUser(request, env, origin)
       if (url.pathname === '/refresh-platform-stats') return await handleRefreshPlatformStats(request, env, origin)
@@ -118,6 +120,79 @@ export default {
     }
   },
 } satisfies ExportedHandler<Env>
+
+async function handleCreateSchool(request: Request, env: Env, origin: string): Promise<Response> {
+  const authHeader = request.headers.get('Authorization') || ''
+  const idToken = authHeader.startsWith('Bearer ') ? authHeader.slice('Bearer '.length) : ''
+  if (!idToken) return json({ error: 'unauthenticated' }, 401, origin)
+
+  const projectId = env.FIREBASE_PROJECT_ID
+  let callerUid: string
+  let authTime: number | undefined
+  try {
+    const verified = await verifyFirebaseIdToken(idToken, projectId)
+    callerUid = verified.uid
+    authTime = verified.authTime
+  } catch {
+    return json({ error: 'unauthenticated' }, 401, origin)
+  }
+  if (!isRecentAuth(authTime)) {
+    return json({ error: 'recent_login_required', message: 'لأمان الحساب، أعد تسجيل الدخول ثم حاول مرة ثانية.' }, 403, origin)
+  }
+
+  const actorLimitResponse = await enforceActorLimit(env, '/create-school', callerUid, origin)
+  if (actorLimitResponse) return actorLimitResponse
+
+  const body = await request.json().catch(() => ({}))
+  const normalized = normalizeCreateSchoolInput(body)
+  if (!normalized.input) return json({ error: 'invalid_input', message: normalized.error }, 400, origin)
+
+  const serviceAccount = JSON.parse(env.FIREBASE_SERVICE_ACCOUNT_KEY) as ServiceAccount
+  const accessToken = await getAccessToken(serviceAccount, [
+    'https://www.googleapis.com/auth/identitytoolkit',
+    'https://www.googleapis.com/auth/datastore',
+  ])
+  const platformProfile = await firestoreGetDoc(accessToken, projectId, `platformAdmins/${callerUid}`)
+  if (!platformProfile) return json({ error: 'permission_denied' }, 403, origin)
+
+  const actorName = typeof platformProfile.name === 'string' ? platformProfile.name : ''
+  const deps: CreateSchoolDependencies = {
+    now: () => new Date(),
+    generateTemporaryPassword,
+    getRequest: async (requestId) => {
+      const stored = await firestoreGetDocWithMeta(accessToken, projectId, `schoolProvisioningRequests/${requestId}`)
+      if (!stored) return null
+      return { ...stored.data, updateTime: stored.updateTime } as ProvisioningMarker
+    },
+    reserveRequest: async (marker) => {
+      const updateTime = await firestoreCreateDocIfAbsent(
+        accessToken,
+        projectId,
+        `schoolProvisioningRequests/${marker.requestId}`,
+        marker as unknown as Record<string, unknown>,
+      )
+      return { ...marker, updateTime }
+    },
+    deleteRequest: (requestId) => firestoreDeleteDoc(accessToken, projectId, `schoolProvisioningRequests/${requestId}`),
+    getDoc: (path) => firestoreGetDoc(accessToken, projectId, path),
+    lookupUserByEmail: (email) => lookupIdentityUserByEmail(accessToken, projectId, email),
+    createUser: (input) => createIdentityUser(accessToken, projectId, input),
+    deleteUser: (uid) => deleteIdentityUser(accessToken, projectId, uid),
+    updateUserPassword: (uid, password) => updateIdentityUser(accessToken, projectId, uid, { password }),
+    patchDoc: (path, data) => firestorePatchDoc(accessToken, projectId, path, data),
+    commit: (writes) => firestoreCommit(accessToken, projectId, writes as WorkerFirestoreWrite[]).then(() => undefined),
+  }
+
+  try {
+    const result = await provisionSchool(normalized.input, deps, callerUid, actorName)
+    return json(result, 200, origin)
+  } catch (error) {
+    if (!(error instanceof CreateSchoolError)) throw error
+    const status = error.code === 'provisioning_in_progress' || error.code === 'idempotency_conflict' ? 409 : error.code === 'email_exists' || error.code === 'auth_error' ? 400 : 500
+    const responseCode = error.code === 'email_exists' ? 'EMAIL_EXISTS' : error.code
+    return json({ error: responseCode, message: error.message }, status, origin)
+  }
+}
 
 async function handleRefreshPlatformStats(request: Request, env: Env, origin: string): Promise<Response> {
   const authHeader = request.headers.get('Authorization') || ''

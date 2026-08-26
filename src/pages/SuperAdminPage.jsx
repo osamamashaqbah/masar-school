@@ -1,10 +1,12 @@
 import { useState, useEffect } from 'react'
-import { signInWithEmailAndPassword, signOut, onAuthStateChanged } from 'firebase/auth'
+import { EmailAuthProvider, reauthenticateWithCredential, signInWithEmailAndPassword, signOut, onAuthStateChanged } from 'firebase/auth'
 import { collection, doc, getDoc, getDocs, query, where, onSnapshot, updateDoc } from 'firebase/firestore'
 import { ref, uploadBytes, getDownloadURL } from 'firebase/storage'
 import { auth, db, storage } from '../firebase'
 import { logAudit } from '../utils/audit'
 import { safeHttpUrl } from '../utils/parseMaterialUrl'
+
+const workerUrl = (import.meta.env.VITE_ADMIN_OPS_WORKER_URL || '').replace(/\/$/, '')
 
 // صفحة مستقلة تمامًا عن /app — ما بتعتمد على SessionContext لأنه حساب صاحب المنصة
 // مش مرتبط بأي مدرسة أصلاً (ما إله وثيقة users/schoolId متل باقي الأدوار)
@@ -25,10 +27,22 @@ export default function SuperAdminPage() {
   const [uploadingFor, setUploadingFor] = useState(null)
   const [uploadError, setUploadError] = useState('')
   const [brandSaveState, setBrandSaveState] = useState({}) // { [schoolId]: 'saving' | 'saved' | 'error' }
+  const [createSchoolForm, setCreateSchoolForm] = useState({ schoolName: '', adminName: '', adminEmail: '' })
+  const [createSchoolLoading, setCreateSchoolLoading] = useState(false)
+  const [createSchoolError, setCreateSchoolError] = useState('')
+  const [createdSchoolCredential, setCreatedSchoolCredential] = useState(null)
+  const [reauthPassword, setReauthPassword] = useState('')
+  const [createRequestId, setCreateRequestId] = useState(null)
+  const [credentialsCopied, setCredentialsCopied] = useState(false)
 
   useEffect(() => {
     const unsub = onAuthStateChanged(auth, async (user) => {
       setAuthUser(user)
+      setCreatedSchoolCredential(null)
+      setReauthPassword('')
+      setCreateRequestId(null)
+      setCredentialsCopied(false)
+      setCreateSchoolError('')
       if (user) {
         const snap = await getDoc(doc(db, 'platformAdmins', user.uid))
         setIsPlatformAdmin(snap.exists())
@@ -57,6 +71,60 @@ export default function SuperAdminPage() {
       setLoginError('بيانات الدخول غلط.')
     } finally {
       setLoading(false)
+    }
+  }
+
+  async function handleCreateSchool(e) {
+    e.preventDefault()
+    setCreateSchoolError('')
+    setCredentialsCopied(false)
+    const schoolName = createSchoolForm.schoolName.trim()
+    const adminName = createSchoolForm.adminName.trim()
+    const adminEmail = createSchoolForm.adminEmail.trim().toLowerCase()
+    if (!workerUrl) { setCreateSchoolError('خدمة الإدارة غير مضبوطة. أضف رابط Worker قبل إنشاء المدارس.'); return }
+    if (!schoolName || schoolName.length > 120) { setCreateSchoolError('اسم المدرسة مطلوب وبحد أقصى 120 حرفًا.'); return }
+    if (!adminName || adminName.length > 80) { setCreateSchoolError('اسم المدير مطلوب وبحد أقصى 80 حرفًا.'); return }
+    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(adminEmail)) { setCreateSchoolError('اكتب بريد المدير الإلكتروني بصيغة صحيحة.'); return }
+    if (!reauthPassword) { setCreateSchoolError('اكتب كلمة سر صاحب المنصة للتأكيد.'); return }
+    if (!window.confirm(`سيتم إنشاء مدرسة "${schoolName}" وحساب مدير جديد. متأكد؟`)) return
+
+    setCreateSchoolLoading(true)
+    try {
+      const currentUser = auth.currentUser
+      if (!currentUser?.email) { setCreateSchoolError('انتهت الجلسة، سجّل دخول صاحب المنصة من جديد.'); return }
+      await reauthenticateWithCredential(currentUser, EmailAuthProvider.credential(currentUser.email, reauthPassword))
+      setReauthPassword('')
+      const requestId = createRequestId || crypto.randomUUID()
+      if (!createRequestId) setCreateRequestId(requestId)
+      const idToken = await currentUser.getIdToken(true)
+      const res = await fetch(`${workerUrl}/create-school`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${idToken}` },
+        body: JSON.stringify({ requestId, schoolName, adminName, adminEmail }),
+      })
+      const data = await res.json().catch(() => ({}))
+      if (!res.ok) { setCreateSchoolError(translateCreateSchoolError(data)); return }
+
+      setCreatedSchoolCredential(data)
+      setCreateSchoolForm({ schoolName: '', adminName: '', adminEmail: '' })
+      setCreateRequestId(null)
+    } catch (err) {
+      setReauthPassword('')
+      setCreateSchoolError(translateCreateSchoolError(err))
+    } finally {
+      setCreateSchoolLoading(false)
+    }
+  }
+
+  async function copyCredentials() {
+    if (!createdSchoolCredential) return
+    const text = `المدرسة: ${createdSchoolCredential.schoolName}\nمعرّف المدرسة: ${createdSchoolCredential.schoolId}\nالمدير: ${createdSchoolCredential.adminName}\nالبريد: ${createdSchoolCredential.adminEmail}\nكلمة السر المؤقتة: ${createdSchoolCredential.temporaryPassword}`
+    try {
+      await navigator.clipboard.writeText(text)
+      setCredentialsCopied(true)
+      setTimeout(() => setCredentialsCopied(false), 1800)
+    } catch {
+      setCreateSchoolError('تعذّر النسخ تلقائيًا. انسخ البيانات من البطاقة يدويًا.')
     }
   }
 
@@ -196,6 +264,54 @@ export default function SuperAdminPage() {
         {drillError && <p className="auth-error">{drillError}</p>}
       </div>
 
+      <form className="panel" style={{ marginBottom: '18px' }} onSubmit={handleCreateSchool}>
+        <div className="eyebrow" style={{ marginBottom: '4px' }}>تهيئة جديدة</div>
+        <h3 style={{ margin: '0 0 6px' }}>إضافة مدرسة جديدة</h3>
+        <p style={{ color: 'var(--ink-soft)', fontSize: '13px', marginTop: 0 }}>
+          سيتم إنشاء كلمة سر مؤقتة للمدير، ويجب تغييرها عند أول دخول.
+        </p>
+        <div className="field">
+          <label htmlFor="create-school-name">اسم المدرسة</label>
+          <input id="create-school-name" type="text" maxLength={120} value={createSchoolForm.schoolName} onChange={(e) => setCreateSchoolForm({ ...createSchoolForm, schoolName: e.target.value })} required />
+        </div>
+        <div className="field">
+          <label htmlFor="create-school-admin-name">اسم مدير المدرسة</label>
+          <input id="create-school-admin-name" type="text" maxLength={80} value={createSchoolForm.adminName} onChange={(e) => setCreateSchoolForm({ ...createSchoolForm, adminName: e.target.value })} required />
+        </div>
+        <div className="field">
+          <label htmlFor="create-school-admin-email">البريد الإلكتروني لمدير المدرسة</label>
+          <input id="create-school-admin-email" type="email" maxLength={254} value={createSchoolForm.adminEmail} onChange={(e) => setCreateSchoolForm({ ...createSchoolForm, adminEmail: e.target.value })} required />
+        </div>
+        <div className="field">
+          <label htmlFor="create-school-reauth">كلمة سر صاحب المنصة للتأكيد</label>
+          <input id="create-school-reauth" type="password" value={reauthPassword} onChange={(e) => setReauthPassword(e.target.value)} autoComplete="current-password" required />
+        </div>
+        {createSchoolError && <p className="auth-error" role="alert">{createSchoolError}</p>}
+        {!workerUrl && <p className="auth-error">خدمة الإدارة غير مضبوطة؛ لا يمكن إنشاء مدرسة حاليًا.</p>}
+        <button type="submit" className="btn btn-primary" disabled={createSchoolLoading || !workerUrl}>
+          {createSchoolLoading ? <i className="ti ti-loader-2 spin" /> : (<><i className="ti ti-school" /> إنشاء المدرسة</>)}
+        </button>
+      </form>
+
+      {createdSchoolCredential && (
+        <div className="panel" style={{ marginBottom: '18px', borderColor: 'var(--sunset)' }} role="status">
+          <strong><i className="ti ti-circle-check" /> تم إنشاء المدرسة بنجاح</strong>
+          <p style={{ margin: '8px 0 0', fontSize: '13px' }}>المدرسة: {createdSchoolCredential.schoolName}</p>
+          <p style={{ margin: '4px 0', fontSize: '13px' }}>معرّف المدرسة: <code>{createdSchoolCredential.schoolId}</code></p>
+          <p style={{ margin: '4px 0', fontSize: '13px' }}>المدير: {createdSchoolCredential.adminName}</p>
+          <p style={{ margin: '4px 0', fontSize: '13px' }}>البريد: {createdSchoolCredential.adminEmail}</p>
+          <p style={{ margin: '4px 0', fontSize: '13px' }}>كلمة السر المؤقتة: <code>{createdSchoolCredential.temporaryPassword}</code></p>
+          <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap', marginTop: '10px' }}>
+            <button type="button" className="btn" style={{ width: 'auto' }} onClick={copyCredentials}>
+              <i className="ti ti-copy" /> {credentialsCopied ? 'تم النسخ' : 'نسخ بيانات الدخول'}
+            </button>
+            <button type="button" className="btn" style={{ width: 'auto' }} onClick={() => { setCreatedSchoolCredential(null); setCredentialsCopied(false) }}>
+              <i className="ti ti-eye-off" /> إخفاء البيانات
+            </button>
+          </div>
+        </div>
+      )}
+
       <div className="analytics-list">
         {schools.map((s) => (
           <div className="analytics-row" key={s.id}>
@@ -265,4 +381,28 @@ export default function SuperAdminPage() {
       )}
     </div>
   )
+}
+
+function translateCreateSchoolError(error) {
+  const code = typeof error === 'string' ? error : error?.error || error?.code
+  const map = {
+    unauthenticated: 'انتهت الجلسة، سجّل دخول صاحب المنصة من جديد.',
+    permission_denied: 'حسابك لا يملك صلاحية إنشاء مدرسة.',
+    recent_login_required: 'لأمان الحساب، أعد إدخال كلمة سر صاحب المنصة ثم حاول مجددًا.',
+    invalid_input: 'تحقق من بيانات المدرسة والمدير وحاول مرة ثانية.',
+    EMAIL_EXISTS: 'هذا البريد مستخدم مسبقًا في النظام. استخدم بريدًا آخر.',
+    email_exists: 'هذا البريد مستخدم مسبقًا في النظام. استخدم بريدًا آخر.',
+    provisioning_in_progress: 'العملية السابقة ما زالت قيد التنفيذ. انتظر قليلًا ثم أرسل بنفس البيانات.',
+    idempotency_conflict: 'معرّف المحاولة مرتبط ببيانات مختلفة. أعد تحميل الصفحة وحاول مجددًا.',
+    rate_limited: 'طلبات كثيرة خلال وقت قصير. حاول بعد قليل.',
+    provisioning_failed: 'تعذّر إنشاء المدرسة. لم نعتبر العملية ناجحة؛ تحقق من الاتصال وحاول مجددًا.',
+    provisioning_rollback_failed: 'تعذّر التراجع عن العملية بالكامل. أوقف المحاولة واطلب فحصًا يدويًا قبل الإعادة.',
+    auth_error: 'تعذّر إنشاء حساب المدير. حاول مرة ثانية.',
+  }
+  if (map[code]) return map[code]
+  if (error instanceof Error && error.code?.startsWith('auth/')) {
+    if (error.code === 'auth/invalid-credential' || error.code === 'auth/wrong-password') return 'كلمة سر صاحب المنصة غير صحيحة.'
+    if (error.code === 'auth/too-many-requests') return 'محاولات كثيرة خاطئة. حاول بعد قليل.'
+  }
+  return 'تعذّر الاتصال بخدمة الإدارة. تحقق من الاتصال وحاول مجددًا.'
 }

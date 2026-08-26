@@ -98,8 +98,8 @@ describe('tenant isolation', () => {
     )
   })
 
-  // ما في تسجيل ذاتي بالتطبيق — مدرسة جديدة بتنعمل بس عن طريق سكربت الإدارة (admin SDK)
-  // يلي بيتخطى هاي القواعد أصلاً. من المتصفح، ولا حدا يقدر ينشئ مدرسة أو حساب admin.
+  // ما في تسجيل ذاتي بالتطبيق — مدرسة جديدة بتنعمل بس عن طريق Worker/سكربت الإدارة
+  // بصلاحيات خدمة تتخطى هاي القواعد. من المتصفح، ولا حدا يقدر ينشئ مدرسة أو حساب admin.
   it('no client can create a school document directly', async () => {
     const anyoneCtx = testEnv.authenticatedContext('someone')
     await assertFails(

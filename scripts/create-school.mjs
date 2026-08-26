@@ -37,15 +37,33 @@ const db = getFirestore()
 const userRecord = await auth.createUser({ email, password, displayName: name })
 
 const schoolRef = db.collection('schools').doc()
-await schoolRef.set({ name: school, adminUid: userRecord.uid, createdAt: new Date() })
-await db.collection('users').doc(userRecord.uid).set({
-  name,
-  role: 'admin',
-  email,
-  schoolId: schoolRef.id,
-  status: 'active',
-  mustChangePassword: true,
+const now = new Date()
+const batch = db.batch()
+batch.set(schoolRef, { name: school, adminUid: userRecord.uid, createdAt: now })
+batch.set(db.collection('users').doc(userRecord.uid), {
+  name, role: 'admin', email, schoolId: schoolRef.id, status: 'active', mustChangePassword: true,
 })
+batch.set(db.collection('platformStats').doc(schoolRef.id), {
+  schoolName: school,
+  studentCount: 0,
+  instructorCount: 0,
+  parentCount: 0,
+  currentAcademicYear: null,
+  lastActivityAt: now.toISOString(),
+  updatedAt: now.toISOString(),
+  source: 'script',
+  sourceVersion: 1,
+})
+try {
+  await batch.commit()
+} catch (err) {
+  const rolledBack = await auth.deleteUser(userRecord.uid).then(() => true).catch((rollbackErr) => {
+    console.error(`فشل التراجع عن حساب Auth ${userRecord.uid}:`, rollbackErr.message)
+    return false
+  })
+  if (!rolledBack) throw new Error(`فشل التراجع عن إنشاء المدرسة وحساب Auth ${userRecord.uid}`)
+  throw err
+}
 
 console.log(`تم إنشاء مدرسة "${school}" (schoolId: ${schoolRef.id})`)
 console.log(`حساب الإدارة: ${email} / ${password}`)

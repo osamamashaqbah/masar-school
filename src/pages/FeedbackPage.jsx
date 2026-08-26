@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react'
-import { collection, query, where, documentId, onSnapshot } from 'firebase/firestore'
+import { collection, query, where, doc, onSnapshot } from 'firebase/firestore'
 import { db } from '../firebase'
 import { useSession } from '../context/SessionContext'
 import { useSchoolStructure } from '../context/SchoolStructureContext'
@@ -7,7 +7,6 @@ import { useFeedback } from '../context/FeedbackContext'
 import {
   KIND_LABELS, KIND_ICONS, CATEGORY_LABELS, STATUS_LABELS, STATUS_COLORS, IMPORTANCE_LABELS, QUICK_TEMPLATES,
 } from '../utils/feedbackLabels'
-import { chunkArray } from '../utils/chunk'
 
 function StatusBadge({ status }) {
   return <span className="tag" style={{ background: STATUS_COLORS[status], color: '#fff' }}>{STATUS_LABELS[status] || status}</span>
@@ -31,15 +30,11 @@ function ComposerParent({ onDone }) {
 
   useEffect(() => {
     if (!session.childUids?.length) { setChildren([]); return }
-    const chunks = chunkArray(session.childUids)
-    const childrenByChunk = chunks.map(() => [])
-    const unsubs = chunks.map((chunk, index) => {
-      const q = query(collection(db, 'userDirectory'), where('schoolId', '==', session.schoolId), where(documentId(), 'in', chunk))
-      return onSnapshot(q, (snap) => {
-        childrenByChunk[index] = snap.docs.map((d) => ({ id: d.id, ...d.data() }))
-        setChildren(childrenByChunk.flat())
-      })
-    })
+    const childrenByUid = session.childUids.map(() => null)
+    const unsubs = session.childUids.map((uid, index) => onSnapshot(doc(db, 'userDirectory', uid), (snap) => {
+        childrenByUid[index] = snap.exists() ? { id: snap.id, ...snap.data() } : null
+        setChildren(childrenByUid.filter(Boolean))
+      }))
     return () => unsubs.forEach((unsub) => unsub())
   }, [session.childUids, session.schoolId])
 

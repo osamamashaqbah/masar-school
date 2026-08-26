@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react'
-import { collection, query, where, documentId, onSnapshot } from 'firebase/firestore'
+import { doc, onSnapshot } from 'firebase/firestore'
 import { db } from '../firebase'
 import { useSession } from '../context/SessionContext'
 import { useSchoolStructure } from '../context/SchoolStructureContext'
@@ -14,7 +14,6 @@ import AttendanceReport from '../components/AttendanceReport'
 import ReportCardPrint from '../components/ReportCardPrint'
 import TaskCenter from '../components/TaskCenter'
 import { useNotifications } from '../context/NotificationContext'
-import { chunkArray } from '../utils/chunk'
 
 function excuseStatusLabel(status) {
   if (status === 'approved') return { text: 'تمت الموافقة', className: 'excused' }
@@ -96,15 +95,11 @@ export default function ParentDashboardPage() {
 
   useEffect(() => {
     if (!session?.childUids || session.childUids.length === 0) return
-    const chunks = chunkArray(session.childUids)
-    const childrenByChunk = chunks.map(() => [])
-    const unsubs = chunks.map((chunk, index) => {
-      const q = query(collection(db, 'userDirectory'), where('schoolId', '==', session.schoolId), where(documentId(), 'in', chunk))
-      return onSnapshot(q, (snapshot) => {
-        childrenByChunk[index] = snapshot.docs.map((d) => ({ id: d.id, ...d.data() }))
-        setChildren(childrenByChunk.flat())
-      })
-    })
+    const childrenByUid = session.childUids.map(() => null)
+    const unsubs = session.childUids.map((uid, index) => onSnapshot(doc(db, 'userDirectory', uid), (snapshot) => {
+        childrenByUid[index] = snapshot.exists() ? { id: snapshot.id, ...snapshot.data() } : null
+        setChildren(childrenByUid.filter(Boolean))
+      }))
     return () => unsubs.forEach((unsubscribe) => unsubscribe())
   }, [session])
 

@@ -970,6 +970,23 @@ describe('platformAdmins / platformStats (super-admin)', () => {
     const teacherCtx = testEnv.authenticatedContext('teacherA')
     await assertSucceeds(getDoc(doc(teacherCtx.firestore(), 'userDirectory', 'studentA')))
     await assertFails(getDoc(doc(teacherCtx.firestore(), 'userDirectory', 'studentB')))
+    await assertSucceeds(getDocs(query(
+      collection(teacherCtx.firestore(), 'userDirectory'),
+      where('schoolId', '==', 'schoolA'), where('role', '==', 'student'), where('sectionId', '==', 'sec1'),
+    )))
+  })
+
+  it('a parent can query only their children from the limited directory', async () => {
+    await seedSchoolWithAdmin('schoolA', 'adminA')
+    await seedUser('schoolA', 'studentA', { name: 'Student', role: 'student', email: 's@x.com' })
+    await seedUser('schoolA', 'parentA', { name: 'Parent', role: 'parent', email: 'p@x.com', childUids: ['studentA'] })
+    await testEnv.withSecurityRulesDisabled(async (ctx) => {
+      await setDoc(doc(ctx.firestore(), 'userDirectory', 'studentA'), { name: 'Student', role: 'student', schoolId: 'schoolA', sectionId: 'sec1', status: 'active', contactUids: [] })
+      await setDoc(doc(ctx.firestore(), 'userDirectory', 'studentB'), { name: 'Other', role: 'student', schoolId: 'schoolA', sectionId: 'sec2', status: 'active', contactUids: [] })
+    })
+    const parentCtx = testEnv.authenticatedContext('parentA')
+    await assertSucceeds(getDoc(doc(parentCtx.firestore(), 'userDirectory', 'studentA')))
+    await assertFails(getDoc(doc(parentCtx.firestore(), 'userDirectory', 'studentB')))
   })
 
   it('a school admin cannot write platformStats from the client', async () => {

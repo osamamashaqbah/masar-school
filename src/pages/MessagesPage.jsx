@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react'
-import { collection, query, where, documentId, onSnapshot, getDocs } from 'firebase/firestore'
+import { collection, query, where, doc, getDoc, onSnapshot } from 'firebase/firestore'
 import { db } from '../firebase'
 import { useSession } from '../context/SessionContext'
 import { useSchoolStructure } from '../context/SchoolStructureContext'
@@ -21,10 +21,9 @@ export default function MessagesPage() {
 
     if (session.role === 'parent') {
       if (!session.childUids?.length) { setContacts([]); return }
-      const chunks = chunkArray(session.childUids)
-      const childrenByChunk = chunks.map(() => [])
+      const childrenByUid = session.childUids.map(() => null)
       function updateContacts() {
-        const children = childrenByChunk.flat()
+        const children = childrenByUid.filter(Boolean)
         const sectionIds = new Set(children.map((c) => c.sectionId))
         const teacherMap = new Map()
         subjects.filter((s) => sectionIds.has(s.sectionId) && s.teacherUid).forEach((s) => {
@@ -32,13 +31,10 @@ export default function MessagesPage() {
         })
         setContacts([...teacherMap.entries()].map(([uid, name]) => ({ uid, name })))
       }
-      const unsubs = chunks.map((chunk, index) => {
-        const q = query(collection(db, 'userDirectory'), where('schoolId', '==', session.schoolId), where(documentId(), 'in', chunk))
-        return onSnapshot(q, (snap) => {
-          childrenByChunk[index] = snap.docs.map((d) => ({ id: d.id, ...d.data() }))
+      const unsubs = session.childUids.map((uid, index) => onSnapshot(doc(db, 'userDirectory', uid), (snap) => {
+          childrenByUid[index] = snap.exists() ? { id: snap.id, ...snap.data() } : null
           updateContacts()
-        })
-      })
+        }))
       return () => unsubs.forEach((unsub) => unsub())
     }
 
@@ -51,11 +47,8 @@ export default function MessagesPage() {
         const students = studentsByChunk.flat()
         const parentUids = [...new Set(students.flatMap((s) => s.contactUids || []))]
         if (parentUids.length === 0) { setContacts([]); return }
-        const parentChunks = chunkArray(parentUids)
-        const chunkSnaps = await Promise.all(
-          parentChunks.map((chunk) => getDocs(query(collection(db, 'userDirectory'), where('schoolId', '==', session.schoolId), where(documentId(), 'in', chunk))))
-        )
-        const parents = chunkSnaps.flatMap((s) => s.docs.map((d) => ({ id: d.id, ...d.data() })))
+        const parentSnaps = await Promise.all(parentUids.map((uid) => getDoc(doc(db, 'userDirectory', uid))))
+        const parents = parentSnaps.filter((snap) => snap.exists()).map((snap) => ({ id: snap.id, ...snap.data() }))
         setContacts(parents.map((p) => ({
           uid: p.id,
           name: p.name,
